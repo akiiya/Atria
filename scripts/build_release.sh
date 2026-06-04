@@ -73,19 +73,27 @@ build_target() {
     cp "$PROJECT_DIR/README.md" "$build_dir/"
     cp "$PROJECT_DIR/LICENSE" "$build_dir/"
 
-    # 创建压缩包（在输出目录执行）
-    cd "$OUTPUT_DIR"
+    # 创建压缩包
+    # 使用绝对路径确保 cd 后仍能找到输出文件
+    local archive_path="$OUTPUT_DIR/$archive_name"
+
     if [ "$archive_ext" = "zip" ]; then
-        # Windows zip：优先使用 zip，否则使用 tar（GitHub Actions 有 zip）
+        # Windows zip：cd 到构建目录后打包
         if command -v zip >/dev/null 2>&1; then
-            zip -q "$archive_name" -C "$build_dir" .
+            (
+                cd "$build_dir"
+                zip -qr "$archive_path" .
+            )
         else
-            # 回退：使用 tar.gz 替代 zip
+            # zip 不可用时回退为 tar.gz
+            echo "  警告: zip 命令不可用，使用 tar.gz 替代"
             archive_name="atria_${goos}_${goarch}.tar.gz"
-            tar -czf "$archive_name" -C "$build_dir" .
+            archive_path="$OUTPUT_DIR/$archive_name"
+            tar -czf "$archive_path" -C "$build_dir" .
         fi
     else
-        tar -czf "$archive_name" -C "$build_dir" .
+        # Linux/macOS tar.gz
+        tar -czf "$archive_path" -C "$build_dir" .
     fi
 
     # 清理构建目录
@@ -104,7 +112,9 @@ done
 echo ""
 echo "生成 checksums.txt..."
 cd "$OUTPUT_DIR"
-sha256sum *.tar.gz *.zip > checksums.txt 2>/dev/null || true
+for f in *.tar.gz *.zip; do
+    [ -f "$f" ] && sha256sum "$f"
+done > checksums.txt
 
 echo ""
 echo "=========================================="
