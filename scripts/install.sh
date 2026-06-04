@@ -20,6 +20,9 @@ DRY_RUN="${ATRIA_INSTALL_DRY_RUN:-0}"
 INSTALL_ROOT="${ATRIA_INSTALL_ROOT:-}"
 RELEASE_BASE_URL="${ATRIA_RELEASE_BASE_URL:-}"
 
+# 临时目录（全局变量，cleanup 需要访问）
+tmp_dir=""
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,6 +32,22 @@ NC='\033[0m'
 log_info() { echo -e "${GREEN}[信息]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[警告]${NC} $*"; }
 log_error() { echo -e "${RED}[错误]${NC} $*"; }
+
+# ===== 清理函数 =====
+cleanup() {
+    local exit_code=$?
+    if [[ -n "${tmp_dir:-}" && -d "${tmp_dir:-}" ]]; then
+        rm -rf "${tmp_dir}"
+    fi
+    # 不要掩盖真实退出码
+    if [ $exit_code -ne 0 ]; then
+        log_error "安装过程中发生错误（退出码: $exit_code）"
+    fi
+    exit "$exit_code"
+}
+
+# 注册清理函数
+trap cleanup EXIT
 
 # ===== 检测平台 =====
 detect_platform() {
@@ -82,6 +101,10 @@ download_file() {
         # 从本地目录复制
         local filename
         filename=$(basename "$url")
+        if [ ! -f "$RELEASE_BASE_URL/$filename" ]; then
+            log_error "文件不存在: $RELEASE_BASE_URL/$filename"
+            exit 1
+        fi
         cp "$RELEASE_BASE_URL/$filename" "$dest"
     else
         curl -fsSL "$url" -o "$dest"
@@ -94,10 +117,8 @@ main() {
     echo "Atria 安装脚本"
     echo "=========================================="
 
-    # 创建临时目录（必须在 trap 之前初始化，避免 unbound variable）
-    local tmp_dir
+    # 创建临时目录
     tmp_dir=$(mktemp -d)
-    trap 'rm -rf "$tmp_dir"' EXIT
 
     # 检测平台
     detect_platform
