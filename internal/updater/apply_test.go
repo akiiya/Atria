@@ -12,6 +12,20 @@ import (
 	"testing"
 )
 
+// isWindows 检查是否在 Windows 环境。
+func isWindows() bool {
+	return runtime.GOOS == "windows"
+}
+
+// newTestUpdater 创建测试用的 updater，显式注入 dockerDetector。
+// isDocker=true 模拟 Docker 环境，isDocker=false 模拟非 Docker 环境。
+func newTestUpdater(t *testing.T, isDocker bool) *DefaultUpdater {
+	t.Helper()
+	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	u.SetDockerDetector(func() bool { return isDocker })
+	return u
+}
+
 // createTestBinary 创建一个测试用的假二进制文件。
 func createTestBinary(t *testing.T, dir string, name string) string {
 	t.Helper()
@@ -59,8 +73,9 @@ func createTestArchive(t *testing.T, dir string, binaryName string) string {
 }
 
 func TestApplyUpdate_DryRun(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows 环境跳过 apply 测试")
+	// Windows 上无法执行 shell 脚本，跳过需要执行二进制的测试
+	if isWindows() {
+		t.Skip("Windows 环境无法执行 shell 脚本二进制")
 	}
 
 	dir := t.TempDir()
@@ -74,7 +89,8 @@ func TestApplyUpdate_DryRun(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	// 显式注入 dockerDetector=false，确保不走 Docker 分支
+	u := newTestUpdater(t, false)
 
 	result, err := u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
@@ -103,7 +119,7 @@ func TestApplyUpdate_DryRun_NoReplace(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	u := newTestUpdater(t, false)
 
 	u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
@@ -120,8 +136,9 @@ func TestApplyUpdate_DryRun_NoReplace(t *testing.T) {
 }
 
 func TestApplyUpdate_BackupCreated(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows 环境跳过 apply 测试")
+	// Windows 上无法执行 shell 脚本，跳过需要执行二进制的测试
+	if isWindows() {
+		t.Skip("Windows 环境无法执行 shell 脚本二进制")
 	}
 
 	dir := t.TempDir()
@@ -131,7 +148,8 @@ func TestApplyUpdate_BackupCreated(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	// 显式注入 dockerDetector=false
+	u := newTestUpdater(t, false)
 
 	result, err := u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
@@ -167,7 +185,7 @@ func TestApplyUpdate_DataDirPreserved(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	u := newTestUpdater(t, false)
 
 	u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
@@ -198,7 +216,7 @@ func TestApplyUpdate_SecretKeyPreserved(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	u := newTestUpdater(t, false)
 
 	u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
@@ -227,7 +245,7 @@ func TestApplyUpdate_SessionFilesPreserved(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	u := newTestUpdater(t, false)
 
 	u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
@@ -249,7 +267,7 @@ func TestApplyUpdate_CurrentBinaryNotFound(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
+	u := newTestUpdater(t, false)
 
 	result, err := u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: "/nonexistent/atria",
@@ -303,7 +321,7 @@ func TestApplyUpdate_ExtractBinary_WindowsExe(t *testing.T) {
 }
 
 // TestApplyUpdate_DockerUnsupported 测试 Docker 环境下 ApplyUpdate 返回 unsupported。
-// 通过注入 dockerDetector 模拟 Docker 环境，不依赖真实 Docker。
+// 通过注入 dockerDetector=true 模拟 Docker 环境，不依赖真实 Docker。
 func TestApplyUpdate_DockerUnsupported(t *testing.T) {
 	dir := t.TempDir()
 
@@ -329,9 +347,8 @@ func TestApplyUpdate_DockerUnsupported(t *testing.T) {
 	backupDir := filepath.Join(dir, "backups")
 	os.MkdirAll(backupDir, 0700)
 
-	// 创建 updater 并注入 Docker 检测器返回 true
-	u := NewDefaultUpdater("v0.1.0", "test/repo", "", "", true, nil)
-	u.SetDockerDetector(func() bool { return true })
+	// 显式注入 dockerDetector=true
+	u := newTestUpdater(t, true)
 
 	result, err := u.ApplyUpdate(context.Background(), ApplyOptions{
 		CurrentBinaryPath: currentBinary,
