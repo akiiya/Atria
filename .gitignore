@@ -22,8 +22,8 @@ tmp/
 *.tmp
 
 # ===== 构建产物 =====
-atria
-atria.exe
+/atria
+/atria.exe
 dist/
 build/
 
