@@ -1,0 +1,47 @@
+# Atria .gitignore
+
+# ===== 运行时数据（敏感，不得提交） =====
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== 加密密钥（敏感，不得提交） =====
+*.key
+secret.key
+
+# ===== Session 文件（敏感，不得提交） =====
+sessions/
+
+# ===== 日志（不得提交） =====
+*.log
+logs/
+
+# ===== 临时文件 =====
+tmp/
+*.tmp
+
+# ===== 构建产物 =====
+atria
+atria.exe
+dist/
+build/
+
+# ===== 测试产物 =====
+coverage.out
+*.test
+
+# ===== Go =====
+# go.sum 不忽略，需要提交
+# go.mod 不忽略，需要提交
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db

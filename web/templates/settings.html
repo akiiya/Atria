@@ -1,0 +1,233 @@
+{{define "settings.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <h1 class="page-title">系统设置</h1>
+                    <p class="page-desc">系统配置与管理</p>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">
+                    {{.Error}}
+                </div>
+                {{end}}
+
+                <div class="settings-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">修改管理员密码</h3>
+                        </div>
+                        <div class="card-body">
+                            <form method="POST" action="/settings/password">
+                                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                                <div class="form-group">
+                                    <label for="current_password" class="form-label">当前密码</label>
+                                    <input type="password" id="current_password" name="current_password" class="form-input"
+                                           placeholder="请输入当前密码" required>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="new_password" class="form-label">新密码</label>
+                                    <input type="password" id="new_password" name="new_password" class="form-input"
+                                           placeholder="请输入新密码" required minlength="10" maxlength="128">
+                                    <div class="form-hint">至少 10 个字符</div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="confirm_new_password" class="form-label">确认新密码</label>
+                                    <input type="password" id="confirm_new_password" name="confirm_new_password" class="form-input"
+                                           placeholder="请再次输入新密码" required minlength="10" maxlength="128">
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn-primary">修改密码</button>
+                                </div>
+
+                                <div class="form-notice">
+                                    <p>⚠️ 修改密码后需要重新登录。</p>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">系统信息</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="info-list">
+                                <div class="info-row">
+                                    <span class="info-label">版本</span>
+                                    <span class="info-value">v{{.Version}}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Git Commit</span>
+                                    <span class="info-value"><code>{{.Commit}}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">构建日期</span>
+                                    <span class="info-value">{{.BuildDate}}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">数据库驱动</span>
+                                    <span class="info-value">{{.DatabaseDriver}}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">数据目录</span>
+                                    <span class="info-value"><code>{{.DataDir}}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">监听地址</span>
+                                    <span class="info-value"><code>{{.ListenAddr}}</code></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">主题设置</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="theme-setting">
+                                <p class="setting-desc">选择界面显示主题。主题偏好保存在浏览器本地存储中。</p>
+                                <div class="theme-options">
+                                    <label class="theme-option">
+                                        <input type="radio" name="theme" value="light">
+                                        <span class="theme-option-label">
+                                            <span class="theme-preview theme-preview-light"></span>
+                                            <span>浅色</span>
+                                        </span>
+                                    </label>
+                                    <label class="theme-option">
+                                        <input type="radio" name="theme" value="dark">
+                                        <span class="theme-option-label">
+                                            <span class="theme-preview theme-preview-dark"></span>
+                                            <span>深色</span>
+                                        </span>
+                                    </label>
+                                    <label class="theme-option">
+                                        <input type="radio" name="theme" value="system" checked>
+                                        <span class="theme-option-label">
+                                            <span class="theme-preview theme-preview-system"></span>
+                                            <span>跟随系统</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">更新程序</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="update-section">
+                                <div class="update-info">
+                                    <div class="info-row">
+                                        <span class="info-label">当前版本</span>
+                                        <span class="info-value">v{{.Version}}</span>
+                                    </div>
+                                    {{if .UpdateInfo}}
+                                    <div class="info-row">
+                                        <span class="info-label">更新状态</span>
+                                        <span class="info-value">
+                                            {{if eq .UpdateInfo.UpdateStatus "idle"}}
+                                            <span class="badge badge-secondary">未检查</span>
+                                            {{else if eq .UpdateInfo.UpdateStatus "up_to_date"}}
+                                            <span class="badge badge-success">已是最新</span>
+                                            {{else if eq .UpdateInfo.UpdateStatus "update_available"}}
+                                            <span class="badge badge-info">有更新可用</span>
+                                            {{else if eq .UpdateInfo.UpdateStatus "downloaded"}}
+                                            <span class="badge badge-success">已下载</span>
+                                            {{else if eq .UpdateInfo.UpdateStatus "restart_required"}}
+                                            <span class="badge badge-warning">需重启</span>
+                                            {{else if eq .UpdateInfo.UpdateStatus "disabled"}}
+                                            <span class="badge badge-secondary">已禁用</span>
+                                            {{else}}
+                                            <span class="badge badge-secondary">{{.UpdateInfo.UpdateStatus}}</span>
+                                            {{end}}
+                                        </span>
+                                    </div>
+                                    {{if .UpdateInfo.LatestVersion}}
+                                    <div class="info-row">
+                                        <span class="info-label">最新版本</span>
+                                        <span class="info-value">{{.UpdateInfo.LatestVersion}}</span>
+                                    </div>
+                                    {{end}}
+                                    {{if .UpdateInfo.Message}}
+                                    <div class="info-row">
+                                        <span class="info-label">消息</span>
+                                        <span class="info-value">{{.UpdateInfo.Message}}</span>
+                                    </div>
+                                    {{end}}
+                                    {{if .UpdateInfo.CheckedAt}}
+                                    <div class="info-row">
+                                        <span class="info-label">最近检查</span>
+                                        <span class="info-value">{{.UpdateInfo.CheckedAt.Format "2006-01-02 15:04:05"}}</span>
+                                    </div>
+                                    {{end}}
+                                    {{if .UpdateInfo.IsDocker}}
+                                    <div class="update-notice">
+                                        <p>🐳 检测到 Docker 环境，不支持容器内自更新。请使用新镜像重建容器。</p>
+                                    </div>
+                                    {{end}}
+                                    {{end}}
+                                </div>
+                                <div class="update-actions">
+                                    <form method="POST" action="/settings/update/check" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                                        <button type="submit" class="btn btn-outline">检查更新</button>
+                                    </form>
+                                    <form method="POST" action="/settings/update/download" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                                        <button type="submit" class="btn btn-outline">下载更新</button>
+                                    </form>
+                                    <form method="POST" action="/settings/update/dry-run" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                                        <button type="submit" class="btn btn-outline">DryRun 验证</button>
+                                    </form>
+                                    {{if .UpdateInfo}}
+                                    {{if .UpdateInfo.CanApply}}
+                                    <form method="POST" action="/settings/update/apply" style="display: inline;"
+                                          onsubmit="return confirm('确定要应用更新吗？\n\n更新将替换当前二进制文件，建议先备份。')">
+                                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                                        <input type="hidden" name="confirm" value="apply_update">
+                                        <button type="submit" class="btn btn-primary">应用更新</button>
+                                    </form>
+                                    {{else if .UpdateInfo.IsDocker}}
+                                    <button class="btn btn-primary" disabled title="Docker 环境不支持自更新">应用更新</button>
+                                    {{else}}
+                                    <button class="btn btn-primary" disabled>应用更新</button>
+                                    {{end}}
+                                    {{end}}
+                                </div>
+                                <div class="update-notice">
+                                    <p>⚠️ 更新前请确保已备份 data/ 目录和 secret.key。更新后需要重启服务。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

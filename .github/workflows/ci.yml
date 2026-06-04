@@ -1,0 +1,82 @@
+# Atria CI 工作流
+# 触发条件：push 和 pull_request
+# 不访问真实 Telegram 网络，不需要真实 API 凭据
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: 检查 go mod tidy
+        run: |
+          go mod tidy
+          if [ -n "$(git diff go.mod go.sum)" ]; then
+            echo "错误：go mod tidy 产生了变更，请提交更新后的 go.mod/go.sum"
+            exit 1
+          fi
+
+      - name: 检查 gofmt
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "错误：以下文件格式不符合规范："
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: 运行测试
+        run: go test ./... -count=1
+
+      - name: 构建
+        run: go build -o atria ./cmd/atria
+
+      - name: 脚本语法检查
+        run: |
+          bash -n scripts/install.sh
+          bash -n scripts/uninstall.sh
+          bash -n scripts/build_release.sh
+          bash -n scripts/check_release_artifacts.sh
+          bash -n scripts/full_check.sh
+          bash -n scripts/smoke.sh
+
+      - name: Smoke test
+        run: bash scripts/smoke.sh
+
+      - name: 构建发布包
+        run: bash scripts/build_release.sh
+
+      - name: 检查发布产物
+        run: bash scripts/check_release_artifacts.sh tmp/dist
+
+      - name: install.sh Try-Run
+        run: |
+          mkdir -p tmp/mock-release tmp/install-root
+          tar -xzf tmp/dist/atria_linux_amd64.tar.gz -C tmp/mock-release
+          cp tmp/dist/checksums.txt tmp/mock-release/
+          ATRIA_INSTALL_ROOT="$(pwd)/tmp/install-root" \
+          ATRIA_RELEASE_BASE_URL="$(pwd)/tmp/mock-release" \
+          ATRIA_SKIP_SYSTEMD=1 \
+          ATRIA_SKIP_USER_CREATE=1 \
+          ATRIA_VERSION="v0.1.0-alpha-test" \
+          bash scripts/install.sh
+          # 验证安装结果
+          if [ -f tmp/install-root/usr/local/bin/atria ]; then
+            echo "install.sh Try-Run 通过"
+          else
+            echo "install.sh Try-Run 失败：二进制未安装"
+            exit 1
+          fi
