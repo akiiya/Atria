@@ -94,6 +94,11 @@ main() {
     echo "Atria 安装脚本"
     echo "=========================================="
 
+    # 创建临时目录（必须在 trap 之前初始化，避免 unbound variable）
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    trap 'rm -rf "$tmp_dir"' EXIT
+
     # 检测平台
     detect_platform
     log_info "检测到平台: $PLATFORM"
@@ -129,11 +134,6 @@ main() {
     if [ "$DRY_RUN" = "1" ]; then
         log_info "[Try-Run] 模拟安装，不写入真实系统路径"
     fi
-
-    # 创建临时目录
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap 'rm -rf "$tmp_dir"' EXIT
 
     # 下载
     log_info "下载 $archive_name..."

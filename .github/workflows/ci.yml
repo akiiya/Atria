@@ -65,7 +65,8 @@ jobs:
       - name: install.sh Try-Run
         run: |
           mkdir -p tmp/mock-release tmp/install-root
-          tar -xzf tmp/dist/atria_linux_amd64.tar.gz -C tmp/mock-release
+          # 复制 release 产物到 mock-release 目录（不解压，install.sh 会自行解压）
+          cp tmp/dist/atria_linux_amd64.tar.gz tmp/mock-release/
           cp tmp/dist/checksums.txt tmp/mock-release/
           ATRIA_INSTALL_ROOT="$(pwd)/tmp/install-root" \
           ATRIA_RELEASE_BASE_URL="$(pwd)/tmp/mock-release" \
