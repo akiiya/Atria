@@ -320,7 +320,89 @@ func TestApplyUpdate_ExtractBinary_WindowsExe(t *testing.T) {
 	}
 }
 
-// TestApplyUpdate_DockerUnsupported 测试 Docker 环境下 ApplyUpdate 返回 unsupported。
+// TestApplyUpdate_DockerDryRunAllowed 测试 Docker 环境下 DryRun 允许执行。
+// DryRun 不替换二进制，只验证流程，因此 Docker 环境下应允许。
+func TestApplyUpdate_DockerDryRunAllowed(t *testing.T) {
+	// Windows 上无法执行 shell 脚本，跳过需要执行二进制的测试
+	if isWindows() {
+		t.Skip("Windows 环境无法执行 shell 脚本二进制")
+	}
+
+	dir := t.TempDir()
+
+	// 创建当前二进制
+	currentBinary := createTestBinary(t, dir, "atria")
+	originalContent, _ := os.ReadFile(currentBinary)
+
+	// 创建 data 目录和 secret.key
+	dataDir := filepath.Join(dir, "data")
+	os.MkdirAll(dataDir, 0700)
+	secretKey := filepath.Join(dataDir, "secret.key")
+	os.WriteFile(secretKey, []byte("test-secret-key-content"), 0600)
+
+	// 创建 session 文件
+	sessionDir := filepath.Join(dataDir, "sessions")
+	os.MkdirAll(sessionDir, 0700)
+	sessionFile := filepath.Join(sessionDir, "session_1.enc")
+	os.WriteFile(sessionFile, []byte("encrypted-session-data"), 0600)
+
+	// 创建更新包
+	archivePath := createTestArchive(t, dir, "atria")
+
+	backupDir := filepath.Join(dir, "backups")
+	os.MkdirAll(backupDir, 0700)
+
+	// 显式注入 dockerDetector=true
+	u := newTestUpdater(t, true)
+
+	result, err := u.ApplyUpdate(context.Background(), ApplyOptions{
+		CurrentBinaryPath: currentBinary,
+		AssetPath:         archivePath,
+		BackupDir:         backupDir,
+		DryRun:            true, // DryRun 模式
+	})
+
+	// 不应返回错误
+	if err != nil {
+		t.Fatalf("Docker 环境下 DryRun 不应返回错误: %s", err)
+	}
+
+	// DryRun 应成功
+	if !result.Success {
+		t.Errorf("Docker 环境下 DryRun 应成功: %s", result.Message)
+	}
+
+	// 验证当前二进制未被替换
+	currentContent, _ := os.ReadFile(currentBinary)
+	if !bytes.Equal(currentContent, originalContent) {
+		t.Error("DryRun 不应替换二进制")
+	}
+
+	// 验证 data/ 目录仍然存在
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		t.Error("data/ 目录不应被删除")
+	}
+
+	// 验证 secret.key 仍然存在且内容未变
+	secretContent, err := os.ReadFile(secretKey)
+	if err != nil {
+		t.Error("secret.key 不应被删除")
+	}
+	if string(secretContent) != "test-secret-key-content" {
+		t.Error("secret.key 内容不应被修改")
+	}
+
+	// 验证 session 文件仍然存在且内容未变
+	sessionContent, err := os.ReadFile(sessionFile)
+	if err != nil {
+		t.Error("Session 文件不应被删除")
+	}
+	if string(sessionContent) != "encrypted-session-data" {
+		t.Error("Session 文件内容不应被修改")
+	}
+}
+
+// TestApplyUpdate_DockerUnsupported 测试 Docker 环境下真实 Apply 返回 unsupported。
 // 通过注入 dockerDetector=true 模拟 Docker 环境，不依赖真实 Docker。
 func TestApplyUpdate_DockerUnsupported(t *testing.T) {
 	dir := t.TempDir()

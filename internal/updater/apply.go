@@ -81,8 +81,9 @@ func (u *DefaultUpdater) DownloadAsset(ctx context.Context, asset AssetInfo, des
 
 // ApplyUpdate 应用更新。
 func (u *DefaultUpdater) ApplyUpdate(ctx context.Context, opts ApplyOptions) (*ApplyResult, error) {
-	// Docker 环境检测
-	if u.IsDocker() {
+	// Docker 环境检测：只禁止真实 Apply，不禁止 DryRun
+	// DryRun 用于验证资产、checksum、解压、版本检测等流程，不替换二进制
+	if u.IsDocker() && !opts.DryRun {
 		return &ApplyResult{
 			Success: false,
 			Message: "Docker 环境不支持容器内自更新，请使用新镜像重建容器",
