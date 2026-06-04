@@ -1,0 +1,688 @@
+package server
+
+import (
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strconv"
+
+	"github.com/user/atria/internal/account"
+	"github.com/user/atria/internal/audit"
+	"github.com/user/atria/internal/auth"
+	"github.com/user/atria/internal/credential"
+	"github.com/user/atria/internal/crypto"
+	"github.com/user/atria/internal/model"
+	"github.com/user/atria/internal/mtproto"
+	"github.com/user/atria/internal/security"
+
+	"github.com/gin-gonic/gin"
+)
+
+// handleGetAccounts 处理 GET /accounts - 账号列表。
+func (s *Server) handleGetAccounts(c *gin.Context) {
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+
+	accounts, err := accountSvc.ListAccounts(c.Request.Context())
+	if err != nil {
+		slog.Error("查询账号列表失败", "error", err)
+		RenderError(c, http.StatusInternalServerError, "服务器错误", "查询账号失败")
+		return
+	}
+
+	data := s.newAccountViewData(c, "accounts")
+	data["Accounts"] = accounts
+	c.HTML(http.StatusOK, "accounts.html", data)
+}
+
+// handleGetAccountLogin 处理 GET /accounts/login - 登录向导页面。
+func (s *Server) handleGetAccountLogin(c *gin.Context) {
+	credSvc := credential.NewService(s.db, s.key)
+	credID := auth.GetCredentialID(c)
+
+	enabledCreds, _ := credSvc.ListEnabled()
+
+	data := s.newAccountViewData(c, "accounts")
+	data["HasCredentials"] = len(enabledCreds) > 0
+	data["HasSelectedCredential"] = credID > 0
+	data["SelectedCredentialID"] = credID
+
+	if credID > 0 {
+		cred, err := credSvc.GetByID(credID)
+		if err == nil {
+			data["SelectedCredentialName"] = cred.DisplayName
+		}
+	}
+
+	c.HTML(http.StatusOK, "account_login.html", data)
+}
+
+// handlePostAccountLoginStart 处理 POST /accounts/login/start - 开始登录流程。
+func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
+	credID := auth.GetCredentialID(c)
+	if credID == 0 {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = "请先在顶部栏选择 API 凭据"
+		data["HasCredentials"] = true
+		data["HasSelectedCredential"] = false
+		c.HTML(http.StatusOK, "account_login.html", data)
+		return
+	}
+
+	phone := c.PostForm("phone")
+	if err := account.ValidatePhone(phone); err != nil {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = err.Error()
+		data["HasCredentials"] = true
+		data["HasSelectedCredential"] = true
+		data["SelectedCredentialID"] = credID
+		c.HTML(http.StatusOK, "account_login.html", data)
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+	cred, err := credSvc.GetByID(credID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "操作失败", "API 凭据不存在")
+		return
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		slog.Error("解密 api_hash 失败", "error", err)
+		RenderError(c, http.StatusInternalServerError, "服务器错误", "解密凭据失败")
+		return
+	}
+
+	flowID := fmt.Sprintf("flow_%d_%s", credID, crypto.Fingerprint(phone)[:8])
+	phoneEncrypted, phoneFingerprint, _ := security.EncryptPhone(s.key, phone)
+
+	flow := mtproto.NewLoginFlow(flowID, credID, int(cred.APIID), phoneEncrypted, phoneFingerprint)
+	if err := s.flowStore.Create(c.Request.Context(), flow); err != nil {
+		RenderError(c, http.StatusInternalServerError, "操作失败", "创建登录流程失败")
+		return
+	}
+
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
+		APICredentialID: credID,
+		APIID:           int(cred.APIID),
+		APIHash:         apiHash,
+		Phone:           phone,
+		FlowID:          flowID,
+	})
+
+	if err != nil {
+		s.flowStore.Delete(c.Request.Context(), flowID)
+
+		errKind := mtproto.ClassifyError(err)
+		errMsg := getErrorMessage(errKind, err)
+
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = errMsg
+		data["HasCredentials"] = true
+		data["HasSelectedCredential"] = true
+		data["SelectedCredentialID"] = credID
+		c.HTML(http.StatusOK, "account_login.html", data)
+		return
+	}
+
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+		Action:       "account.login_code_sent",
+		ResourceType: "login_flow",
+		ResourceID:   flowID,
+		RiskLevel:    "low",
+		IP:           c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
+		Message:      "验证码已发送",
+		Metadata: map[string]any{
+			"api_credential_id": credID,
+			"flow_id":           flowID,
+		},
+	})
+
+	c.Redirect(http.StatusFound, "/accounts/login/code?flow_id="+step.FlowID)
+}
+
+// handleGetAccountLoginCode 处理 GET /accounts/login/code - 验证码输入页。
+func (s *Server) handleGetAccountLoginCode(c *gin.Context) {
+	flowID := c.Query("flow_id")
+	if flowID == "" {
+		RenderError(c, http.StatusBadRequest, "请求无效", "缺少流程 ID")
+		return
+	}
+
+	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "流程无效", "登录流程不存在或已过期")
+		return
+	}
+
+	if flow.State != mtproto.LoginStateCodeSent {
+		RenderError(c, http.StatusBadRequest, "流程状态错误", "当前流程状态不正确")
+		return
+	}
+
+	data := s.newAccountViewData(c, "accounts")
+	data["FlowID"] = flowID
+	data["PhoneHint"] = flow.PhoneFingerprint
+	c.HTML(http.StatusOK, "account_code.html", data)
+}
+
+// handlePostAccountLoginCode 处理 POST /accounts/login/code - 提交验证码。
+func (s *Server) handlePostAccountLoginCode(c *gin.Context) {
+	flowID := c.PostForm("flow_id")
+	code := c.PostForm("code")
+
+	if flowID == "" {
+		RenderError(c, http.StatusBadRequest, "请求无效", "缺少流程 ID")
+		return
+	}
+
+	if code == "" {
+		data := s.newAccountViewData(c, "accounts")
+		data["FlowID"] = flowID
+		data["Error"] = "验证码不能为空"
+		c.HTML(http.StatusOK, "account_code.html", data)
+		return
+	}
+
+	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "流程无效", "登录流程不存在或已过期")
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+	cred, err := credSvc.GetByID(flow.APICredentialID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "操作失败", "API 凭据不存在")
+		return
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		slog.Error("解密 api_hash 失败", "error", err)
+		RenderError(c, http.StatusInternalServerError, "服务器错误", "解密凭据失败")
+		return
+	}
+
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	step, err := client.SubmitCode(c.Request.Context(), mtproto.SubmitCodeRequest{
+		FlowID:  flowID,
+		Code:    code,
+		APIID:   flow.APIID,
+		APIHash: apiHash,
+	})
+
+	if err != nil {
+		errKind := mtproto.ClassifyError(err)
+		errMsg := getErrorMessage(errKind, err)
+
+		audit.Log(c.Request.Context(), s.db, audit.Event{
+			ActorType:    "admin",
+			ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+			Action:       "account.login_code_failed",
+			ResourceType: "login_flow",
+			ResourceID:   flowID,
+			RiskLevel:    "medium",
+			IP:           c.ClientIP(),
+			UserAgent:    c.GetHeader("User-Agent"),
+			Message:      "验证码提交失败",
+			Metadata: map[string]any{
+				"error_kind":        string(errKind),
+				"api_credential_id": flow.APICredentialID,
+			},
+		})
+
+		data := s.newAccountViewData(c, "accounts")
+		data["FlowID"] = flowID
+		data["Error"] = errMsg
+		c.HTML(http.StatusOK, "account_code.html", data)
+		return
+	}
+
+	if step.State == mtproto.LoginStateWaitingPassword {
+		audit.Log(c.Request.Context(), s.db, audit.Event{
+			ActorType:    "admin",
+			ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+			Action:       "account.login_password_required",
+			ResourceType: "login_flow",
+			ResourceID:   flowID,
+			RiskLevel:    "medium",
+			IP:           c.ClientIP(),
+			UserAgent:    c.GetHeader("User-Agent"),
+			Message:      "需要两步验证密码",
+			Metadata: map[string]any{
+				"api_credential_id": flow.APICredentialID,
+			},
+		})
+
+		c.Redirect(http.StatusFound, "/accounts/login/password?flow_id="+flowID)
+		return
+	}
+
+	if step.State == mtproto.LoginStateAuthorized {
+		s.completeLogin(c, flow, step)
+		return
+	}
+
+	data := s.newAccountViewData(c, "accounts")
+	data["FlowID"] = flowID
+	data["Error"] = "登录流程状态异常"
+	c.HTML(http.StatusOK, "account_code.html", data)
+}
+
+// handleGetAccountLoginPassword 处理 GET /accounts/login/password - 2FA 密码输入页。
+func (s *Server) handleGetAccountLoginPassword(c *gin.Context) {
+	flowID := c.Query("flow_id")
+	if flowID == "" {
+		RenderError(c, http.StatusBadRequest, "请求无效", "缺少流程 ID")
+		return
+	}
+
+	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "流程无效", "登录流程不存在或已过期")
+		return
+	}
+
+	if flow.State != mtproto.LoginStateWaitingPassword {
+		RenderError(c, http.StatusBadRequest, "流程状态错误", "当前流程状态不正确")
+		return
+	}
+
+	data := s.newAccountViewData(c, "accounts")
+	data["FlowID"] = flowID
+	c.HTML(http.StatusOK, "account_password.html", data)
+}
+
+// handlePostAccountLoginPassword 处理 POST /accounts/login/password - 提交 2FA 密码。
+func (s *Server) handlePostAccountLoginPassword(c *gin.Context) {
+	flowID := c.PostForm("flow_id")
+	password := c.PostForm("password")
+
+	if flowID == "" {
+		RenderError(c, http.StatusBadRequest, "请求无效", "缺少流程 ID")
+		return
+	}
+
+	if password == "" {
+		data := s.newAccountViewData(c, "accounts")
+		data["FlowID"] = flowID
+		data["Error"] = "密码不能为空"
+		c.HTML(http.StatusOK, "account_password.html", data)
+		return
+	}
+
+	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "流程无效", "登录流程不存在或已过期")
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+	cred, err := credSvc.GetByID(flow.APICredentialID)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "操作失败", "API 凭据不存在")
+		return
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		slog.Error("解密 api_hash 失败", "error", err)
+		RenderError(c, http.StatusInternalServerError, "服务器错误", "解密凭据失败")
+		return
+	}
+
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	step, err := client.SubmitPassword(c.Request.Context(), mtproto.SubmitPasswordRequest{
+		FlowID:   flowID,
+		Password: password,
+		APIID:    flow.APIID,
+		APIHash:  apiHash,
+	})
+
+	if err != nil {
+		errKind := mtproto.ClassifyError(err)
+		errMsg := getErrorMessage(errKind, err)
+
+		audit.Log(c.Request.Context(), s.db, audit.Event{
+			ActorType:    "admin",
+			ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+			Action:       "account.login_password_failed",
+			ResourceType: "login_flow",
+			ResourceID:   flowID,
+			RiskLevel:    "medium",
+			IP:           c.ClientIP(),
+			UserAgent:    c.GetHeader("User-Agent"),
+			Message:      "两步验证密码提交失败",
+			Metadata: map[string]any{
+				"error_kind":        string(errKind),
+				"api_credential_id": flow.APICredentialID,
+			},
+		})
+
+		data := s.newAccountViewData(c, "accounts")
+		data["FlowID"] = flowID
+		data["Error"] = errMsg
+		c.HTML(http.StatusOK, "account_password.html", data)
+		return
+	}
+
+	if step.State == mtproto.LoginStateAuthorized {
+		s.completeLogin(c, flow, step)
+		return
+	}
+
+	data := s.newAccountViewData(c, "accounts")
+	data["FlowID"] = flowID
+	data["Error"] = "登录流程状态异常"
+	c.HTML(http.StatusOK, "account_password.html", data)
+}
+
+// completeLogin 完成登录流程。
+func (s *Server) completeLogin(c *gin.Context, flow *mtproto.LoginFlow, step *mtproto.LoginStep) {
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+	actorID := auth.GetAdminID(c)
+
+	if step.Account == nil {
+		slog.Error("登录成功但未获取到账号资料")
+		RenderError(c, http.StatusInternalServerError, "服务器错误", "登录成功但未获取到账号资料")
+		return
+	}
+
+	acc, err := accountSvc.CompleteLogin(c.Request.Context(), account.CompleteLoginInput{
+		APICredentialID: flow.APICredentialID,
+		Profile:         step.Account,
+		SessionData:     step.SessionData,
+		ActorID:         actorID,
+		IP:              c.ClientIP(),
+		UserAgent:       c.GetHeader("User-Agent"),
+	})
+
+	if err != nil {
+		slog.Error("创建/更新账号失败", "error", err)
+		RenderError(c, http.StatusInternalServerError, "服务器错误", "创建账号失败")
+		return
+	}
+
+	// 清理临时 Session
+	tmpStorage := mtproto.NewGotdSessionStorage(s.cfg.SessionDir+"/tmp", s.key, "flow_"+flow.ID)
+	tmpStorage.DeleteSession()
+
+	// 删除 Flow
+	s.flowStore.Delete(c.Request.Context(), flow.ID)
+
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		ActorID:      fmt.Sprintf("%d", actorID),
+		Action:       "account.login_authorized",
+		ResourceType: "telegram_account",
+		ResourceID:   fmt.Sprintf("%d", acc.ID),
+		RiskLevel:    "medium",
+		IP:           c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
+		Message:      "账号登录成功",
+		Metadata: map[string]any{
+			"user_id":           acc.UserID,
+			"api_credential_id": flow.APICredentialID,
+		},
+	})
+
+	c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%d", acc.ID))
+}
+
+// handlePostAccountSync 处理 POST /accounts/:id/sync - 同步账号资料。
+func (s *Server) handlePostAccountSync(c *gin.Context) {
+	id, err := parseAccountID(c)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "请求无效", "账号 ID 不合法")
+		return
+	}
+
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+
+	actorID := auth.GetAdminID(c)
+	result, err := accountSvc.SyncProfile(c.Request.Context(), account.SyncProfileInput{
+		AccountID: id,
+		ActorID:   actorID,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+	})
+
+	if err != nil {
+		// 显示友好错误
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = err.Error()
+
+		// 重新加载账号信息
+		acc, _ := accountSvc.GetAccount(c.Request.Context(), id)
+		data["Account"] = acc
+
+		c.HTML(http.StatusOK, "account_detail.html", data)
+		return
+	}
+
+	_ = result
+	c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%d", id))
+}
+
+// handlePostAccountCheckSession 处理 POST /accounts/:id/check-session - 检测 Session 状态。
+func (s *Server) handlePostAccountCheckSession(c *gin.Context) {
+	id, err := parseAccountID(c)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "请求无效", "账号 ID 不合法")
+		return
+	}
+
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+
+	actorID := auth.GetAdminID(c)
+	result, err := accountSvc.CheckSession(c.Request.Context(), account.CheckSessionInput{
+		AccountID: id,
+		ActorID:   actorID,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+	})
+
+	if err != nil {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = err.Error()
+
+		acc, _ := accountSvc.GetAccount(c.Request.Context(), id)
+		data["Account"] = acc
+
+		c.HTML(http.StatusOK, "account_detail.html", data)
+		return
+	}
+
+	_ = result
+	c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%d", id))
+}
+
+// handleGetAccountDetail 处理 GET /accounts/:id - 账号详情页。
+func (s *Server) handleGetAccountDetail(c *gin.Context) {
+	id, err := parseAccountID(c)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "请求无效", "账号 ID 不合法")
+		return
+	}
+
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+
+	acc, err := accountSvc.GetAccount(c.Request.Context(), id)
+	if err != nil {
+		RenderError(c, http.StatusNotFound, "未找到", "账号不存在")
+		return
+	}
+
+	data := s.newAccountViewData(c, "accounts")
+	data["Account"] = acc
+	c.HTML(http.StatusOK, "account_detail.html", data)
+}
+
+// handlePostAccountLogout 处理 POST /accounts/:id/logout - 远端 Logout。
+func (s *Server) handlePostAccountLogout(c *gin.Context) {
+	id, err := parseAccountID(c)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "请求无效", "账号 ID 不合法")
+		return
+	}
+
+	// 服务端确认字段校验
+	confirm := c.PostForm("confirm")
+	if confirm != "remote_logout" {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = "缺少确认字段，请重试"
+		acc, _ := s.getAccountService().GetAccount(c.Request.Context(), id)
+		data["Account"] = acc
+		c.HTML(http.StatusOK, "account_detail.html", data)
+		return
+	}
+
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+
+	actorID := auth.GetAdminID(c)
+	if err := accountSvc.RemoteLogout(c.Request.Context(), account.RemoteLogoutInput{
+		AccountID: id,
+		ActorID:   actorID,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+	}); err != nil {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = err.Error()
+		acc, _ := accountSvc.GetAccount(c.Request.Context(), id)
+		data["Account"] = acc
+		c.HTML(http.StatusOK, "account_detail.html", data)
+		return
+	}
+
+	c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%d", id))
+}
+
+// handlePostAccountDeleteSession 处理 POST /accounts/:id/delete-session - 本地删除 Session。
+func (s *Server) handlePostAccountDeleteSession(c *gin.Context) {
+	id, err := parseAccountID(c)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "请求无效", "账号 ID 不合法")
+		return
+	}
+
+	// 服务端确认字段校验
+	confirm := c.PostForm("confirm")
+	if confirm != "delete_local_session" {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = "缺少确认字段，请重试"
+		acc, _ := s.getAccountService().GetAccount(c.Request.Context(), id)
+		data["Account"] = acc
+		c.HTML(http.StatusOK, "account_detail.html", data)
+		return
+	}
+
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+
+	actorID := auth.GetAdminID(c)
+	if err := accountSvc.DeleteLocalSession(c.Request.Context(), account.DeleteLocalSessionInput{
+		AccountID: id,
+		ActorID:   actorID,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+	}); err != nil {
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = err.Error()
+		acc, _ := accountSvc.GetAccount(c.Request.Context(), id)
+		data["Account"] = acc
+		c.HTML(http.StatusOK, "account_detail.html", data)
+		return
+	}
+
+	c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%d", id))
+}
+
+// getAccountService 创建账号服务实例。
+func (s *Server) getAccountService() *account.Service {
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	return account.NewService(s.db, s.key, sessionStore, client)
+}
+
+// getErrorMessage 获取用户友好的错误消息。
+func getErrorMessage(kind mtproto.ErrorKind, err error) string {
+	switch kind {
+	case mtproto.ErrFloodWait:
+		if floodErr, ok := err.(*mtproto.FloodWaitError); ok {
+			return fmt.Sprintf("操作过于频繁，请等待 %s 后重试", floodErr.Wait)
+		}
+		return "操作过于频繁，请稍后重试"
+	case mtproto.ErrInvalidPhone:
+		return "手机号格式不正确"
+	case mtproto.ErrLoginCodeInvalid:
+		return "验证码不正确或已过期"
+	case mtproto.ErrLoginCodeExpired:
+		return "验证码已过期，请重新开始登录流程"
+	case mtproto.ErrLoginPasswordInvalid:
+		return "两步验证密码不正确"
+	case mtproto.ErrUnauthorized:
+		return "账号已被封禁或限制"
+	case mtproto.ErrCredentialDisabled:
+		return "API 凭据无效或已被限制"
+	case mtproto.ErrSessionInvalid:
+		return "Session 已失效，请重新登录该账号"
+	case mtproto.ErrNetworkError:
+		return "网络异常，请稍后重试"
+	default:
+		return "操作失败，请稍后重试"
+	}
+}
+
+// newAccountViewData 创建账号页面的 ViewData。
+func (s *Server) newAccountViewData(c *gin.Context, activeNav string) map[string]any {
+	data := NewViewData(s.cfg, activeNav)
+	data.IsInitialized = true
+	data.IsAuthenticated = true
+	data.CurrentAdminUsername = auth.GetUsername(c)
+
+	token := s.setCSRFToken(c)
+	data.CSRFToken = token
+
+	credID := auth.GetCredentialID(c)
+	if credID > 0 {
+		credSvc := credential.NewService(s.db, s.key)
+		cred, err := credSvc.GetByID(credID)
+		if err == nil {
+			data.CurrentCredentialID = credID
+			data.CurrentCredentialName = cred.DisplayName
+		}
+	}
+
+	return data.ToMap()
+}
+
+// parseAccountID 从 URL 参数解析账号 ID。
+func parseAccountID(c *gin.Context) (uint, error) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("ID 不合法")
+	}
+	return uint(id), nil
+}
+
+// credentialInfo 是凭据信息的临时结构。
+type credentialInfo = model.APICredential

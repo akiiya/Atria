@@ -1,0 +1,24 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                {{template "content" .}}
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

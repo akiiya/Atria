@@ -1,0 +1,14 @@
+{{define "theme_script"}}
+<script>
+// 主题初始化脚本（内联，避免闪烁）
+// 在页面加载前立即应用主题，避免从默认主题闪烁到用户选择的主题
+(function() {
+    var saved = localStorage.getItem('atria-theme') || 'system';
+    var theme = saved;
+    if (saved === 'system') {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+})();
+</script>
+{{end}}

@@ -1,0 +1,33 @@
+{{define "500.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="error-page">
+                    <div class="error-card card">
+                        <div class="error-code">500</div>
+                        <div class="error-title">服务器错误</div>
+                        <div class="error-desc">服务器遇到了一个错误，请稍后再试。</div>
+                        <div class="error-actions">
+                            <a href="/" class="btn btn-primary">返回首页</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,117 @@
+{{define "init.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <h1 class="page-title">初始化管理员</h1>
+                    <p class="page-desc">首次使用 Atria，请设置管理员账号</p>
+                </div>
+
+                <div class="init-container">
+                    <div class="card init-card">
+                        <div class="card-header">
+                            <h3 class="card-title">设置管理员账号</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="init-notice">
+                                <div class="notice-icon">ℹ️</div>
+                                <div class="notice-content">
+                                    <p><strong>重要说明：</strong></p>
+                                    <ul>
+                                        <li>Atria 不提供默认管理员账号，必须在此处设置</li>
+                                        <li>初始化只允许执行一次，完成后不可重复</li>
+                                        <li>密码将使用 bcrypt 安全哈希保存</li>
+                                        <li>请妥善保存管理员账号，忘记密码需手动重置数据库</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            {{if .Error}}
+                            <div class="alert alert-error">
+                                {{.Error}}
+                            </div>
+                            {{end}}
+
+                            <form class="init-form" method="POST" action="/init">
+                                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                                <div class="form-group">
+                                    <label for="username" class="form-label">管理员用户名</label>
+                                    <input type="text" id="username" name="username" class="form-input"
+                                           placeholder="请输入用户名" required minlength="3" maxlength="32"
+                                           pattern="[a-zA-Z0-9_-]+" title="只能包含字母、数字、下划线和短横线">
+                                    <div class="form-hint">3-32 个字符，只能包含字母、数字、下划线和短横线</div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="password" class="form-label">管理员密码</label>
+                                    <input type="password" id="password" name="password" class="form-input"
+                                           placeholder="请输入密码" required minlength="10" maxlength="128">
+                                    <div class="form-hint">至少 10 个字符，建议使用强密码</div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="confirm_password" class="form-label">确认密码</label>
+                                    <input type="password" id="confirm_password" name="confirm_password" class="form-input"
+                                           placeholder="请再次输入密码" required minlength="10" maxlength="128">
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn-primary btn-lg">
+                                        初始化管理员
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">安全说明</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="security-info">
+                                <div class="security-item">
+                                    <span class="security-icon">🔐</span>
+                                    <div class="security-content">
+                                        <strong>密码哈希</strong>
+                                        <p>密码使用 bcrypt 算法（cost 12）进行哈希处理，数据库中不存储明文密码。</p>
+                                    </div>
+                                </div>
+                                <div class="security-item">
+                                    <span class="security-icon">🚫</span>
+                                    <div class="security-content">
+                                        <strong>无默认密码</strong>
+                                        <p>Atria 不提供任何默认管理员账号，必须由用户首次访问时自行设置。</p>
+                                    </div>
+                                </div>
+                                <div class="security-item">
+                                    <span class="security-icon">🔒</span>
+                                    <div class="security-content">
+                                        <strong>一次性初始化</strong>
+                                        <p>管理员初始化只能执行一次，完成后无法再次进入初始化流程。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,110 @@
+{{define "account_login.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <h1 class="page-title">接入账号</h1>
+                    <p class="page-desc">通过 MTProto 登录 Telegram 账号</p>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">{{.Error}}</div>
+                {{end}}
+
+                {{if .Success}}
+                <div class="alert alert-success">{{.Success}}</div>
+                {{end}}
+
+                {{if not .HasCredentials}}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <div class="empty-icon">🔑</div>
+                            <div class="empty-title">请先配置 API 凭据</div>
+                            <div class="empty-desc">接入账号前需要先创建至少一个 API 凭据。</div>
+                            <a href="/credentials/new" class="btn btn-primary">新增 API 凭据</a>
+                        </div>
+                    </div>
+                </div>
+                {{else if not .HasSelectedCredential}}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <div class="empty-icon">👆</div>
+                            <div class="empty-title">请先选择 API 凭据</div>
+                            <div class="empty-desc">请在顶部栏的下拉框中选择要使用的 API 凭据。</div>
+                        </div>
+                    </div>
+                </div>
+                {{else}}
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">登录信息</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-list" style="margin-bottom: 20px;">
+                            <div class="info-row">
+                                <span class="info-label">当前 API 凭据</span>
+                                <span class="info-value">{{.SelectedCredentialName}}</span>
+                            </div>
+                        </div>
+
+                        <form method="POST" action="/accounts/login/start">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                            <div class="form-group">
+                                <label for="phone" class="form-label">手机号</label>
+                                <input type="text" id="phone" name="phone" class="form-input"
+                                       placeholder="+8613800138000" required
+                                       pattern="\+[0-9]{7,19}" title="以 + 开头的手机号">
+                                <div class="form-hint">请输入完整的国际手机号，以 + 开头</div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">开始登录</button>
+                                <a href="/accounts" class="btn btn-outline">取消</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 16px;">
+                    <div class="card-body">
+                        <div class="security-notes">
+                            <div class="note-item">
+                                <span class="note-icon">ℹ️</span>
+                                <div class="note-content">
+                                    <strong>说明</strong>
+                                    <p>本阶段仅完成登录流程框架。验证码发送将在下一阶段实现。</p>
+                                </div>
+                            </div>
+                            <div class="note-item">
+                                <span class="note-icon">🔒</span>
+                                <div class="note-content">
+                                    <strong>安全说明</strong>
+                                    <p>验证码和 2FA 密码不会写入日志。Session 将加密保存到本地文件。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}
