@@ -1,16 +1,19 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/user/atria/internal/audit"
 	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/credential"
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
+	"github.com/user/atria/internal/network"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,16 +22,12 @@ import (
 func (s *Server) handleGetSettings(c *gin.Context) {
 	data := s.newAuthViewData(c, "settings")
 
-	// 获取默认 API Key
+	// 获取系统 API Key（单例）
 	credSvc := credential.NewService(s.db, s.key)
-	defaultCred, err := credSvc.GetDefault()
-	if err == nil && defaultCred != nil {
-		data["DefaultCredential"] = defaultCred
+	systemKey, err := credSvc.GetDefault()
+	if err == nil && systemKey != nil {
+		data["SystemAPIKey"] = systemKey
 	}
-
-	// 获取所有凭据列表（用于高级区域）
-	allCreds, _ := credSvc.List()
-	data["CredentialList"] = allCreds
 
 	// 获取代理设置
 	proxySettings := s.getProxySettings()
@@ -101,11 +100,11 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 
 	credSvc := credential.NewService(s.db, s.key)
 
-	// 获取当前默认凭据
-	defaultCred, _ := credSvc.GetDefault()
+	// 获取当前系统 API Key
+	systemKey, _ := credSvc.GetDefault()
 
-	if defaultCred == nil {
-		// 没有默认凭据，创建新的
+	if systemKey == nil {
+		// 没有系统 API Key，创建新的
 		if apiIDStr == "" || apiHash == "" {
 			s.redirectSettingsWithError(c, "API ID 和 API Hash 不能为空")
 			return
@@ -136,21 +135,21 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 			RiskLevel:    "medium",
 			IP:           c.ClientIP(),
 			UserAgent:    c.GetHeader("User-Agent"),
-			Message:      "创建默认 API Key",
+			Message:      "创建系统 API Key",
 		})
 
 		s.redirectSettingsWithSuccess(c, "API Key 配置已保存")
 		return
 	}
 
-	// 已有默认凭据，更新
-	if displayName != "" && displayName != defaultCred.DisplayName {
-		_, err := credSvc.Update(defaultCred.ID, credential.UpdateInput{
+	// 已有系统 API Key，更新
+	if displayName != "" && displayName != systemKey.DisplayName {
+		_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
 			DisplayName: displayName,
-			APIID:       fmt.Sprintf("%d", defaultCred.APIID),
+			APIID:       fmt.Sprintf("%d", systemKey.APIID),
 			APIHash:     apiHash,
-			Status:      string(defaultCred.Status),
-			RiskPolicy:  string(defaultCred.RiskPolicy),
+			Status:      string(systemKey.Status),
+			RiskPolicy:  string(systemKey.RiskPolicy),
 		})
 		if err != nil {
 			s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
@@ -158,12 +157,12 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 		}
 	} else if apiHash != "" {
 		// 只更新 hash
-		_, err := credSvc.Update(defaultCred.ID, credential.UpdateInput{
-			DisplayName: defaultCred.DisplayName,
-			APIID:       fmt.Sprintf("%d", defaultCred.APIID),
+		_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
+			DisplayName: systemKey.DisplayName,
+			APIID:       fmt.Sprintf("%d", systemKey.APIID),
 			APIHash:     apiHash,
-			Status:      string(defaultCred.Status),
-			RiskPolicy:  string(defaultCred.RiskPolicy),
+			Status:      string(systemKey.Status),
+			RiskPolicy:  string(systemKey.RiskPolicy),
 		})
 		if err != nil {
 			s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
@@ -180,7 +179,7 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 		RiskLevel:    "medium",
 		IP:           c.ClientIP(),
 		UserAgent:    c.GetHeader("User-Agent"),
-		Message:      "更新 API Key 配置",
+		Message:      "更新系统 API Key 配置",
 	})
 
 	s.redirectSettingsWithSuccess(c, "API Key 配置已保存")
@@ -201,6 +200,8 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 	proxyPassword := c.PostForm("proxy_password")
 	proxyTimeout := c.PostForm("proxy_timeout")
 	proxyRemark := c.PostForm("proxy_remark")
+	testConfirmed := c.PostForm("test_result_confirmed") == "true"
+	forceSave := c.PostForm("force_save") == "true"
 
 	// 校验
 	if proxyType != "none" && proxyType != "https" && proxyType != "socks5" {
@@ -217,6 +218,12 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 		port, err := strconv.Atoi(proxyPort)
 		if err != nil || port < 1 || port > 65535 {
 			s.redirectSettingsWithError(c, "无效的代理端口")
+			return
+		}
+
+		// 启用代理时要求检测确认
+		if !testConfirmed {
+			s.redirectSettingsWithError(c, "请先检测代理连通性")
 			return
 		}
 	}
@@ -249,10 +256,16 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 		}
 	}
 
+	// 审计日志
+	auditAction := "proxy.config_saved_after_successful_test"
+	if forceSave {
+		auditAction = "proxy.config_saved_after_failed_test"
+	}
+
 	audit.Log(c.Request.Context(), s.db, audit.Event{
 		ActorType:    "admin",
 		ActorID:      fmt.Sprintf("%d", adminID),
-		Action:       "settings.proxy_updated",
+		Action:       auditAction,
 		ResourceType: "settings",
 		ResourceID:   "proxy",
 		RiskLevel:    "low",
@@ -262,6 +275,138 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 	})
 
 	s.redirectSettingsWithSuccess(c, "代理配置已保存")
+}
+
+// handlePostProxyTest 处理 POST /settings/proxy/test - 检测代理连通性。
+func (s *Server) handlePostProxyTest(c *gin.Context) {
+	proxyType := c.PostForm("proxy_type")
+	proxyHost := c.PostForm("proxy_host")
+	proxyPort := c.PostForm("proxy_port")
+	proxyUsername := c.PostForm("proxy_username")
+	proxyPassword := c.PostForm("proxy_password")
+	proxyTimeout := c.PostForm("proxy_timeout")
+
+	// 如果是 none，直接返回成功
+	if proxyType == "none" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      true,
+			"title":   "当前配置为不使用代理",
+			"message": "Telegram 连接将尝试直连。",
+		})
+		return
+	}
+
+	// 校验
+	if proxyType != "https" && proxyType != "socks5" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "invalid_config",
+			"title":   "配置无效",
+			"message": "不支持的代理类型。",
+		})
+		return
+	}
+
+	if proxyHost == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "invalid_config",
+			"title":   "配置无效",
+			"message": "代理主机不能为空。",
+		})
+		return
+	}
+
+	port, err := strconv.Atoi(proxyPort)
+	if err != nil || port < 1 || port > 65535 {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "invalid_config",
+			"title":   "配置无效",
+			"message": "代理端口无效。",
+		})
+		return
+	}
+
+	timeout := 10 * time.Second
+	if proxyTimeout != "" {
+		if t, err := strconv.Atoi(proxyTimeout); err == nil && t > 0 {
+			timeout = time.Duration(t) * time.Second
+		}
+	}
+
+	// 构建代理配置
+	config := network.ProxyConfig{
+		Type:     network.ProxyType(proxyType),
+		Host:     proxyHost,
+		Port:     port,
+		Username: proxyUsername,
+		Password: proxyPassword,
+		Timeout:  timeout,
+	}
+
+	// 创建 dialer 并测试
+	start := time.Now()
+	dialer := network.NewDialer(config)
+
+	// 测试连接 Telegram DC（使用公共测试目标）
+	testTarget := "149.154.167.50:443" // Telegram DC
+	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+	defer cancel()
+
+	conn, err := dialer.DialContext(ctx, "tcp", testTarget)
+	elapsed := time.Since(start).Milliseconds()
+
+	if err != nil {
+		// 分类错误
+		code := "proxy_connect_failed"
+		message := "无法连接到代理服务器，请检查主机地址和端口。"
+		detail := ""
+
+		errMsg := err.Error()
+		if contains(errMsg, "auth") || contains(errMsg, "407") {
+			code = "proxy_auth_failed"
+			message = "代理认证失败，请检查用户名和密码。"
+		} else if contains(errMsg, "timeout") || contains(errMsg, "deadline") {
+			code = "timeout"
+			message = "检测超时，请检查网络质量或代理可用性。"
+		} else if contains(errMsg, "CONNECT") {
+			code = "telegram_target_unreachable"
+			message = "代理已连接，但无法访问 Telegram 测试目标。"
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"ok":         false,
+			"code":       code,
+			"title":      "代理检测未通过",
+			"message":    message,
+			"detail":     detail,
+			"elapsed_ms": elapsed,
+		})
+		return
+	}
+	conn.Close()
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":         true,
+		"title":      "代理检测通过",
+		"message":    "当前代理配置可以建立连接。保存后，Atria 将使用该代理访问 Telegram MTProto API。",
+		"elapsed_ms": elapsed,
+	})
+}
+
+// contains 检查字符串是否包含子串（不区分大小写）。
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // handlePostAccountSelect 处理 POST /accounts/select - 切换当前账号。

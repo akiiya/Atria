@@ -94,6 +94,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostSettingsProxy(c)
 	})
 
+	// 代理检测
+	r.POST("/settings/proxy/test", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostProxyTest(c)
+	})
+
 	// 更新操作
 	r.POST("/settings/update/check", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostUpdateCheck(c)
@@ -113,16 +118,16 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostAccountSelect(c)
 	})
 
-	// ===== API 凭据路由 =====
+	// ===== API 凭据路由（重定向到系统设置） =====
 
-	// 凭据列表
+	// 凭据列表 - 重定向到系统设置
 	r.GET("/credentials", authMiddleware, func(c *gin.Context) {
-		s.handleGetCredentials(c)
+		c.Redirect(http.StatusFound, "/settings#telegram-api-key")
 	})
 
-	// 新增凭据页面
+	// 新增凭据页面 - 重定向到系统设置
 	r.GET("/credentials/new", authMiddleware, func(c *gin.Context) {
-		s.handleGetCredentialNew(c)
+		c.Redirect(http.StatusFound, "/settings#telegram-api-key")
 	})
 
 	// 创建凭据
