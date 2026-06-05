@@ -15,8 +15,10 @@
             {{template "topbar" .}}
             <div class="app-content">
                 <div class="page-header">
-                    <h1 class="page-title">接入账号</h1>
-                    <p class="page-desc">通过 MTProto 登录 Telegram 账号</p>
+                    <div class="page-heading">
+                        <h1 class="page-title">接入账号</h1>
+                        <p class="page-desc">通过 MTProto 登录 Telegram 账号</p>
+                    </div>
                 </div>
 
                 {{if .Error}}
