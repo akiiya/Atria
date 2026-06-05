@@ -9,10 +9,19 @@
             <button class="theme-btn" data-theme="dark" title="深色模式">🌙</button>
             <button class="theme-btn" data-theme="system" title="跟随系统">💻</button>
         </div>
-        <div class="topbar-version">
-            <span class="version-badge">v{{.Version}}</span>
-        </div>
         {{if .IsAuthenticated}}
+        <div class="topbar-settings">
+            <button class="topbar-settings-btn" onclick="toggleSettingsMenu()" title="设置">
+                ⚙️
+            </button>
+            <div class="settings-dropdown" id="settings-dropdown">
+                <a href="/settings" class="dropdown-item">系统设置</a>
+                <a href="/credentials" class="dropdown-item">Telegram API Key</a>
+                <a href="/settings/proxy" class="dropdown-item">API 网络代理</a>
+                <div class="dropdown-divider"></div>
+                <a href="/settings/update" class="dropdown-item">检查更新</a>
+            </div>
+        </div>
         <div class="topbar-user">
             <span class="user-badge">👤 {{.CurrentAdminUsername}}</span>
         </div>
@@ -23,11 +32,20 @@
             </form>
         </div>
         {{end}}
-        <div class="topbar-update">
-            <button class="btn btn-sm btn-outline" disabled title="自更新功能（Phase 8 实现）">
-                检查更新
-            </button>
-        </div>
     </div>
 </header>
+<script>
+function toggleSettingsMenu() {
+    var dropdown = document.getElementById('settings-dropdown');
+    dropdown.classList.toggle('show');
+}
+// 点击其他地方关闭下拉菜单
+document.addEventListener('click', function(e) {
+    var dropdown = document.getElementById('settings-dropdown');
+    var btn = document.querySelector('.topbar-settings-btn');
+    if (dropdown && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+        dropdown.classList.remove('show');
+    }
+});
+</script>
 {{end}}

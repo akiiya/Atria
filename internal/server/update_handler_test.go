@@ -24,7 +24,7 @@ func setupLoggedInServer(t *testing.T) (*Server, *gin.Engine, string, string) {
 
 	// 初始化管理员
 	adminSvc := NewAdminService(db)
-	_, err := adminSvc.Initialize("admin", "password123456")
+	_, err := adminSvc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化管理员失败: %s", err)
 	}

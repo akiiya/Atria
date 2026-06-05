@@ -40,7 +40,7 @@ func TestAdminService_IsInitialized_True(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("admin", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -54,12 +54,12 @@ func TestAdminService_Initialize_Duplicate(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("admin", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("第一次初始化失败: %s", err)
 	}
 
-	_, err = svc.Initialize("admin2", "password123456")
+	_, err = svc.Initialize(InitializeInput{Username: "admin2", Password: "password123456"})
 	if err == nil {
 		t.Error("重复初始化应该失败")
 	}
@@ -70,7 +70,7 @@ func TestAdminService_Initialize_PasswordHashed(t *testing.T) {
 	svc := NewAdminService(db)
 
 	password := "password123456"
-	admin, err := svc.Initialize("admin", password)
+	admin, err := svc.Initialize(InitializeInput{Username: "admin", Password: password})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -92,7 +92,7 @@ func TestAdminService_Login_Success(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("admin", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -115,7 +115,7 @@ func TestAdminService_Login_WrongPassword(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("admin", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -135,7 +135,7 @@ func TestAdminService_Login_UserNotFound(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("admin", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -155,7 +155,7 @@ func TestAdminService_ChangePassword_Success(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	admin, err := svc.Initialize("admin", "password123456")
+	admin, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -170,7 +170,7 @@ func TestAdminService_ChangePassword_OldPasswordInvalid(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	admin, err := svc.Initialize("admin", "password123456")
+	admin, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -192,7 +192,7 @@ func TestAdminService_ChangePassword_NewPasswordWorks(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	admin, err := svc.Initialize("admin", "password123456")
+	admin, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -214,7 +214,7 @@ func TestAdminService_ChangePassword_WrongCurrentPassword(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	admin, err := svc.Initialize("admin", "password123456")
+	admin, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}
@@ -229,7 +229,7 @@ func TestAdminService_Initialize_EmptyUsername(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "", Password: "password123456"})
 	if err == nil {
 		t.Error("空用户名应该失败")
 	}
@@ -239,7 +239,7 @@ func TestAdminService_Initialize_InvalidUsername(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("user@name", "password123456")
+	_, err := svc.Initialize(InitializeInput{Username: "user@name", Password: "password123456"})
 	if err == nil {
 		t.Error("包含非法字符的用户名应该失败")
 	}
@@ -249,7 +249,7 @@ func TestAdminService_Initialize_ShortPassword(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	_, err := svc.Initialize("admin", "short")
+	_, err := svc.Initialize(InitializeInput{Username: "admin", Password: "short"})
 	if err == nil {
 		t.Error("短密码应该失败")
 	}
@@ -259,7 +259,7 @@ func TestAdminService_ChangePassword_MismatchConfirm(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewAdminService(db)
 
-	admin, err := svc.Initialize("admin", "password123456")
+	admin, err := svc.Initialize(InitializeInput{Username: "admin", Password: "password123456"})
 	if err != nil {
 		t.Fatalf("初始化失败: %s", err)
 	}

@@ -1,0 +1,125 @@
+{{define "proxy.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <div class="page-heading">
+                        <h1 class="page-title">API 网络代理</h1>
+                        <p class="page-desc">配置 Telegram MTProto API 网络代理</p>
+                    </div>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">{{.Error}}</div>
+                {{end}}
+
+                {{if .Success}}
+                <div class="alert alert-success">{{.Success}}</div>
+                {{end}}
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">代理配置</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="/settings/proxy">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                            <div class="form-group">
+                                <label for="proxy_type" class="form-label">代理类型</label>
+                                <select id="proxy_type" name="proxy_type" class="form-input" onchange="toggleProxyFields()">
+                                    <option value="none" {{if eq .Proxy.proxy_type "none"}}selected{{end}}>不使用代理</option>
+                                    <option value="https" {{if eq .Proxy.proxy_type "https"}}selected{{end}}>HTTPS 代理</option>
+                                    <option value="socks5" {{if eq .Proxy.proxy_type "socks5"}}selected{{end}}>SOCKS5 代理</option>
+                                </select>
+                                <div class="form-hint">用于 Telegram MTProto API 网络连接</div>
+                            </div>
+
+                            <div id="proxy-fields" style="display: {{if eq .Proxy.proxy_type "none"}}none{{else}}block{{end}};">
+                                <div class="form-row">
+                                    <div class="form-group form-group-2">
+                                        <label for="proxy_host" class="form-label">主机地址</label>
+                                        <input type="text" id="proxy_host" name="proxy_host" class="form-input"
+                                               value="{{.Proxy.proxy_host}}" placeholder="127.0.0.1">
+                                    </div>
+                                    <div class="form-group form-group-1">
+                                        <label for="proxy_port" class="form-label">端口</label>
+                                        <input type="number" id="proxy_port" name="proxy_port" class="form-input"
+                                               value="{{.Proxy.proxy_port}}" placeholder="1080" min="1" max="65535">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group form-group-half">
+                                        <label for="proxy_username" class="form-label">用户名 <span class="init-optional">可选</span></label>
+                                        <input type="text" id="proxy_username" name="proxy_username" class="form-input"
+                                               value="{{.Proxy.proxy_username}}" placeholder="留空表示无需认证">
+                                    </div>
+                                    <div class="form-group form-group-half">
+                                        <label for="proxy_password" class="form-label">密码 <span class="init-optional">可选</span></label>
+                                        <input type="password" id="proxy_password" name="proxy_password" class="form-input"
+                                               placeholder="{{if .Proxy.has_password}}已设置，留空保持不变{{else}}留空表示无需认证{{end}}">
+                                        <div class="form-hint">密码会加密保存</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="proxy_remark" class="form-label">备注 <span class="init-optional">可选</span></label>
+                                    <input type="text" id="proxy_remark" name="proxy_remark" class="form-input"
+                                           value="{{.Proxy.proxy_remark}}" placeholder="例如：备用线路">
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">保存设置</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 16px;">
+                    <div class="card-body">
+                        <div class="security-notes">
+                            <div class="note-item">
+                                <span class="note-icon">ℹ️</span>
+                                <div class="note-content">
+                                    <strong>说明</strong>
+                                    <p>代理配置仅用于 Telegram MTProto API 连接，不影响 Atria Web 界面的访问。</p>
+                                </div>
+                            </div>
+                            <div class="note-item">
+                                <span class="note-icon">🌐</span>
+                                <div class="note-content">
+                                    <strong>适用场景</strong>
+                                    <p>在中国大陆等无法直连 Telegram 的环境，需要配置 HTTPS 或 SOCKS5 代理才能正常使用账号登录和消息功能。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+    <script>
+    function toggleProxyFields() {
+        var type = document.getElementById('proxy_type').value;
+        var fields = document.getElementById('proxy-fields');
+        fields.style.display = (type === 'none') ? 'none' : 'block';
+    }
+    </script>
+</body>
+</html>
+{{end}}

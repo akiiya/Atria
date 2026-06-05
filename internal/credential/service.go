@@ -33,8 +33,55 @@ func (s *Service) List() ([]model.APICredential, error) {
 func (s *Service) ListEnabled() ([]model.APICredential, error) {
 	var credentials []model.APICredential
 	err := s.db.Where("status = ?", model.APICredentialStatusEnabled).
-		Order("id DESC").Find(&credentials).Error
+		Order("is_default DESC, id DESC").Find(&credentials).Error
 	return credentials, err
+}
+
+// GetDefault 获取系统默认凭据。
+func (s *Service) GetDefault() (*model.APICredential, error) {
+	var cred model.APICredential
+	err := s.db.Where("is_default = ? AND status = ?", true, model.APICredentialStatusEnabled).
+		First(&cred).Error
+	if err != nil {
+		return nil, err
+	}
+	return &cred, nil
+}
+
+// SetDefault 设置指定凭据为默认。
+func (s *Service) SetDefault(id uint) error {
+	// 先取消所有默认
+	if err := s.db.Model(&model.APICredential{}).Where("is_default = ?", true).
+		Update("is_default", false).Error; err != nil {
+		return fmt.Errorf("取消默认凭据失败: %w", err)
+	}
+
+	// 设置新默认
+	if err := s.db.Model(&model.APICredential{}).Where("id = ?", id).
+		Update("is_default", true).Error; err != nil {
+		return fmt.Errorf("设置默认凭据失败: %w", err)
+	}
+
+	return nil
+}
+
+// EnsureDefault 确保存在默认凭据。如果没有任何默认凭据，将第一个启用凭据设为默认。
+func (s *Service) EnsureDefault() error {
+	// 检查是否已有默认
+	var defaultCount int64
+	s.db.Model(&model.APICredential{}).Where("is_default = ? AND status = ?", true, model.APICredentialStatusEnabled).Count(&defaultCount)
+	if defaultCount > 0 {
+		return nil
+	}
+
+	// 找第一个启用凭据
+	var cred model.APICredential
+	err := s.db.Where("status = ?", model.APICredentialStatusEnabled).Order("id ASC").First(&cred).Error
+	if err != nil {
+		return nil // 没有启用凭据，不需要设置
+	}
+
+	return s.SetDefault(cred.ID)
 }
 
 // GetByID 根据 ID 获取凭据（未删除）。
@@ -93,6 +140,11 @@ func (s *Service) Create(input CreateInput) (*model.APICredential, error) {
 	// 生成 hint
 	hint := GenerateAPIHashHint(apiHash)
 
+	// 检查是否是第一个凭据（自动设为默认）
+	var count int64
+	s.db.Model(&model.APICredential{}).Count(&count)
+	isDefault := count == 0
+
 	// 创建凭据
 	now := time.Now()
 	cred := &model.APICredential{
@@ -101,6 +153,7 @@ func (s *Service) Create(input CreateInput) (*model.APICredential, error) {
 		EncryptedAPIHash:   encrypted,
 		APIHashHint:        hint,
 		APIHashFingerprint: fingerprint,
+		IsDefault:          isDefault,
 		Status:             status,
 		RiskPolicy:         riskPolicy,
 		CreatedAt:          now,

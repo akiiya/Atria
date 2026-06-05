@@ -29,24 +29,34 @@
                 <div class="alert alert-success">{{.Success}}</div>
                 {{end}}
 
-                {{if not .HasCredentials}}
+                {{if not .HasDefaultCredential}}
                 <div class="card">
                     <div class="card-body">
                         <div class="empty-state">
                             <div class="empty-icon">🔑</div>
-                            <div class="empty-title">请先配置 API 凭据</div>
-                            <div class="empty-desc">接入账号前需要先创建至少一个 API 凭据。</div>
-                            <a href="/credentials/new" class="btn btn-primary">新增 API 凭据</a>
+                            <div class="empty-title">请先配置 Telegram API Key</div>
+                            <div class="empty-desc">接入账号前需要先配置 Telegram API Key（api_id / api_hash）。通常只需一套，多个 Telegram 账号可共用。</div>
+                            <a href="/credentials/new" class="btn btn-primary">配置 API Key</a>
                         </div>
                     </div>
                 </div>
-                {{else if not .HasSelectedCredential}}
-                <div class="card">
+
+                <div class="card" style="margin-top: 16px;">
                     <div class="card-body">
-                        <div class="empty-state">
-                            <div class="empty-icon">👆</div>
-                            <div class="empty-title">请先选择 API 凭据</div>
-                            <div class="empty-desc">请在顶部栏的下拉框中选择要使用的 API 凭据。</div>
+                        <div class="init-guide">
+                            <div class="guide-header">
+                                <span class="guide-icon">📖</span>
+                                <strong>如何获取 API Key</strong>
+                            </div>
+                            <ol class="guide-steps">
+                                <li>前往 <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a></li>
+                                <li>使用你的 Telegram 手机号登录</li>
+                                <li>进入 <strong>API development tools</strong></li>
+                                <li>创建 application，复制 <strong>api_id</strong> 和 <strong>api_hash</strong></li>
+                            </ol>
+                            <div class="guide-note">
+                                <strong>💡 提示：</strong>通常只需申请一套 API Key。之后接入其它 Telegram 账号时，直接使用手机号 + 验证码登录，无需重复申请。
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -58,10 +68,11 @@
                     <div class="card-body">
                         <div class="info-list" style="margin-bottom: 20px;">
                             <div class="info-row">
-                                <span class="info-label">当前 API 凭据</span>
-                                <span class="info-value">{{.SelectedCredentialName}}</span>
+                                <span class="info-label">使用 API Key</span>
+                                <span class="info-value">{{.DefaultCredentialName}}</span>
                             </div>
                         </div>
+                        <p class="form-hint" style="margin-bottom: 16px;">通常不需要为每个 Telegram 账号单独申请 API Key。</p>
 
                         <form method="POST" action="/accounts/login/start">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -85,13 +96,6 @@
                 <div class="card" style="margin-top: 16px;">
                     <div class="card-body">
                         <div class="security-notes">
-                            <div class="note-item">
-                                <span class="note-icon">ℹ️</span>
-                                <div class="note-content">
-                                    <strong>说明</strong>
-                                    <p>本阶段仅完成登录流程框架。验证码发送将在下一阶段实现。</p>
-                                </div>
-                            </div>
                             <div class="note-item">
                                 <span class="note-icon">🔒</span>
                                 <div class="note-content">

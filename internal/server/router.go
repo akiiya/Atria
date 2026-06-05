@@ -100,6 +100,14 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostUpdateDryRun(c)
 	})
 
+	// 代理设置
+	r.GET("/settings/proxy", authMiddleware, func(c *gin.Context) {
+		s.handleGetProxySettings(c)
+	})
+	r.POST("/settings/proxy", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostProxySettings(c)
+	})
+
 	// ===== API 凭据路由 =====
 
 	// 凭据列表
