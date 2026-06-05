@@ -1466,3 +1466,211 @@ func TestRouter_AccountLogin_NoAPIHashLeak(t *testing.T) {
 		t.Error("账号接入页不应泄露 api_hash 明文")
 	}
 }
+
+// ===== 系统 API Key 保存后状态测试 =====
+
+func TestSettings_SaveSystemAPIKey_CreatesEnabledDefaultKey(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	// 保存 API Key
+	w = httptest.NewRecorder()
+	body := "api_display_name=Test+API&api_id=12345678&api_hash=abcdef0123456789abcdef0123456789&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/settings/api-key", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	// 应重定向到 /settings
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+
+	// 验证数据库
+	var cred model.APICredential
+	srv.db.Where("status = ?", "enabled").First(&cred)
+
+	if cred.ID == 0 {
+		t.Fatal("应存在启用的凭据")
+	}
+	if !cred.IsDefault {
+		t.Error("应为默认凭据")
+	}
+	if cred.Status != "enabled" {
+		t.Errorf("Status 应为 enabled，实际=%s", cred.Status)
+	}
+	if cred.APIID != 12345678 {
+		t.Errorf("APIID 应为 12345678，实际=%d", cred.APIID)
+	}
+	if cred.EncryptedAPIHash == "abcdef0123456789abcdef0123456789" {
+		t.Error("EncryptedAPIHash 不应是明文")
+	}
+}
+
+func TestSettings_SaveSystemAPIKey_ThenGetSettingsShowsDisplayMode(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	// 保存 API Key
+	w = httptest.NewRecorder()
+	body := "api_display_name=Test+API&api_id=12345678&api_hash=abcdef0123456789abcdef0123456789&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/settings/api-key", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	// 再次获取设置页面
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body = w.Body.String()
+
+	// 应显示展示态
+	if !strings.Contains(body, "修改配置") {
+		t.Error("应显示'修改配置'按钮")
+	}
+	if !strings.Contains(body, "Test API") {
+		t.Error("应显示自定义名称")
+	}
+	// 脱敏 API ID
+	if !strings.Contains(body, "12****78") {
+		t.Error("应显示脱敏 API ID")
+	}
+	// 脱敏 API Hash
+	if !strings.Contains(body, "abcd") {
+		t.Error("应显示脱敏 API Hash")
+	}
+	// 不应显示 API Hash 明文
+	if strings.Contains(body, "abcdef0123456789abcdef0123456789") {
+		t.Error("不应显示 API Hash 明文")
+	}
+
+	// 验证数据库中有记录
+	var cred model.APICredential
+	srv.db.Where("is_default = ? AND status = ?", true, "enabled").First(&cred)
+	if cred.ID == 0 {
+		t.Error("数据库应存在默认启用凭据")
+	}
+}
+
+func TestSettings_SaveSystemAPIKey_ThenAccountsNoLongerShowsConfigurePrompt(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	// 保存 API Key
+	w = httptest.NewRecorder()
+	body := "api_display_name=Test+API&api_id=12345678&api_hash=abcdef0123456789abcdef0123456789&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/settings/api-key", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	// 获取账号页面
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/accounts", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body = w.Body.String()
+
+	// 不应再提示配置 API Key
+	if strings.Contains(body, "请先配置 Telegram API Key") {
+		t.Error("已配置 API Key 后，/accounts 不应再提示配置")
+	}
+	// 应显示接入账号按钮
+	if !strings.Contains(body, "接入账号") {
+		t.Error("应显示'接入账号'按钮")
+	}
+}
+
+func TestSettings_SaveSystemAPIKey_ThenAccountLoginShowsPhoneForm(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	// 保存 API Key
+	w = httptest.NewRecorder()
+	body := "api_display_name=Test+API&api_id=12345678&api_hash=abcdef0123456789abcdef0123456789&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/settings/api-key", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	// 获取账号登录页面
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body = w.Body.String()
+
+	// 应显示手机号输入框
+	if !strings.Contains(body, "手机号") {
+		t.Error("应显示手机号输入框")
+	}
+	// 应显示使用 API Key 说明
+	if !strings.Contains(body, "使用 API Key") {
+		t.Error("应显示使用 API Key 说明")
+	}
+	// 不应提示配置 API Key
+	if strings.Contains(body, "请先配置 Telegram API Key") {
+		t.Error("已配置 API Key 后，/accounts/login 不应再提示配置")
+	}
+}

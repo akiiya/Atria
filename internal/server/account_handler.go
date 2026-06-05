@@ -31,16 +31,16 @@ func (s *Server) handleGetAccounts(c *gin.Context) {
 		return
 	}
 
-	// 获取默认凭据信息
+	// 获取系统 API Key
 	credSvc := credential.NewService(s.db, s.key)
-	defaultCred, err := credSvc.GetDefault()
-	hasDefault := err == nil && defaultCred != nil
+	systemKey, _ := credSvc.GetSystemAPIKey()
+	hasSystemKey := systemKey != nil
 
 	data := s.newAccountViewData(c, "accounts")
 	data["Accounts"] = accounts
-	data["HasDefaultCredential"] = hasDefault
-	if hasDefault {
-		data["DefaultCredentialName"] = defaultCred.DisplayName
+	data["HasDefaultCredential"] = hasSystemKey
+	if hasSystemKey {
+		data["DefaultCredentialName"] = systemKey.DisplayName
 	}
 	c.HTML(http.StatusOK, "accounts.html", data)
 }
@@ -49,16 +49,16 @@ func (s *Server) handleGetAccounts(c *gin.Context) {
 func (s *Server) handleGetAccountLogin(c *gin.Context) {
 	credSvc := credential.NewService(s.db, s.key)
 
-	// 获取默认凭据
-	defaultCred, err := credSvc.GetDefault()
-	hasDefault := err == nil && defaultCred != nil
+	// 获取系统 API Key
+	systemKey, _ := credSvc.GetSystemAPIKey()
+	hasSystemKey := systemKey != nil
 
 	data := s.newAccountViewData(c, "accounts")
-	data["HasDefaultCredential"] = hasDefault
+	data["HasDefaultCredential"] = hasSystemKey
 
-	if hasDefault {
-		data["DefaultCredentialName"] = defaultCred.DisplayName
-		data["DefaultCredentialID"] = defaultCred.ID
+	if hasSystemKey {
+		data["DefaultCredentialName"] = systemKey.DisplayName
+		data["DefaultCredentialID"] = systemKey.ID
 	}
 
 	c.HTML(http.StatusOK, "account_login.html", data)
@@ -66,31 +66,31 @@ func (s *Server) handleGetAccountLogin(c *gin.Context) {
 
 // handlePostAccountLoginStart 处理 POST /accounts/login/start - 开始登录流程。
 func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
-	// 使用默认凭据
+	// 使用系统 API Key
 	credSvc := credential.NewService(s.db, s.key)
-	defaultCred, err := credSvc.GetDefault()
-	if err != nil || defaultCred == nil {
+	systemKey, _ := credSvc.GetSystemAPIKey()
+	if systemKey == nil {
 		data := s.newAccountViewData(c, "accounts")
-		data["Error"] = "请先配置 Telegram API Key"
+		data["Error"] = "请先在系统设置中配置 Telegram API Key"
 		data["HasDefaultCredential"] = false
 		c.HTML(http.StatusOK, "account_login.html", data)
 		return
 	}
 
-	credID := defaultCred.ID
+	credID := systemKey.ID
 
 	phone := c.PostForm("phone")
 	if err := account.ValidatePhone(phone); err != nil {
 		data := s.newAccountViewData(c, "accounts")
 		data["Error"] = err.Error()
 		data["HasDefaultCredential"] = true
-		data["DefaultCredentialName"] = defaultCred.DisplayName
+		data["DefaultCredentialName"] = systemKey.DisplayName
 		data["DefaultCredentialID"] = credID
 		c.HTML(http.StatusOK, "account_login.html", data)
 		return
 	}
 
-	apiHash, err := security.DecryptAPIHash(s.key, defaultCred.EncryptedAPIHash)
+	apiHash, err := security.DecryptAPIHash(s.key, systemKey.EncryptedAPIHash)
 	if err != nil {
 		slog.Error("解密 api_hash 失败", "error", err)
 		RenderError(c, http.StatusInternalServerError, "服务器错误", "解密凭据失败")
@@ -100,7 +100,7 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 	flowID := fmt.Sprintf("flow_%d_%s", credID, crypto.Fingerprint(phone)[:8])
 	phoneEncrypted, phoneFingerprint, _ := security.EncryptPhone(s.key, phone)
 
-	flow := mtproto.NewLoginFlow(flowID, credID, int(defaultCred.APIID), phoneEncrypted, phoneFingerprint)
+	flow := mtproto.NewLoginFlow(flowID, credID, int(systemKey.APIID), phoneEncrypted, phoneFingerprint)
 	if err := s.flowStore.Create(c.Request.Context(), flow); err != nil {
 		RenderError(c, http.StatusInternalServerError, "操作失败", "创建登录流程失败")
 		return
@@ -109,7 +109,7 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
 	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
 		APICredentialID: credID,
-		APIID:           int(defaultCred.APIID),
+		APIID:           int(systemKey.APIID),
 		APIHash:         apiHash,
 		Phone:           phone,
 		FlowID:          flowID,
@@ -124,7 +124,7 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 		data := s.newAccountViewData(c, "accounts")
 		data["Error"] = errMsg
 		data["HasDefaultCredential"] = true
-		data["DefaultCredentialName"] = defaultCred.DisplayName
+		data["DefaultCredentialName"] = systemKey.DisplayName
 		data["DefaultCredentialID"] = credID
 		c.HTML(http.StatusOK, "account_login.html", data)
 		return

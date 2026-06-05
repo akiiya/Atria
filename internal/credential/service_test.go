@@ -799,3 +799,111 @@ func TestService_Delete_DefaultCredential_Protected(t *testing.T) {
 		t.Errorf("错误提示应包含'默认凭据'，实际=%s", err.Error())
 	}
 }
+
+// ===== GetSystemAPIKey 测试 =====
+
+func TestService_GetSystemAPIKey_ReadAfterWrite(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	// 创建一个 API Key
+	created, err := svc.Create(CreateInput{
+		DisplayName: "Test API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	if err != nil {
+		t.Fatalf("创建凭据失败: %s", err)
+	}
+
+	// 立即读取系统 API Key
+	systemKey, err := svc.GetSystemAPIKey()
+	if err != nil {
+		t.Fatalf("GetSystemAPIKey 失败: %s", err)
+	}
+	if systemKey == nil {
+		t.Fatal("GetSystemAPIKey 不应返回 nil")
+	}
+
+	// 验证字段
+	if systemKey.ID != created.ID {
+		t.Errorf("ID 不匹配，期望=%d，实际=%d", created.ID, systemKey.ID)
+	}
+	if systemKey.DisplayName != "Test API" {
+		t.Errorf("DisplayName 不匹配，期望=Test API，实际=%s", systemKey.DisplayName)
+	}
+	if !systemKey.IsDefault {
+		t.Error("应为默认凭据")
+	}
+	if systemKey.Status != model.APICredentialStatusEnabled {
+		t.Errorf("Status 应为 enabled，实际=%s", systemKey.Status)
+	}
+	if systemKey.APIID != 12345678 {
+		t.Errorf("APIID 应为 12345678，实际=%d", systemKey.APIID)
+	}
+	// API Hash 不应是明文
+	if systemKey.EncryptedAPIHash == "abcdef0123456789abcdef0123456789" {
+		t.Error("EncryptedAPIHash 不应是明文")
+	}
+}
+
+func TestService_GetSystemAPIKey_NoEnabledKey_ReturnsNil(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	// 没有任何凭据时
+	systemKey, err := svc.GetSystemAPIKey()
+	if err != nil {
+		t.Fatalf("GetSystemAPIKey 失败: %s", err)
+	}
+	if systemKey != nil {
+		t.Error("没有启用凭据时应返回 nil")
+	}
+}
+
+func TestService_GetSystemAPIKey_LegacyEnabledKey_AutoSetDefault(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	// 创建一个凭据
+	created, err := svc.Create(CreateInput{
+		DisplayName: "Legacy API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	if err != nil {
+		t.Fatalf("创建凭据失败: %s", err)
+	}
+
+	// 手动将 is_default 设为 false（模拟旧数据）
+	db.Model(&model.APICredential{}).Where("id = ?", created.ID).Update("is_default", false)
+
+	// 验证 GetDefault 找不到
+	defaultCred, _ := svc.GetDefault()
+	if defaultCred != nil {
+		t.Error("GetDefault 不应找到非默认凭据")
+	}
+
+	// GetSystemAPIKey 应能找到并自动设为默认
+	systemKey, err := svc.GetSystemAPIKey()
+	if err != nil {
+		t.Fatalf("GetSystemAPIKey 失败: %s", err)
+	}
+	if systemKey == nil {
+		t.Fatal("GetSystemAPIKey 不应返回 nil")
+	}
+	if systemKey.ID != created.ID {
+		t.Errorf("ID 不匹配，期望=%d，实际=%d", created.ID, systemKey.ID)
+	}
+
+	// 验证已被设为默认
+	var updated model.APICredential
+	db.First(&updated, created.ID)
+	if !updated.IsDefault {
+		t.Error("GetSystemAPIKey 应自动将启用凭据设为默认")
+	}
+}

@@ -48,6 +48,32 @@ func (s *Service) GetDefault() (*model.APICredential, error) {
 	return &cred, nil
 }
 
+// GetSystemAPIKey 获取系统 API Key。
+// 优先返回 is_default=true 且 enabled 的记录。
+// 如果没有默认记录但有启用记录，自动将第一条启用记录设为默认。
+// 如果没有任何启用记录，返回 nil。
+func (s *Service) GetSystemAPIKey() (*model.APICredential, error) {
+	// 先尝试获取默认记录
+	cred, err := s.GetDefault()
+	if err == nil && cred != nil {
+		return cred, nil
+	}
+
+	// 没有默认记录，找第一条启用记录
+	var enabled model.APICredential
+	err = s.db.Where("status = ?", model.APICredentialStatusEnabled).
+		Order("id ASC").First(&enabled).Error
+	if err != nil {
+		return nil, nil // 没有启用记录
+	}
+
+	// 自动设为默认
+	s.db.Model(&model.APICredential{}).Where("id = ?", enabled.ID).Update("is_default", true)
+	enabled.IsDefault = true
+
+	return &enabled, nil
+}
+
 // SetDefault 设置指定凭据为默认。
 func (s *Service) SetDefault(id uint) error {
 	// 先取消所有默认
