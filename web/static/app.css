@@ -171,6 +171,35 @@ code {
     overflow-y: auto;
 }
 
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.brand-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+}
+
+.brand-mark svg {
+    width: 100%;
+    height: 100%;
+}
+
+.brand-name {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-inverse);
+    letter-spacing: -0.02em;
+}
+
 .sidebar-header {
     padding: 16px 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -347,7 +376,17 @@ code {
    ============================================ */
 
 .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
     margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.page-heading {
+    flex: 1;
+    min-width: 0;
 }
 
 .page-title {
@@ -360,6 +399,13 @@ code {
 .page-desc {
     font-size: 0.9rem;
     color: var(--text-secondary);
+}
+
+.page-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
 }
 
 /* ============================================
@@ -1127,8 +1173,22 @@ code {
         padding: 16px;
     }
 
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .page-actions {
+        width: 100%;
+    }
+
+    .credential-switcher {
+        width: 100%;
+    }
+
     .credential-select {
-        min-width: 160px;
+        min-width: 0;
+        flex: 1;
     }
 }
 

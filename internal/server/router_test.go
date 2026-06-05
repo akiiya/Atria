@@ -795,8 +795,12 @@ func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
 		"app-layout",
 		"app-main",
 		"topbar",
-		"topbar-left",
 		"topbar-right",
+		"sidebar-brand",
+		"brand-name",
+		"page-header",
+		"page-heading",
+		"page-actions",
 		"credential-switcher",
 		"app-content",
 		"sidebar",
@@ -808,7 +812,7 @@ func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
 	}
 }
 
-func TestRouter_LoggedIn_Dashboard_CredentialSwitcherInTopbar(t *testing.T) {
+func TestRouter_LoggedIn_Dashboard_CredentialSwitcherInPageHeader(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
@@ -821,18 +825,50 @@ func TestRouter_LoggedIn_Dashboard_CredentialSwitcherInTopbar(t *testing.T) {
 
 	body := w.Body.String()
 
-	// credential-switcher 必须在 topbar-left 内部
-	topbarLeftIdx := strings.Index(body, "topbar-left")
+	// credential-switcher 必须在 page-header 内部
+	pageHeaderIdx := strings.Index(body, "page-header")
 	credentialIdx := strings.Index(body, "credential-switcher")
-	topbarRightIdx := strings.Index(body, "topbar-right")
+	pageBodyIdx := strings.Index(body, "page-body")
 
-	if topbarLeftIdx < 0 || credentialIdx < 0 || topbarRightIdx < 0 {
-		t.Fatal("页面缺少 topbar-left / credential-switcher / topbar-right")
+	if pageHeaderIdx < 0 || credentialIdx < 0 {
+		t.Fatal("页面缺少 page-header / credential-switcher")
 	}
 
-	// credential-switcher 应在 topbar-left 之后、topbar-right 之前
-	if credentialIdx < topbarLeftIdx || credentialIdx > topbarRightIdx {
-		t.Error("credential-switcher 应在 topbar-left 和 topbar-right 之间")
+	// 如果有 page-body，credential-switcher 应在 page-header 之后、page-body 之前
+	// 否则 credential-switcher 应在 page-header 之后
+	if pageBodyIdx > 0 {
+		if credentialIdx < pageHeaderIdx || credentialIdx > pageBodyIdx {
+			t.Error("credential-switcher 应在 page-header 和 page-body 之间")
+		}
+	} else {
+		if credentialIdx < pageHeaderIdx {
+			t.Error("credential-switcher 应在 page-header 之后")
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_NoCredentialSwitcherInTopbar(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// topbar 内不应包含 credential-switcher
+	topbarStart := strings.Index(body, "topbar")
+	topbarEnd := strings.Index(body, "</header>")
+	credentialIdx := strings.Index(body, "credential-switcher")
+
+	if topbarStart >= 0 && topbarEnd > 0 && credentialIdx >= 0 {
+		if credentialIdx > topbarStart && credentialIdx < topbarEnd {
+			t.Error("credential-switcher 不应在 topbar 内")
+		}
 	}
 }
 
