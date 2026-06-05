@@ -616,3 +616,157 @@ func TestRouter_Cookie_NotContainsPlaintextUsername(t *testing.T) {
 		t.Error("Cookie 不应包含明文用户名")
 	}
 }
+
+// ===== 模板内容验证测试 =====
+
+func TestRouter_Uninitialized_InitPage_HasInitForm(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
+	}
+
+	body := w.Body.String()
+
+	// 必须包含初始化相关内容
+	mustContain := []string{
+		"初始化管理员",
+		"管理员用户名",
+		"管理员密码",
+		"确认密码",
+		"form",
+		`action="/init"`,
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("/init 页面缺少 %q", s)
+		}
+	}
+}
+
+func TestRouter_Uninitialized_InitPage_NotLoginForm(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不得包含登录相关内容
+	mustNotContain := []string{
+		`action="/login"`,
+		`action="/logout"`,
+		"credential-switcher",
+		`href="/accounts"`,
+		`href="/credentials"`,
+		`href="/audit"`,
+		`href="/settings"`,
+		"账号会话",
+		"API 凭据",
+		"审计日志",
+		"系统设置",
+		"sidebar",
+	}
+	for _, s := range mustNotContain {
+		if strings.Contains(body, s) {
+			t.Errorf("/init 页面不应包含 %q", s)
+		}
+	}
+}
+
+func TestRouter_Initialized_LoginPage_HasLoginForm(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// 先初始化管理员
+	initAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
+	}
+
+	body := w.Body.String()
+
+	// 必须包含登录相关内容
+	mustContain := []string{
+		"用户名",
+		"密码",
+		"登录",
+		`action="/login"`,
+		"form",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("/login 页面缺少 %q", s)
+		}
+	}
+}
+
+func TestRouter_Initialized_LoginPage_NotInitForm(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// 先初始化管理员
+	initAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不得包含初始化相关内容
+	mustNotContain := []string{
+		"确认密码",
+		"初始化管理员",
+		`action="/init"`,
+		"credential-switcher",
+		`href="/accounts"`,
+		`href="/credentials"`,
+		`href="/audit"`,
+		"sidebar",
+	}
+	for _, s := range mustNotContain {
+		if strings.Contains(body, s) {
+			t.Errorf("/login 页面不应包含 %q", s)
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_HasSidebar(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// 初始化并登录
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
+	}
+
+	body := w.Body.String()
+
+	// 已登录后台必须包含 sidebar 导航
+	mustContain := []string{
+		`href="/"`,
+		`href="/accounts"`,
+		`href="/credentials"`,
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("后台页面缺少导航 %q", s)
+		}
+	}
+}

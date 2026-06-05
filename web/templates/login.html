@@ -1,4 +1,4 @@
-{{define "login.html"}}
+{{define "login_page"}}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -9,50 +9,62 @@
     {{template "theme_script" .}}
 </head>
 <body>
-    <div class="login-page">
-        <div class="login-container">
-            <div class="card login-card">
-                <div class="login-header">
-                    <h1 class="login-logo">Atria</h1>
-                    <p class="login-subtitle">MTProto Session 管理面板</p>
-                </div>
-                <div class="card-body">
-                    {{if .Error}}
-                    <div class="alert alert-error">
-                        {{.Error}}
-                    </div>
-                    {{end}}
-
-                    {{if .Flash}}
-                    <div class="alert alert-success">
-                        {{if eq .Flash "password_changed"}}密码修改成功，请重新登录。{{end}}
-                    </div>
-                    {{end}}
-
-                    <form class="login-form" method="POST" action="/login">
-                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-
-                        <div class="form-group">
-                            <label for="username" class="form-label">用户名</label>
-                            <input type="text" id="username" name="username" class="form-input"
-                                   placeholder="请输入用户名" required autofocus>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="password" class="form-label">密码</label>
-                            <input type="password" id="password" name="password" class="form-input"
-                                   placeholder="请输入密码" required>
-                        </div>
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary btn-lg btn-block">
-                                登录
-                            </button>
-                        </div>
-                    </form>
-                </div>
+    <div class="auth-shell">
+        <header class="auth-topbar">
+            <div class="auth-topbar-left">
+                <span class="auth-logo">Atria</span>
             </div>
-        </div>
+            <div class="auth-topbar-right">
+                <div class="theme-switcher">
+                    <button class="theme-btn" data-theme="light" title="浅色模式">☀️</button>
+                    <button class="theme-btn" data-theme="dark" title="深色模式">🌙</button>
+                    <button class="theme-btn" data-theme="system" title="跟随系统">💻</button>
+                </div>
+                <span class="version-badge">v{{.Version}}</span>
+            </div>
+        </header>
+        <main class="auth-main">
+            <div class="auth-card">
+                <div class="auth-card-header">
+                    <h1 class="auth-card-title">Atria</h1>
+                    <p class="auth-card-desc">MTProto Session 管理面板</p>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">
+                    {{.Error}}
+                </div>
+                {{end}}
+
+                {{if .Flash}}
+                <div class="alert alert-success">
+                    {{if eq .Flash "password_changed"}}密码修改成功，请重新登录。{{end}}
+                </div>
+                {{end}}
+
+                <form class="auth-form" method="POST" action="/login">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                    <div class="form-group">
+                        <label for="username" class="form-label">用户名</label>
+                        <input type="text" id="username" name="username" class="form-input"
+                               placeholder="请输入用户名" required autofocus>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password" class="form-label">密码</label>
+                        <input type="password" id="password" name="password" class="form-input"
+                               placeholder="请输入密码" required>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg btn-block">
+                            登录
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </main>
     </div>
     <script src="/static/app.js"></script>
 </body>
