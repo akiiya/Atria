@@ -9,6 +9,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/user/atria/internal/config"
+	"github.com/user/atria/internal/credential"
 	"github.com/user/atria/internal/model"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ func setupTestServer(t *testing.T) (*Server, *gorm.DB) {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(&model.Admin{}, &model.AuditLog{}, &model.APICredential{}, &model.TelegramAccount{}); err != nil {
+	if err := db.AutoMigrate(&model.Admin{}, &model.AuditLog{}, &model.APICredential{}, &model.TelegramAccount{}, &model.SystemSetting{}); err != nil {
 		t.Fatalf("数据库迁移失败: %s", err)
 	}
 
@@ -1045,5 +1046,464 @@ func TestRouter_Initialized_LoginPage_NoSidebarBrand(t *testing.T) {
 
 	if strings.Contains(body, "sidebar-brand") {
 		t.Error("/login 页面不应包含 sidebar-brand")
+	}
+}
+
+// ===== 初始化 API Key 测试 =====
+
+func TestRouter_InitPage_HasAPIKeyFields(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	mustContain := []string{
+		"Telegram API Key",
+		"api_id",
+		"api_hash",
+		"api_display_name",
+		"my.telegram.org",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("/init 页面缺少 API Key 字段 %q", s)
+		}
+	}
+}
+
+func TestRouter_InitPage_HasAPIKeyGuide(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	mustContain := []string{
+		"如何获取 API Key",
+		"API development tools",
+		"通常只需申请一套 API Key",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("/init 页面缺少 API Key 申请指南 %q", s)
+		}
+	}
+}
+
+func TestRouter_InitPage_HasSecurityInfo(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	mustContain := []string{
+		"secret.key",
+		"AES-256-GCM",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("/init 页面缺少安全说明 %q", s)
+		}
+	}
+}
+
+func TestRouter_PostInit_WithAPIKey_CreatesDefaultCredential(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	var csrfCookie string
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	// 提交初始化表单（带 API Key）
+	w = httptest.NewRecorder()
+	body := "username=admin&password=password123456&confirm_password=password123456" +
+		"&api_display_name=Test+API&api_id=12345678&api_hash=abcdef0123456789abcdef0123456789" +
+		"&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/init", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+
+	// 验证创建了默认凭据
+	var credCount int64
+	srv.db.Model(&model.APICredential{}).Count(&credCount)
+	if credCount != 1 {
+		t.Errorf("应创建 1 个凭据，实际=%d", credCount)
+	}
+
+	var cred model.APICredential
+	srv.db.First(&cred)
+	if !cred.IsDefault {
+		t.Error("初始化创建的凭据应为默认")
+	}
+	if cred.DisplayName != "Test API" {
+		t.Errorf("凭据名称应为 Test API，实际=%s", cred.DisplayName)
+	}
+	if cred.APIID != 12345678 {
+		t.Errorf("API ID 应为 12345678，实际=%d", cred.APIID)
+	}
+}
+
+func TestRouter_PostInit_WithoutAPIKey_StillSucceeds(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	var csrfCookie string
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	// 提交初始化表单（不带 API Key）
+	w = httptest.NewRecorder()
+	body := "username=admin&password=password123456&confirm_password=password123456&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/init", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+
+	// 验证没有创建凭据
+	var credCount int64
+	srv.db.Model(&model.APICredential{}).Count(&credCount)
+	if credCount != 0 {
+		t.Errorf("跳过 API Key 时不应创建凭据，实际=%d", credCount)
+	}
+}
+
+func TestRouter_PostInit_APIHash_NotStoredPlaintext(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	// 获取 CSRF token
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	var csrfCookie string
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			csrfCookie = cookie.Value
+		}
+	}
+
+	apiHash := "abcdef0123456789abcdef0123456789"
+
+	// 提交初始化表单
+	w = httptest.NewRecorder()
+	body := "username=admin&password=password123456&confirm_password=password123456" +
+		"&api_id=12345678&api_hash=" + apiHash +
+		"&csrf_token=" + csrfCookie
+	req, _ = http.NewRequest("POST", "/init", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	// 验证 api_hash 不是明文存储
+	var cred model.APICredential
+	srv.db.First(&cred)
+	if cred.EncryptedAPIHash == apiHash {
+		t.Error("api_hash 不应明文存储")
+	}
+	if cred.EncryptedAPIHash == "" {
+		t.Error("encrypted_api_hash 不应为空")
+	}
+}
+
+func TestRouter_InitPage_NoAPIHashLeak(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 页面不应包含任何 api_hash 明文
+	if strings.Contains(body, "abcdef0123456789") {
+		t.Error("初始化页面不应泄露 api_hash")
+	}
+}
+
+// ===== 导航收口测试 =====
+
+func TestRouter_LoggedIn_Dashboard_NoAPICredentialNav(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不应包含旧的 API 凭据主导航
+	if strings.Contains(body, `href="/credentials"`) && strings.Contains(body, "API 凭据") {
+		// 检查是否在 sidebar 中（不在 settings dropdown 中）
+		sidebarIdx := strings.Index(body, "sidebar-nav")
+		settingsIdx := strings.Index(body, "settings-dropdown")
+		credIdx := strings.Index(body, `href="/credentials"`)
+
+		if credIdx > sidebarIdx && credIdx < settingsIdx {
+			t.Error("sidebar 主导航不应包含 API 凭据入口")
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_NoSystemSettingsNav(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 检查 sidebar 中没有系统设置
+	sidebarIdx := strings.Index(body, "sidebar-nav")
+	footerIdx := strings.Index(body, "sidebar-footer")
+	settingsLinkIdx := strings.Index(body, `href="/settings"`)
+
+	// 如果 /settings 链接在 sidebar-nav 和 sidebar-footer 之间，则有问题
+	if settingsLinkIdx > sidebarIdx && settingsLinkIdx < footerIdx {
+		// 检查是否是 "系统设置" 文字
+		settingsTextIdx := strings.Index(body, "系统设置")
+		if settingsTextIdx > sidebarIdx && settingsTextIdx < footerIdx {
+			t.Error("sidebar 主导航不应包含系统设置入口")
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_HasSettingsDropdown(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	mustContain := []string{
+		"settings-dropdown",
+		"topbar-settings",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("仪表盘页面缺少设置菜单 %q", s)
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_SettingsMenuHasProxyLink(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "/settings/proxy") {
+		t.Error("设置菜单应包含 API 网络代理入口")
+	}
+}
+
+func TestRouter_LoginPage_NoSettingsDropdown(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "settings-dropdown") {
+		t.Error("登录页不应包含设置菜单")
+	}
+}
+
+func TestRouter_InitPage_NoSettingsDropdown(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "settings-dropdown") {
+		t.Error("初始化页不应包含设置菜单")
+	}
+}
+
+// ===== 账号接入页测试 =====
+
+func TestRouter_AccountLogin_WithDefaultCredential_ShowsPhoneInput(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建默认凭据
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	mustContain := []string{
+		"手机号",
+		"开始登录",
+		"Default API",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("账号接入页缺少 %q", s)
+		}
+	}
+}
+
+func TestRouter_AccountLogin_WithoutDefaultCredential_ShowsConfigGuide(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	mustContain := []string{
+		"请先配置 Telegram API Key",
+		"配置 API Key",
+		"如何获取 API Key",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("账号接入页缺少配置引导 %q", s)
+		}
+	}
+}
+
+func TestRouter_AccountLogin_NoOldCredentialSelectorPrompt(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建默认凭据
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不应包含旧的提示
+	mustNotContain := []string{
+		"顶部栏的下拉框",
+		"请先在顶部栏选择",
+		"请先选择 API 凭据",
+	}
+	for _, s := range mustNotContain {
+		if strings.Contains(body, s) {
+			t.Errorf("账号接入页不应包含旧提示 %q", s)
+		}
+	}
+}
+
+func TestRouter_AccountLogin_NoAPIHashLeak(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	apiHash := "abcdef0123456789abcdef0123456789"
+
+	// 创建凭据
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     apiHash,
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, apiHash) {
+		t.Error("账号接入页不应泄露 api_hash 明文")
 	}
 }

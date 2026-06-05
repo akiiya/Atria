@@ -243,6 +243,7 @@ func (s *Service) Update(id uint, input UpdateInput) (*model.APICredential, erro
 }
 
 // UpdateStatus 更新凭据状态。
+// 禁用默认凭据时，如果有其它启用凭据则自动切换默认；否则阻止禁用。
 func (s *Service) UpdateStatus(id uint, statusStr string) error {
 	status, err := ValidateStatus(statusStr)
 	if err != nil {
@@ -254,6 +255,25 @@ func (s *Service) UpdateStatus(id uint, statusStr string) error {
 		return fmt.Errorf("凭据不存在")
 	}
 
+	// 禁用默认凭据时的保护逻辑
+	if status == model.APICredentialStatusDisabled && cred.IsDefault {
+		// 检查是否有其它启用凭据
+		var otherEnabled int64
+		s.db.Model(&model.APICredential{}).
+			Where("id != ? AND status = ? AND deleted_at IS NULL", id, model.APICredentialStatusEnabled).
+			Count(&otherEnabled)
+
+		if otherEnabled == 0 {
+			return fmt.Errorf("不能禁用唯一的默认凭据，请先创建其它启用凭据")
+		}
+
+		// 自动切换默认到第一个其它启用凭据
+		var newDefault model.APICredential
+		s.db.Where("id != ? AND status = ? AND deleted_at IS NULL", id, model.APICredentialStatusEnabled).
+			Order("id ASC").First(&newDefault)
+		s.db.Model(&model.APICredential{}).Where("id = ?", newDefault.ID).Update("is_default", true)
+	}
+
 	cred.Status = status
 	cred.UpdatedAt = time.Now()
 
@@ -261,11 +281,16 @@ func (s *Service) UpdateStatus(id uint, statusStr string) error {
 }
 
 // Delete 删除凭据（软删除）。
-// 如果已绑定 Telegram 账号，则禁止删除。
+// 如果已绑定 Telegram 账号或为默认凭据，则禁止删除。
 func (s *Service) Delete(id uint) error {
 	cred, err := s.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("凭据不存在")
+	}
+
+	// 检查是否是默认凭据
+	if cred.IsDefault {
+		return fmt.Errorf("不能删除默认凭据，请先切换默认凭据后再删除")
 	}
 
 	// 检查是否已绑定 Telegram 账号
