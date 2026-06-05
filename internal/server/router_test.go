@@ -487,21 +487,26 @@ func TestRouter_NotLoggedIn_GetCredentials_RedirectsToLogin(t *testing.T) {
 	}
 }
 
-func TestRouter_LoggedIn_GetCredentials_Returns200(t *testing.T) {
+func TestRouter_LoggedIn_GetCredentials_RedirectsToSettings(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
 	// 初始化并登录
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// 访问 /credentials
+	// 访问 /credentials 应重定向到 /settings
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/credentials", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际=%d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+
+	location := w.Header().Get("Location")
+	if !strings.Contains(location, "/settings") {
+		t.Errorf("应重定向到 /settings，实际=%s", location)
 	}
 }
 

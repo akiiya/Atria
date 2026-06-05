@@ -30,7 +30,7 @@
                 {{end}}
 
                 <!-- 模块 1: 管理员安全 -->
-                <div class="card settings-module">
+                <div class="card settings-module" id="admin-security">
                     <div class="card-header">
                         <h3 class="card-title">🔐 管理员安全</h3>
                     </div>
@@ -69,38 +69,28 @@
                 </div>
 
                 <!-- 模块 2: Telegram API Key -->
-                <div class="card settings-module">
+                <div class="card settings-module" id="telegram-api-key">
                     <div class="card-header">
                         <h3 class="card-title">🔑 Telegram API Key</h3>
                     </div>
                     <div class="card-body">
                         <div class="info-notice" style="margin-bottom: 16px;">
-                            <p><strong>💡 说明：</strong>通常只需要配置一套 Telegram API Key。多个 Telegram 账号可以使用同一套 API Key 登录。修改默认 API Key 不会自动注销已有账号 Session。</p>
+                            <p><strong>💡 说明：</strong>通常只需要配置一套 Telegram API Key。多个 Telegram 账号可以使用同一套 API Key 登录。修改 Telegram API Key 不会自动注销已有账号 Session。</p>
                         </div>
 
-                        {{if .DefaultCredential}}
+                        {{if .SystemAPIKey}}
                         <div class="info-list" style="margin-bottom: 16px;">
                             <div class="info-row">
-                                <span class="info-label">当前默认</span>
-                                <span class="info-value"><strong>{{.DefaultCredential.DisplayName}}</strong></span>
+                                <span class="info-label">名称</span>
+                                <span class="info-value"><strong>{{.SystemAPIKey.DisplayName}}</strong></span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">API ID</span>
-                                <span class="info-value">{{.DefaultCredential.APIID}}</span>
+                                <span class="info-value">{{.SystemAPIKey.APIID}}</span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">API Hash</span>
-                                <span class="info-value"><code>{{.DefaultCredential.APIHashHint}}</code></span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">状态</span>
-                                <span class="info-value">
-                                    {{if eq .DefaultCredential.Status "enabled"}}
-                                    <span class="badge badge-success">启用</span>
-                                    {{else}}
-                                    <span class="badge badge-secondary">禁用</span>
-                                    {{end}}
-                                </span>
+                                <span class="info-value"><code>{{.SystemAPIKey.APIHashHint}}</code></span>
                             </div>
                         </div>
                         {{end}}
@@ -111,7 +101,7 @@
                             <div class="form-group">
                                 <label for="api_display_name" class="form-label">自定义名称</label>
                                 <input type="text" id="api_display_name" name="api_display_name" class="form-input"
-                                       value="{{if .DefaultCredential}}{{.DefaultCredential.DisplayName}}{{end}}"
+                                       value="{{if .SystemAPIKey}}{{.SystemAPIKey.DisplayName}}{{end}}"
                                        placeholder="Default API" maxlength="64">
                             </div>
 
@@ -119,7 +109,7 @@
                                 <div class="form-group form-group-half">
                                     <label for="api_id" class="form-label">API ID</label>
                                     <input type="text" id="api_id" name="api_id" class="form-input"
-                                           value="{{if .DefaultCredential}}{{.DefaultCredential.APIID}}{{end}}"
+                                           value="{{if .SystemAPIKey}}{{.SystemAPIKey.APIID}}{{end}}"
                                            placeholder="12345678" pattern="[0-9]+" title="纯数字">
                                 </div>
                                 <div class="form-group form-group-half">
@@ -127,7 +117,7 @@
                                     <input type="text" id="api_hash" name="api_hash" class="form-input"
                                            placeholder="留空表示不修改" maxlength="32"
                                            pattern="[0-9a-fA-F]{32}" title="32位十六进制字符串">
-                                    <div class="form-hint">如需替换请输入新的 32 位 hash</div>
+                                    <div class="form-hint">API Hash 会加密保存，页面不会再次完整显示</div>
                                 </div>
                             </div>
 
@@ -136,77 +126,38 @@
                             </div>
                         </form>
 
-                        {{if .CredentialList}}
-                        <details class="advanced-section" style="margin-top: 16px;">
-                            <summary>高级：备用 API Key 列表</summary>
-                            <div class="table-responsive" style="margin-top: 12px;">
-                                <table class="table">
-                                    <thead>
-                                        <tr>
-                                            <th>名称</th>
-                                            <th>API ID</th>
-                                            <th>Hash</th>
-                                            <th>默认</th>
-                                            <th>状态</th>
-                                            <th>操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {{range .CredentialList}}
-                                        <tr>
-                                            <td>{{.DisplayName}}</td>
-                                            <td>{{.APIID}}</td>
-                                            <td><code>{{.APIHashHint}}</code></td>
-                                            <td>
-                                                {{if .IsDefault}}
-                                                <span class="badge badge-success">默认</span>
-                                                {{else}}
-                                                <span class="text-muted">-</span>
-                                                {{end}}
-                                            </td>
-                                            <td>
-                                                {{if eq .Status "enabled"}}
-                                                <span class="badge badge-success">启用</span>
-                                                {{else}}
-                                                <span class="badge badge-secondary">禁用</span>
-                                                {{end}}
-                                            </td>
-                                            <td>
-                                                <div class="btn-group">
-                                                    {{if not .IsDefault}}
-                                                    <form method="POST" action="/credentials/{{.ID}}/set-default" style="display: inline;">
-                                                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                                                        <button type="submit" class="btn btn-sm btn-outline">设为默认</button>
-                                                    </form>
-                                                    {{end}}
-                                                    <a href="/credentials/{{.ID}}/edit" class="btn btn-sm btn-outline">编辑</a>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        {{end}}
-                                    </tbody>
-                                </table>
+                        <div class="init-guide" style="margin-top: 16px;">
+                            <div class="guide-header">
+                                <span class="guide-icon">📖</span>
+                                <strong>如何获取 API Key</strong>
                             </div>
-                            <div style="margin-top: 12px;">
-                                <a href="/credentials/new" class="btn btn-outline">新增备用 API Key</a>
+                            <ol class="guide-steps">
+                                <li>前往 <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a></li>
+                                <li>使用你的 Telegram 手机号登录</li>
+                                <li>进入 <strong>API development tools</strong></li>
+                                <li>创建 application，复制 <strong>api_id</strong> 和 <strong>api_hash</strong></li>
+                            </ol>
+                            <div class="guide-note">
+                                <strong>🌐 网络建议：</strong>申请时建议使用干净、稳定、低风险的网络环境。尽量避免机房 IP、公共代理、低评分 IP。网络出口地区建议与手机号常用地区保持一致。该建议用于提高成功率，不是官方保证。
                             </div>
-                        </details>
-                        {{end}}
+                        </div>
                     </div>
                 </div>
 
                 <!-- 模块 3: API 网络代理 -->
-                <div class="card settings-module">
+                <div class="card settings-module" id="api-proxy">
                     <div class="card-header">
                         <h3 class="card-title">🌐 API 网络代理</h3>
                     </div>
                     <div class="card-body">
                         <div class="info-notice" style="margin-bottom: 16px;">
-                            <p><strong>💡 说明：</strong>代理配置仅用于 Telegram MTProto API 连接，不影响 Web 界面访问。在中国大陆等无法直连 Telegram 的环境，需要配置代理。</p>
+                            <p><strong>💡 说明：</strong>代理配置仅用于 Telegram MTProto API 连接，不影响 Web 界面访问。保存前会先检测代理连通性。</p>
                         </div>
 
-                        <form method="POST" action="/settings/proxy">
+                        <form id="proxy-form" method="POST" action="/settings/proxy">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="test_result_confirmed" id="proxy-test-confirmed" value="false">
+                            <input type="hidden" name="force_save" id="proxy-force-save" value="false">
 
                             <div class="form-group">
                                 <label for="proxy_type" class="form-label">代理类型</label>
@@ -260,14 +211,16 @@
                             </div>
 
                             <div class="form-actions">
-                                <button type="submit" class="btn btn-primary">保存代理配置</button>
+                                <button type="button" class="btn btn-primary" id="proxy-save-btn" onclick="testAndSaveProxy()">
+                                    保存代理配置
+                                </button>
                             </div>
                         </form>
                     </div>
                 </div>
 
                 <!-- 模块 4: 外观设置 -->
-                <div class="card settings-module">
+                <div class="card settings-module" id="appearance">
                     <div class="card-header">
                         <h3 class="card-title">🎨 外观设置</h3>
                     </div>
@@ -300,7 +253,7 @@
                 </div>
 
                 <!-- 模块 5: 更新程序 -->
-                <div class="card settings-module">
+                <div class="card settings-module" id="update">
                     <div class="card-header">
                         <h3 class="card-title">📦 更新程序</h3>
                     </div>
@@ -387,7 +340,7 @@
                 </div>
 
                 <!-- 模块 6: 系统信息 -->
-                <div class="card settings-module">
+                <div class="card settings-module" id="system-info">
                     <div class="card-header">
                         <h3 class="card-title">ℹ️ 系统信息</h3>
                     </div>
@@ -424,12 +377,180 @@
             </div>
         </div>
     </div>
+
+    <!-- 代理检测结果 Modal -->
+    <div class="modal-overlay" id="proxy-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="proxy-modal-title"></h3>
+                <button class="modal-close" onclick="closeProxyModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-icon" id="proxy-modal-icon"></div>
+                <p class="modal-message" id="proxy-modal-message"></p>
+                <div class="modal-detail" id="proxy-modal-detail"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="proxy-modal-cancel" onclick="closeProxyModal()">取消</button>
+                <button class="btn" id="proxy-modal-confirm"></button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/app.js"></script>
     <script>
     function toggleProxyFields() {
         var type = document.getElementById('proxy_type').value;
         var fields = document.getElementById('proxy-fields');
         fields.style.display = (type === 'none') ? 'none' : 'block';
+    }
+
+    function getProxyFormData() {
+        return {
+            proxy_type: document.getElementById('proxy_type').value,
+            proxy_host: document.getElementById('proxy_host').value,
+            proxy_port: document.getElementById('proxy_port').value,
+            proxy_username: document.getElementById('proxy_username').value,
+            proxy_password: document.getElementById('proxy_password').value,
+            proxy_timeout: document.getElementById('proxy_timeout').value,
+            proxy_remark: document.getElementById('proxy_remark').value,
+            csrf_token: document.querySelector('#proxy-form input[name="csrf_token"]').value
+        };
+    }
+
+    function showProxyModal(config) {
+        var modal = document.getElementById('proxy-modal');
+        var title = document.getElementById('proxy-modal-title');
+        var icon = document.getElementById('proxy-modal-icon');
+        var message = document.getElementById('proxy-modal-message');
+        var detail = document.getElementById('proxy-modal-detail');
+        var confirmBtn = document.getElementById('proxy-modal-confirm');
+
+        title.textContent = config.title;
+        icon.innerHTML = config.icon;
+        message.textContent = config.message;
+        detail.innerHTML = config.detail || '';
+        confirmBtn.textContent = config.confirmText;
+        confirmBtn.className = 'btn ' + config.confirmClass;
+        confirmBtn.onclick = config.onConfirm;
+
+        modal.style.display = 'flex';
+    }
+
+    function closeProxyModal() {
+        document.getElementById('proxy-modal').style.display = 'none';
+    }
+
+    function testAndSaveProxy() {
+        var proxyType = document.getElementById('proxy_type').value;
+
+        // 如果是 none，直接保存
+        if (proxyType === 'none') {
+            document.getElementById('proxy-test-confirmed').value = 'true';
+            document.getElementById('proxy-form').submit();
+            return;
+        }
+
+        // 显示 loading
+        var btn = document.getElementById('proxy-save-btn');
+        var originalText = btn.textContent;
+        btn.textContent = '正在检测代理...';
+        btn.disabled = true;
+
+        // 发送检测请求
+        var data = getProxyFormData();
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/settings/proxy/test', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.timeout = 15000;
+
+        xhr.onload = function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+
+            try {
+                var result = JSON.parse(xhr.responseText);
+                if (result.ok) {
+                    showProxyModal({
+                        title: '代理检测通过',
+                        icon: '<span style="font-size: 2rem;">✅</span>',
+                        message: '当前代理配置可以建立连接。保存后，Atria 将使用该代理访问 Telegram MTProto API。',
+                        detail: '<div class="modal-info">' +
+                            '<div>代理类型：' + (data.proxy_type === 'https' ? 'HTTPS' : 'SOCKS5') + '</div>' +
+                            (result.elapsed_ms ? '<div>测试耗时：' + result.elapsed_ms + 'ms</div>' : '') +
+                            '</div>',
+                        confirmText: '保存并更新',
+                        confirmClass: 'btn-primary',
+                        onConfirm: function() {
+                            document.getElementById('proxy-test-confirmed').value = 'true';
+                            document.getElementById('proxy-force-save').value = 'false';
+                            document.getElementById('proxy-form').submit();
+                        }
+                    });
+                } else {
+                    showProxyModal({
+                        title: '代理检测未通过',
+                        icon: '<span style="font-size: 2rem;">⚠️</span>',
+                        message: result.message || '无法通过当前代理连接 Telegram。',
+                        detail: (result.detail ? '<div class="modal-info">' + result.detail + '</div>' : '') +
+                            (result.elapsed_ms ? '<div class="modal-info">检测耗时：' + result.elapsed_ms + 'ms</div>' : ''),
+                        confirmText: '仍然保存',
+                        confirmClass: 'btn-warning',
+                        onConfirm: function() {
+                            document.getElementById('proxy-test-confirmed').value = 'true';
+                            document.getElementById('proxy-force-save').value = 'true';
+                            document.getElementById('proxy-form').submit();
+                        }
+                    });
+                }
+            } catch(e) {
+                showProxyModal({
+                    title: '检测异常',
+                    icon: '<span style="font-size: 2rem;">❌</span>',
+                    message: '无法解析检测结果，请重试。',
+                    confirmText: '确定',
+                    confirmClass: 'btn-outline',
+                    onConfirm: closeProxyModal
+                });
+            }
+        };
+
+        xhr.ontimeout = function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            showProxyModal({
+                title: '检测超时',
+                icon: '<span style="font-size: 2rem;">⏱️</span>',
+                message: '代理检测超时，请检查网络质量或代理可用性。',
+                confirmText: '仍然保存',
+                confirmClass: 'btn-warning',
+                onConfirm: function() {
+                    document.getElementById('proxy-test-confirmed').value = 'true';
+                    document.getElementById('proxy-force-save').value = 'true';
+                    document.getElementById('proxy-form').submit();
+                }
+            });
+        };
+
+        xhr.onerror = function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            showProxyModal({
+                title: '检测失败',
+                icon: '<span style="font-size: 2rem;">❌</span>',
+                message: '无法发送检测请求，请重试。',
+                confirmText: '确定',
+                confirmClass: 'btn-outline',
+                onConfirm: closeProxyModal
+            });
+        };
+
+        // 编码表单数据
+        var formData = Object.keys(data).map(function(key) {
+            return encodeURIComponent(key) + '=' + encodeURIComponent(data[key]);
+        }).join('&');
+
+        xhr.send(formData);
     }
     </script>
 </body>
