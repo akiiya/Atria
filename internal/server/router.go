@@ -99,7 +99,21 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostProxyTest(c)
 	})
 
-	// 更新操作
+	// 更新操作（JSON 接口，用于局部交互）
+	r.POST("/settings/update/check/json", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostUpdateCheckJSON(c)
+	})
+	r.POST("/settings/update/download/json", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostUpdateDownloadJSON(c)
+	})
+	r.POST("/settings/update/apply/json", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostUpdateApplyJSON(c)
+	})
+	r.POST("/settings/update/dry-run/json", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostUpdateDryRunJSON(c)
+	})
+
+	// 更新操作（保留传统表单提交作为降级）
 	r.POST("/settings/update/check", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostUpdateCheck(c)
 	})
