@@ -402,3 +402,41 @@ func redirectBack(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/")
 	}
 }
+
+// handlePostCredentialSetDefault 处理 POST /credentials/:id/set-default - 设为默认凭据。
+func (s *Server) handlePostCredentialSetDefault(c *gin.Context) {
+	credID, err := parseCredentialID(c)
+	if err != nil {
+		RenderError(c, http.StatusBadRequest, "请求无效", err.Error())
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+
+	// 验证凭据存在且启用
+	if !credSvc.IsValidCredential(credID) {
+		RenderError(c, http.StatusBadRequest, "操作失败", "凭据不存在或已禁用")
+		return
+	}
+
+	// 设为默认
+	if err := credSvc.SetDefault(credID); err != nil {
+		RenderError(c, http.StatusInternalServerError, "操作失败", err.Error())
+		return
+	}
+
+	// 审计日志
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+		Action:       "api_credential.set_default",
+		ResourceType: "api_credential",
+		ResourceID:   fmt.Sprintf("%d", credID),
+		RiskLevel:    "medium",
+		IP:           c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
+		Message:      fmt.Sprintf("设置默认 API 凭据 ID=%d", credID),
+	})
+
+	redirectBack(c)
+}

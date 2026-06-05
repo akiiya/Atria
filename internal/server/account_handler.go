@@ -31,8 +31,17 @@ func (s *Server) handleGetAccounts(c *gin.Context) {
 		return
 	}
 
+	// 获取默认凭据信息
+	credSvc := credential.NewService(s.db, s.key)
+	defaultCred, err := credSvc.GetDefault()
+	hasDefault := err == nil && defaultCred != nil
+
 	data := s.newAccountViewData(c, "accounts")
 	data["Accounts"] = accounts
+	data["HasDefaultCredential"] = hasDefault
+	if hasDefault {
+		data["DefaultCredentialName"] = defaultCred.DisplayName
+	}
 	c.HTML(http.StatusOK, "accounts.html", data)
 }
 

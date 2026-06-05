@@ -31,6 +31,11 @@
     --accent-hover: #1d4ed8;
     --accent-light: #eff6ff;
 
+    /* 品牌渐变 */
+    --brand-gradient-start: #3b82f6;
+    --brand-gradient-end: #8b5cf6;
+    --brand-gradient-fallback: #3b82f6;
+
     /* 状态色 */
     --color-success: #10b981;
     --color-success-light: #ecfdf5;
@@ -79,6 +84,11 @@
     --accent-color: #3b82f6;
     --accent-hover: #60a5fa;
     --accent-light: #1e293b;
+
+    /* 品牌渐变 */
+    --brand-gradient-start: #60a5fa;
+    --brand-gradient-end: #a78bfa;
+    --brand-gradient-fallback: #60a5fa;
 
     /* 状态色 */
     --color-success: #34d399;
@@ -174,7 +184,7 @@ code {
 .sidebar-brand {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     height: var(--topbar-height);
     padding: 0 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -185,8 +195,8 @@ code {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 28px;
+    height: 28px;
     flex-shrink: 0;
 }
 
@@ -198,8 +208,27 @@ code {
 .brand-name {
     font-size: 1.15rem;
     font-weight: 700;
-    color: var(--text-inverse);
     letter-spacing: -0.01em;
+    background: linear-gradient(135deg, var(--brand-gradient-start), var(--brand-gradient-end));
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: var(--brand-gradient-fallback);
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.auth-brand .brand-mark {
+    width: 24px;
+    height: 24px;
+}
+
+.auth-brand .brand-name {
+    font-size: 1.1rem;
 }
 
 .sidebar-nav {

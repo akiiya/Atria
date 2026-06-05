@@ -801,8 +801,6 @@ func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
 		"brand-name",
 		"page-header",
 		"page-heading",
-		"page-actions",
-		"credential-switcher",
 		"app-content",
 		"sidebar",
 	}
@@ -813,7 +811,7 @@ func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
 	}
 }
 
-func TestRouter_LoggedIn_Dashboard_CredentialSwitcherInPageHeader(t *testing.T) {
+func TestRouter_LoggedIn_Dashboard_NoCredentialSwitcher(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
@@ -826,50 +824,9 @@ func TestRouter_LoggedIn_Dashboard_CredentialSwitcherInPageHeader(t *testing.T) 
 
 	body := w.Body.String()
 
-	// credential-switcher 必须在 page-header 内部
-	pageHeaderIdx := strings.Index(body, "page-header")
-	credentialIdx := strings.Index(body, "credential-switcher")
-	pageBodyIdx := strings.Index(body, "page-body")
-
-	if pageHeaderIdx < 0 || credentialIdx < 0 {
-		t.Fatal("页面缺少 page-header / credential-switcher")
-	}
-
-	// 如果有 page-body，credential-switcher 应在 page-header 之后、page-body 之前
-	// 否则 credential-switcher 应在 page-header 之后
-	if pageBodyIdx > 0 {
-		if credentialIdx < pageHeaderIdx || credentialIdx > pageBodyIdx {
-			t.Error("credential-switcher 应在 page-header 和 page-body 之间")
-		}
-	} else {
-		if credentialIdx < pageHeaderIdx {
-			t.Error("credential-switcher 应在 page-header 之后")
-		}
-	}
-}
-
-func TestRouter_LoggedIn_Dashboard_NoCredentialSwitcherInTopbar(t *testing.T) {
-	r, _ := setupTestRouter(t)
-
-	initAdmin(t, r)
-	_, sessionCookie := loginAdmin(t, r)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.Header.Set("Cookie", "atria_session="+sessionCookie)
-	r.ServeHTTP(w, req)
-
-	body := w.Body.String()
-
-	// topbar 内不应包含 credential-switcher
-	topbarStart := strings.Index(body, "topbar")
-	topbarEnd := strings.Index(body, "</header>")
-	credentialIdx := strings.Index(body, "credential-switcher")
-
-	if topbarStart >= 0 && topbarEnd > 0 && credentialIdx >= 0 {
-		if credentialIdx > topbarStart && credentialIdx < topbarEnd {
-			t.Error("credential-switcher 不应在 topbar 内")
-		}
+	// 仪表盘页面不应包含 credential-switcher
+	if strings.Contains(body, "credential-switcher") {
+		t.Error("仪表盘页面不应包含 credential-switcher")
 	}
 }
 
@@ -992,7 +949,7 @@ func TestRouter_LoggedIn_Dashboard_HasStatCards(t *testing.T) {
 	}
 }
 
-func TestRouter_LoggedIn_Dashboard_HasBrandAndPageActions(t *testing.T) {
+func TestRouter_LoggedIn_Dashboard_HasBrand(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
@@ -1005,12 +962,10 @@ func TestRouter_LoggedIn_Dashboard_HasBrandAndPageActions(t *testing.T) {
 
 	body := w.Body.String()
 
-	// 必须包含 brand 和 page-actions
+	// 必须包含 brand
 	mustContain := []string{
 		"sidebar-brand",
 		"brand-name",
-		"page-actions",
-		"credential-switcher",
 	}
 	for _, s := range mustContain {
 		if !strings.Contains(body, s) {

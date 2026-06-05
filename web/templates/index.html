@@ -19,24 +19,6 @@
                         <h1 class="page-title">仪表盘</h1>
                         <p class="page-desc">系统概览与快速操作</p>
                     </div>
-                    <div class="page-actions">
-                        <div class="credential-switcher">
-                            <form method="POST" action="/credentials/select" id="credential-switcher-form">
-                                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-                                <select name="credential_id" class="credential-select" onchange="document.getElementById('credential-switcher-form').submit()">
-                                    {{if .CredentialsForSwitcher}}
-                                        {{range .CredentialsForSwitcher}}
-                                            <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
-                                        {{end}}
-                                        <option value="">-- 清除选择 --</option>
-                                    {{else}}
-                                        <option value="">未配置 API 凭据</option>
-                                    {{end}}
-                                </select>
-                            </form>
-                            <a href="/credentials/new" class="btn btn-sm btn-primary">新增凭据</a>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="stats-grid">
