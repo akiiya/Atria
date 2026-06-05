@@ -73,7 +73,7 @@ func (s *Server) handleGetInit(c *gin.Context) {
 
 	data := NewViewData(s.cfg, "init")
 	data.CSRFToken = s.setCSRFToken(c)
-	c.HTML(http.StatusOK, "init.html", data.ToMap())
+	c.HTML(http.StatusOK, "init_page", data.ToMap())
 }
 
 // PostInit 处理 POST /init。
@@ -91,7 +91,7 @@ func (s *Server) handlePostInit(c *gin.Context) {
 		data := NewViewData(s.cfg, "init")
 		data.CSRFToken = s.setCSRFToken(c)
 		data.Error = "两次输入的密码不一致"
-		c.HTML(http.StatusOK, "init.html", data.ToMap())
+		c.HTML(http.StatusOK, "init_page", data.ToMap())
 		return
 	}
 
@@ -100,7 +100,7 @@ func (s *Server) handlePostInit(c *gin.Context) {
 		data := NewViewData(s.cfg, "init")
 		data.CSRFToken = s.setCSRFToken(c)
 		data.Error = err.Error()
-		c.HTML(http.StatusOK, "init.html", data.ToMap())
+		c.HTML(http.StatusOK, "init_page", data.ToMap())
 		return
 	}
 
@@ -143,7 +143,7 @@ func (s *Server) handleGetLogin(c *gin.Context) {
 		data.Flash = flash
 	}
 
-	c.HTML(http.StatusOK, "login.html", data.ToMap())
+	c.HTML(http.StatusOK, "login_page", data.ToMap())
 }
 
 // PostLogin 处理 POST /login。
@@ -174,7 +174,7 @@ func (s *Server) handlePostLogin(c *gin.Context) {
 		data := NewViewData(s.cfg, "login")
 		data.CSRFToken = s.setCSRFToken(c)
 		data.Error = "用户名或密码不正确"
-		c.HTML(http.StatusOK, "login.html", data.ToMap())
+		c.HTML(http.StatusOK, "login_page", data.ToMap())
 		return
 	}
 
