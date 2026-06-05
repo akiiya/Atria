@@ -331,22 +331,38 @@ func TestService_UpdateStatus_Success(t *testing.T) {
 	db, key := setupTestDB(t)
 	svc := NewService(db, key)
 
-	cred, _ := svc.Create(CreateInput{
-		DisplayName: "测试凭据",
+	// 创建两个凭据，这样可以禁用非默认的那个
+	cred1, _ := svc.Create(CreateInput{
+		DisplayName: "默认凭据",
 		APIID:       "12345678",
 		APIHash:     "abcdef0123456789abcdef0123456789",
 		Status:      "enabled",
 		RiskPolicy:  "disabled",
 	})
 
-	err := svc.UpdateStatus(cred.ID, "disabled")
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "备用凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 禁用非默认凭据
+	err := svc.UpdateStatus(cred2.ID, "disabled")
 	if err != nil {
 		t.Fatalf("禁用失败: %s", err)
 	}
 
-	updated, _ := svc.GetByID(cred.ID)
+	updated, _ := svc.GetByID(cred2.ID)
 	if updated.Status != model.APICredentialStatusDisabled {
 		t.Error("状态应为 disabled")
+	}
+
+	// 默认凭据仍应为默认
+	defaultCred, _ := svc.GetByID(cred1.ID)
+	if !defaultCred.IsDefault {
+		t.Error("默认凭据不应改变")
 	}
 }
 
@@ -375,15 +391,25 @@ func TestService_Delete_Success(t *testing.T) {
 	db, key := setupTestDB(t)
 	svc := NewService(db, key)
 
-	cred, _ := svc.Create(CreateInput{
-		DisplayName: "测试凭据",
+	// 创建两个凭据
+	svc.Create(CreateInput{
+		DisplayName: "默认凭据",
 		APIID:       "12345678",
 		APIHash:     "abcdef0123456789abcdef0123456789",
 		Status:      "enabled",
 		RiskPolicy:  "disabled",
 	})
 
-	err := svc.Delete(cred.ID)
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "备用凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 删除非默认凭据
+	err := svc.Delete(cred2.ID)
 	if err != nil {
 		t.Fatalf("删除失败: %s", err)
 	}
@@ -391,7 +417,7 @@ func TestService_Delete_Success(t *testing.T) {
 	// 删除后列表不应显示
 	list, _ := svc.List()
 	for _, c := range list {
-		if c.ID == cred.ID {
+		if c.ID == cred2.ID {
 			t.Error("删除后列表不应显示该凭据")
 		}
 	}
@@ -401,24 +427,33 @@ func TestService_Delete_WithBinding(t *testing.T) {
 	db, key := setupTestDB(t)
 	svc := NewService(db, key)
 
-	cred, _ := svc.Create(CreateInput{
-		DisplayName: "测试凭据",
+	// 创建两个凭据
+	svc.Create(CreateInput{
+		DisplayName: "默认凭据",
 		APIID:       "12345678",
 		APIHash:     "abcdef0123456789abcdef0123456789",
 		Status:      "enabled",
 		RiskPolicy:  "disabled",
 	})
 
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "测试凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
 	// 创建绑定
 	binding := &model.TelegramAccount{
-		APICredentialID: cred.ID,
+		APICredentialID: cred2.ID,
 		UserID:          12345,
 		PhoneEncrypted:  "encrypted",
 		Status:          "active",
 	}
 	db.Create(binding)
 
-	err := svc.Delete(cred.ID)
+	err := svc.Delete(cred2.ID)
 	if err == nil {
 		t.Error("已绑定账号的凭据应该删除失败")
 	}
@@ -463,20 +498,30 @@ func TestService_IsValidCredential(t *testing.T) {
 	db, key := setupTestDB(t)
 	svc := NewService(db, key)
 
-	cred, _ := svc.Create(CreateInput{
-		DisplayName: "测试凭据",
+	// 创建两个凭据
+	cred1, _ := svc.Create(CreateInput{
+		DisplayName: "默认凭据",
 		APIID:       "12345678",
 		APIHash:     "abcdef0123456789abcdef0123456789",
 		Status:      "enabled",
 		RiskPolicy:  "disabled",
 	})
 
-	if !svc.IsValidCredential(cred.ID) {
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "测试凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	if !svc.IsValidCredential(cred1.ID) {
 		t.Error("启用凭据应返回 true")
 	}
 
-	svc.UpdateStatus(cred.ID, "disabled")
-	if svc.IsValidCredential(cred.ID) {
+	// 禁用非默认凭据
+	svc.UpdateStatus(cred2.ID, "disabled")
+	if svc.IsValidCredential(cred2.ID) {
 		t.Error("禁用凭据应返回 false")
 	}
 
@@ -501,5 +546,256 @@ func TestGenerateAPIHashHint(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("GenerateAPIHashHint(%q) = %q, 期望 %q", tt.input, result, tt.expected)
 		}
+	}
+}
+
+// ===== 默认凭据测试 =====
+
+func TestService_Create_FirstCredential_IsDefault(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	cred, err := svc.Create(CreateInput{
+		DisplayName: "第一个凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	if err != nil {
+		t.Fatalf("创建凭据失败: %s", err)
+	}
+
+	if !cred.IsDefault {
+		t.Error("第一个凭据应自动成为默认")
+	}
+}
+
+func TestService_Create_SecondCredential_NotDefault(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	svc.Create(CreateInput{
+		DisplayName: "第一个凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "第二个凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	if cred2.IsDefault {
+		t.Error("第二个凭据不应自动成为默认")
+	}
+}
+
+func TestService_EnsureDefault_FirstEnabled(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	// 创建凭据但手动清除默认标记
+	cred, _ := svc.Create(CreateInput{
+		DisplayName: "测试凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	db.Model(&cred).Update("is_default", false)
+
+	// 执行 EnsureDefault
+	err := svc.EnsureDefault()
+	if err != nil {
+		t.Fatalf("EnsureDefault 失败: %s", err)
+	}
+
+	// 验证已设为默认
+	updated, _ := svc.GetByID(cred.ID)
+	if !updated.IsDefault {
+		t.Error("EnsureDefault 应将第一个启用凭据设为默认")
+	}
+}
+
+func TestService_EnsureDefault_AlreadyHasDefault(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	svc.Create(CreateInput{
+		DisplayName: "第一个凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "第二个凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 执行 EnsureDefault（不应改变现有默认）
+	err := svc.EnsureDefault()
+	if err != nil {
+		t.Fatalf("EnsureDefault 失败: %s", err)
+	}
+
+	// 第二个凭据不应成为默认
+	updated, _ := svc.GetByID(cred2.ID)
+	if updated.IsDefault {
+		t.Error("已有默认时 EnsureDefault 不应改变")
+	}
+}
+
+func TestService_SetDefault_OnlyOneDefault(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	cred1, _ := svc.Create(CreateInput{
+		DisplayName: "第一个凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	cred2, _ := svc.Create(CreateInput{
+		DisplayName: "第二个凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 设置第二个为默认
+	err := svc.SetDefault(cred2.ID)
+	if err != nil {
+		t.Fatalf("SetDefault 失败: %s", err)
+	}
+
+	// 验证只有一个默认
+	updated1, _ := svc.GetByID(cred1.ID)
+	updated2, _ := svc.GetByID(cred2.ID)
+
+	if updated1.IsDefault {
+		t.Error("第一个凭据不应再是默认")
+	}
+	if !updated2.IsDefault {
+		t.Error("第二个凭据应成为默认")
+	}
+}
+
+func TestService_GetDefault_Success(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	cred, _ := svc.Create(CreateInput{
+		DisplayName: "测试凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	defaultCred, err := svc.GetDefault()
+	if err != nil {
+		t.Fatalf("GetDefault 失败: %s", err)
+	}
+
+	if defaultCred.ID != cred.ID {
+		t.Error("GetDefault 返回的凭据不正确")
+	}
+}
+
+func TestService_GetDefault_None(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	_, err := svc.GetDefault()
+	if err == nil {
+		t.Error("没有凭据时 GetDefault 应返回错误")
+	}
+}
+
+func TestService_DisableDefault_WithOtherEnabled(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	cred1, _ := svc.Create(CreateInput{
+		DisplayName: "默认凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	svc.Create(CreateInput{
+		DisplayName: "备用凭据",
+		APIID:       "87654321",
+		APIHash:     "11112222333344445555666677778888",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 禁用默认凭据（应自动切换默认）
+	err := svc.UpdateStatus(cred1.ID, "disabled")
+	if err != nil {
+		t.Fatalf("禁用默认凭据失败: %s", err)
+	}
+
+	// 验证默认已切换
+	defaultCred, _ := svc.GetDefault()
+	if defaultCred.ID == cred1.ID {
+		t.Error("默认凭据应已切换到其它凭据")
+	}
+}
+
+func TestService_DisableDefault_WithoutOtherEnabled(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	cred, _ := svc.Create(CreateInput{
+		DisplayName: "唯一凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 禁用唯一的默认凭据（应失败）
+	err := svc.UpdateStatus(cred.ID, "disabled")
+	if err == nil {
+		t.Error("禁用唯一的默认凭据应该失败")
+	}
+}
+
+func TestService_Delete_DefaultCredential_Protected(t *testing.T) {
+	db, key := setupTestDB(t)
+	svc := NewService(db, key)
+
+	cred, _ := svc.Create(CreateInput{
+		DisplayName: "默认凭据",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 删除默认凭据（应失败）
+	err := svc.Delete(cred.ID)
+	if err == nil {
+		t.Error("删除默认凭据应该失败")
+	}
+	if err != nil && !strings.Contains(err.Error(), "默认凭据") {
+		t.Errorf("错误提示应包含'默认凭据'，实际=%s", err.Error())
 	}
 }
