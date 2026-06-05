@@ -39,20 +39,17 @@ func (s *Server) handleGetAccounts(c *gin.Context) {
 // handleGetAccountLogin 处理 GET /accounts/login - 登录向导页面。
 func (s *Server) handleGetAccountLogin(c *gin.Context) {
 	credSvc := credential.NewService(s.db, s.key)
-	credID := auth.GetCredentialID(c)
 
-	enabledCreds, _ := credSvc.ListEnabled()
+	// 获取默认凭据
+	defaultCred, err := credSvc.GetDefault()
+	hasDefault := err == nil && defaultCred != nil
 
 	data := s.newAccountViewData(c, "accounts")
-	data["HasCredentials"] = len(enabledCreds) > 0
-	data["HasSelectedCredential"] = credID > 0
-	data["SelectedCredentialID"] = credID
+	data["HasDefaultCredential"] = hasDefault
 
-	if credID > 0 {
-		cred, err := credSvc.GetByID(credID)
-		if err == nil {
-			data["SelectedCredentialName"] = cred.DisplayName
-		}
+	if hasDefault {
+		data["DefaultCredentialName"] = defaultCred.DisplayName
+		data["DefaultCredentialID"] = defaultCred.ID
 	}
 
 	c.HTML(http.StatusOK, "account_login.html", data)
@@ -60,35 +57,31 @@ func (s *Server) handleGetAccountLogin(c *gin.Context) {
 
 // handlePostAccountLoginStart 处理 POST /accounts/login/start - 开始登录流程。
 func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
-	credID := auth.GetCredentialID(c)
-	if credID == 0 {
+	// 使用默认凭据
+	credSvc := credential.NewService(s.db, s.key)
+	defaultCred, err := credSvc.GetDefault()
+	if err != nil || defaultCred == nil {
 		data := s.newAccountViewData(c, "accounts")
-		data["Error"] = "请先在顶部栏选择 API 凭据"
-		data["HasCredentials"] = true
-		data["HasSelectedCredential"] = false
+		data["Error"] = "请先配置 Telegram API Key"
+		data["HasDefaultCredential"] = false
 		c.HTML(http.StatusOK, "account_login.html", data)
 		return
 	}
+
+	credID := defaultCred.ID
 
 	phone := c.PostForm("phone")
 	if err := account.ValidatePhone(phone); err != nil {
 		data := s.newAccountViewData(c, "accounts")
 		data["Error"] = err.Error()
-		data["HasCredentials"] = true
-		data["HasSelectedCredential"] = true
-		data["SelectedCredentialID"] = credID
+		data["HasDefaultCredential"] = true
+		data["DefaultCredentialName"] = defaultCred.DisplayName
+		data["DefaultCredentialID"] = credID
 		c.HTML(http.StatusOK, "account_login.html", data)
 		return
 	}
 
-	credSvc := credential.NewService(s.db, s.key)
-	cred, err := credSvc.GetByID(credID)
-	if err != nil {
-		RenderError(c, http.StatusBadRequest, "操作失败", "API 凭据不存在")
-		return
-	}
-
-	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	apiHash, err := security.DecryptAPIHash(s.key, defaultCred.EncryptedAPIHash)
 	if err != nil {
 		slog.Error("解密 api_hash 失败", "error", err)
 		RenderError(c, http.StatusInternalServerError, "服务器错误", "解密凭据失败")
@@ -98,7 +91,7 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 	flowID := fmt.Sprintf("flow_%d_%s", credID, crypto.Fingerprint(phone)[:8])
 	phoneEncrypted, phoneFingerprint, _ := security.EncryptPhone(s.key, phone)
 
-	flow := mtproto.NewLoginFlow(flowID, credID, int(cred.APIID), phoneEncrypted, phoneFingerprint)
+	flow := mtproto.NewLoginFlow(flowID, credID, int(defaultCred.APIID), phoneEncrypted, phoneFingerprint)
 	if err := s.flowStore.Create(c.Request.Context(), flow); err != nil {
 		RenderError(c, http.StatusInternalServerError, "操作失败", "创建登录流程失败")
 		return
@@ -107,7 +100,7 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
 	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
 		APICredentialID: credID,
-		APIID:           int(cred.APIID),
+		APIID:           int(defaultCred.APIID),
 		APIHash:         apiHash,
 		Phone:           phone,
 		FlowID:          flowID,
@@ -121,9 +114,9 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 
 		data := s.newAccountViewData(c, "accounts")
 		data["Error"] = errMsg
-		data["HasCredentials"] = true
-		data["HasSelectedCredential"] = true
-		data["SelectedCredentialID"] = credID
+		data["HasDefaultCredential"] = true
+		data["DefaultCredentialName"] = defaultCred.DisplayName
+		data["DefaultCredentialID"] = credID
 		c.HTML(http.StatusOK, "account_login.html", data)
 		return
 	}

@@ -28,9 +28,10 @@ type APICredential struct {
 	ID                 uint                `gorm:"primaryKey" json:"id"`
 	DisplayName        string              `gorm:"index;size:128;not null" json:"display_name"`
 	APIID              int32               `gorm:"index;not null" json:"api_id"`
-	EncryptedAPIHash   string              `gorm:"size:512;not null" json:"-"`          // 加密后的 api_hash，禁止暴露
-	APIHashHint        string              `gorm:"size:16" json:"api_hash_hint"`        // 脱敏展示：前4位...后4位
-	APIHashFingerprint string              `gorm:"size:64" json:"api_hash_fingerprint"` // 不可逆指纹
+	EncryptedAPIHash   string              `gorm:"size:512;not null" json:"-"`                     // 加密后的 api_hash，禁止暴露
+	APIHashHint        string              `gorm:"size:16" json:"api_hash_hint"`                   // 脱敏展示：前4位...后4位
+	APIHashFingerprint string              `gorm:"size:64" json:"api_hash_fingerprint"`            // 不可逆指纹
+	IsDefault          bool                `gorm:"index;not null;default:false" json:"is_default"` // 是否为系统默认凭据
 	Status             APICredentialStatus `gorm:"index;size:16;not null;default:enabled" json:"status"`
 	RiskPolicy         RiskPolicy          `gorm:"size:16;not null;default:disabled" json:"risk_policy"`
 	LastUsedAt         *time.Time          `json:"last_used_at"`

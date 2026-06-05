@@ -6,6 +6,7 @@ import (
 
 	"github.com/user/atria/internal/audit"
 	"github.com/user/atria/internal/auth"
+	"github.com/user/atria/internal/credential"
 
 	"github.com/gin-gonic/gin"
 )
@@ -87,6 +88,11 @@ func (s *Server) handlePostInit(c *gin.Context) {
 	password := c.PostForm("password")
 	confirmPassword := c.PostForm("confirm_password")
 
+	// API Key 字段（可选）
+	apiDisplayName := c.PostForm("api_display_name")
+	apiIDStr := c.PostForm("api_id")
+	apiHash := c.PostForm("api_hash")
+
 	if password != confirmPassword {
 		data := NewViewData(s.cfg, "init")
 		data.CSRFToken = s.setCSRFToken(c)
@@ -95,13 +101,39 @@ func (s *Server) handlePostInit(c *gin.Context) {
 		return
 	}
 
-	admin, err := s.adminSvc.Initialize(username, password)
+	admin, err := s.adminSvc.Initialize(InitializeInput{
+		Username:       username,
+		Password:       password,
+		APIDisplayName: apiDisplayName,
+		APIID:          apiIDStr,
+		APIHash:        apiHash,
+	})
 	if err != nil {
 		data := NewViewData(s.cfg, "init")
 		data.CSRFToken = s.setCSRFToken(c)
 		data.Error = err.Error()
 		c.HTML(http.StatusOK, "init_page", data.ToMap())
 		return
+	}
+
+	// 如果提供了 API Key，创建默认凭据
+	if apiIDStr != "" && apiHash != "" {
+		credSvc := credential.NewService(s.db, s.key)
+		displayName := apiDisplayName
+		if displayName == "" {
+			displayName = "Default API"
+		}
+		_, credErr := credSvc.Create(credential.CreateInput{
+			DisplayName: displayName,
+			APIID:       apiIDStr,
+			APIHash:     apiHash,
+			Status:      "enabled",
+			RiskPolicy:  "disabled",
+		})
+		if credErr != nil {
+			slog.Error("初始化时创建默认 API Key 失败", "error", credErr)
+			// 不阻断初始化流程，管理员可以后续在设置中配置
+		}
 	}
 
 	// 审计日志

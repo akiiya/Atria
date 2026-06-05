@@ -38,25 +38,34 @@ func (s *AdminService) GetAdminByUsername(username string) (*model.Admin, error)
 	return &admin, nil
 }
 
+// InitializeInput 是初始化管理员的输入。
+type InitializeInput struct {
+	Username       string
+	Password       string
+	APIDisplayName string // 可选
+	APIID          string // 可选
+	APIHash        string // 可选
+}
+
 // Initialize 创建管理员（首次初始化）。
-func (s *AdminService) Initialize(username, password string) (*model.Admin, error) {
+func (s *AdminService) Initialize(input InitializeInput) (*model.Admin, error) {
 	// 检查是否已初始化
 	if s.IsInitialized() {
 		return nil, fmt.Errorf("系统已初始化，不可重复执行")
 	}
 
 	// 校验用户名
-	if err := auth.ValidateUsername(username); err != nil {
+	if err := auth.ValidateUsername(input.Username); err != nil {
 		return nil, err
 	}
 
 	// 校验密码
-	if err := auth.ValidatePassword(password); err != nil {
+	if err := auth.ValidatePassword(input.Password); err != nil {
 		return nil, err
 	}
 
 	// 哈希密码
-	hash, err := auth.HashPassword(password)
+	hash, err := auth.HashPassword(input.Password)
 	if err != nil {
 		return nil, fmt.Errorf("密码哈希失败: %w", err)
 	}
@@ -64,7 +73,7 @@ func (s *AdminService) Initialize(username, password string) (*model.Admin, erro
 	// 创建管理员
 	now := time.Now()
 	admin := &model.Admin{
-		Username:     username,
+		Username:     input.Username,
 		PasswordHash: hash,
 		PasswordAlgo: "bcrypt",
 		CreatedAt:    now,
