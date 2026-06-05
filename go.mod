@@ -7,6 +7,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gotd/td v0.115.0
 	golang.org/x/crypto v0.27.0
+	golang.org/x/net v0.29.0
 	gorm.io/gorm v1.25.10
 )
 
@@ -50,7 +51,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.19.0 // indirect

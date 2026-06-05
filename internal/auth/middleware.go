@@ -35,6 +35,7 @@ func RequireAuth(key []byte, cookieName string) gin.HandlerFunc {
 		c.Set(ContextKeyAdminID, claims.AdminID)
 		c.Set(ContextKeyUsername, claims.Username)
 		c.Set(ContextKeyCredentialID, claims.CurrentCredentialID)
+		c.Set(ContextKeySelectedAccountID, claims.SelectedAccountID)
 
 		c.Next()
 	}

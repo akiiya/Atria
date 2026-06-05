@@ -12,6 +12,7 @@ type SessionClaims struct {
 	AdminID             uint      `json:"admin_id"`
 	Username            string    `json:"username"`
 	CurrentCredentialID uint      `json:"current_credential_id,omitempty"` // 当前选中的 API 凭据 ID
+	SelectedAccountID   uint      `json:"selected_account_id,omitempty"`   // 当前选中的账号 Session ID
 	IssuedAt            time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 }
@@ -60,9 +61,20 @@ func GetCurrentCredentialID(c interface{ Get(string) (any, bool) }) uint {
 	return 0
 }
 
+// GetSelectedAccountID 从 gin.Context 获取当前选中的账号 ID。
+func GetSelectedAccountID(c interface{ Get(string) (any, bool) }) uint {
+	if id, exists := c.Get(ContextKeySelectedAccountID); exists {
+		if accountID, ok := id.(uint); ok {
+			return accountID
+		}
+	}
+	return 0
+}
+
 // 上下文键名。
 const (
-	ContextKeyAdminID      = "admin_id"
-	ContextKeyUsername     = "admin_username"
-	ContextKeyCredentialID = "current_credential_id"
+	ContextKeyAdminID           = "admin_id"
+	ContextKeyUsername          = "admin_username"
+	ContextKeyCredentialID      = "current_credential_id"
+	ContextKeySelectedAccountID = "selected_account_id"
 )

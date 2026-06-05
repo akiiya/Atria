@@ -33,7 +33,6 @@ func ParseTemplates() (*PageTemplates, error) {
 		"templates/init.html",
 		"templates/login.html",
 		"templates/settings.html",
-		"templates/proxy.html",
 		"templates/placeholder.html",
 		"templates/credentials.html",
 		"templates/credential_form.html",

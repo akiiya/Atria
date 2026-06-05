@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/user/atria/internal/auth"
-	"github.com/user/atria/internal/credential"
+	"github.com/user/atria/internal/model"
 	"github.com/user/atria/internal/version"
 	"github.com/user/atria/internal/web"
 
@@ -76,14 +76,22 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 
 	// 系统设置
 	r.GET("/settings", authMiddleware, func(c *gin.Context) {
-		data := s.newAuthViewData(c, "settings")
-		data["UpdateInfo"] = s.handleGetSettingsUpdate(c)
-		c.HTML(http.StatusOK, "settings.html", data)
+		s.handleGetSettings(c)
 	})
 
 	// 修改密码
 	r.POST("/settings/password", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostChangePassword(c)
+	})
+
+	// 保存 API Key 配置
+	r.POST("/settings/api-key", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostSettingsAPIKey(c)
+	})
+
+	// 保存代理配置
+	r.POST("/settings/proxy", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostSettingsProxy(c)
 	})
 
 	// 更新操作
@@ -100,12 +108,9 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostUpdateDryRun(c)
 	})
 
-	// 代理设置
-	r.GET("/settings/proxy", authMiddleware, func(c *gin.Context) {
-		s.handleGetProxySettings(c)
-	})
-	r.POST("/settings/proxy", authMiddleware, csrfMiddleware, func(c *gin.Context) {
-		s.handlePostProxySettings(c)
+	// 账号 Session 切换
+	r.POST("/accounts/select", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostAccountSelect(c)
 	})
 
 	// ===== API 凭据路由 =====
@@ -246,16 +251,67 @@ func (s *Server) newAuthViewData(c *gin.Context, activeNav string) map[string]an
 	token := s.setCSRFToken(c)
 	data.CSRFToken = token
 
-	// 获取当前凭据信息
-	credID := auth.GetCredentialID(c)
-	if credID > 0 {
-		credSvc := credential.NewService(s.db, s.key)
-		cred, err := credSvc.GetByID(credID)
-		if err == nil {
-			data.CurrentCredentialID = credID
-			data.CurrentCredentialName = cred.DisplayName
+	// 转换为 map
+	result := data.ToMap()
+
+	// 获取账号切换器数据
+	accountList, currentAccount := s.getAccountSwitcherData(c)
+	result["AccountList"] = accountList
+	if currentAccount != nil {
+		result["CurrentAccountID"] = currentAccount.ID
+		result["CurrentAccountName"] = currentAccount.DisplayName
+		result["CurrentAccountUsername"] = currentAccount.Username
+	}
+
+	return result
+}
+
+// AccountSwitcherItem 是账号切换器的项目。
+type AccountSwitcherItem struct {
+	ID          uint
+	DisplayName string
+	Username    string
+	PhoneMasked string
+	IsCurrent   bool
+}
+
+// getAccountSwitcherData 获取账号切换器数据。
+func (s *Server) getAccountSwitcherData(c *gin.Context) ([]AccountSwitcherItem, *AccountSwitcherItem) {
+	// 获取当前选中的账号 ID
+	selectedID := auth.GetSelectedAccountID(c)
+
+	// 查询所有活跃账号
+	var accounts []model.TelegramAccount
+	s.db.Where("status IN ?", []string{"active", "logged_out"}).
+		Order("id ASC").Find(&accounts)
+
+	if len(accounts) == 0 {
+		return nil, nil
+	}
+
+	items := make([]AccountSwitcherItem, 0, len(accounts))
+	var current *AccountSwitcherItem
+
+	for _, acc := range accounts {
+		item := AccountSwitcherItem{
+			ID:          acc.ID,
+			DisplayName: acc.DisplayName,
+			Username:    acc.Username,
+			PhoneMasked: acc.PhoneFingerprint,
+			IsCurrent:   acc.ID == selectedID,
+		}
+		items = append(items, item)
+
+		if acc.ID == selectedID {
+			current = &item
 		}
 	}
 
-	return data.ToMap()
+	// 如果没有选中但有账号，默认选第一个
+	if current == nil && len(items) > 0 {
+		items[0].IsCurrent = true
+		current = &items[0]
+	}
+
+	return items, current
 }

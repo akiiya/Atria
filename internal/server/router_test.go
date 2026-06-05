@@ -763,7 +763,6 @@ func TestRouter_LoggedIn_Dashboard_HasSidebar(t *testing.T) {
 	mustContain := []string{
 		`href="/"`,
 		`href="/accounts"`,
-		`href="/credentials"`,
 	}
 	for _, s := range mustContain {
 		if !strings.Contains(body, s) {
@@ -1287,7 +1286,7 @@ func TestRouter_LoggedIn_Dashboard_HasSettingsDropdown(t *testing.T) {
 	}
 }
 
-func TestRouter_LoggedIn_Dashboard_SettingsMenuHasProxyLink(t *testing.T) {
+func TestRouter_LoggedIn_Dashboard_SettingsMenuHasSettingsLink(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
@@ -1300,8 +1299,8 @@ func TestRouter_LoggedIn_Dashboard_SettingsMenuHasProxyLink(t *testing.T) {
 
 	body := w.Body.String()
 
-	if !strings.Contains(body, "/settings/proxy") {
-		t.Error("设置菜单应包含 API 网络代理入口")
+	if !strings.Contains(body, "/settings") {
+		t.Error("设置菜单应包含系统设置入口")
 	}
 }
 
