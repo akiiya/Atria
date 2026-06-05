@@ -145,6 +145,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostCredentialDelete(c)
 	})
 
+	// 设为默认凭据
+	r.POST("/credentials/:id/set-default", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostCredentialSetDefault(c)
+	})
+
 	// 切换当前凭据
 	r.POST("/credentials/select", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostCredentialSelect(c)
