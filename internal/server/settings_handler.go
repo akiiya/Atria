@@ -44,8 +44,8 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 
 	// 获取系统 API Key（单例）
 	credSvc := credential.NewService(s.db, s.key)
-	systemKey, err := credSvc.GetDefault()
-	if err == nil && systemKey != nil {
+	systemKey, _ := credSvc.GetSystemAPIKey()
+	if systemKey != nil {
 		apiKeyData := SystemAPIKeyData{
 			DisplayName:  systemKey.DisplayName,
 			APIID:        systemKey.APIID,
@@ -130,7 +130,7 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 	credSvc := credential.NewService(s.db, s.key)
 
 	// 获取当前系统 API Key
-	systemKey, _ := credSvc.GetDefault()
+	systemKey, _ := credSvc.GetSystemAPIKey()
 
 	if systemKey == nil {
 		// 没有系统 API Key，创建新的
@@ -143,7 +143,7 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 			displayName = "Default API"
 		}
 
-		_, err := credSvc.Create(credential.CreateInput{
+		newCred, err := credSvc.Create(credential.CreateInput{
 			DisplayName: displayName,
 			APIID:       apiIDStr,
 			APIHash:     apiHash,
@@ -153,6 +153,11 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 		if err != nil {
 			s.redirectSettingsWithError(c, "创建 API Key 失败: "+err.Error())
 			return
+		}
+
+		// 确保新创建的记录是默认的
+		if !newCred.IsDefault {
+			credSvc.SetDefault(newCred.ID)
 		}
 
 		audit.Log(c.Request.Context(), s.db, audit.Event{
