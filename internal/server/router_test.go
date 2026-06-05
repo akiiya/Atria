@@ -958,3 +958,92 @@ func TestRouter_LoggedIn_Settings_HasAppLayout(t *testing.T) {
 		}
 	}
 }
+
+func TestRouter_LoggedIn_Dashboard_HasStatCards(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
+	}
+
+	body := w.Body.String()
+
+	// 必须包含 stat card 结构
+	mustContain := []string{
+		"stat-card",
+		"stat-icon",
+		"stat-content",
+		"stat-value",
+		"stat-label",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("仪表盘页面缺少结构 %q", s)
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_HasBrandAndPageActions(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 必须包含 brand 和 page-actions
+	mustContain := []string{
+		"sidebar-brand",
+		"brand-name",
+		"page-actions",
+		"credential-switcher",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("仪表盘页面缺少结构 %q", s)
+		}
+	}
+}
+
+func TestRouter_Uninitialized_InitPage_NoSidebarBrand(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "sidebar-brand") {
+		t.Error("/init 页面不应包含 sidebar-brand")
+	}
+}
+
+func TestRouter_Initialized_LoginPage_NoSidebarBrand(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "sidebar-brand") {
+		t.Error("/login 页面不应包含 sidebar-brand")
+	}
+}
