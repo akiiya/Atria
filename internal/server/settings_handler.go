@@ -18,6 +18,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// SystemAPIKeyData 系统 API Key 展示数据。
+type SystemAPIKeyData struct {
+	DisplayName  string
+	APIID        int32
+	APIIDMasked  string
+	APIHashHint  string
+	Status       string
+	UpdatedAt    string
+	HasSystemKey bool
+}
+
+// maskAPIID 脱敏 API ID。
+func maskAPIID(apiID int32) string {
+	s := fmt.Sprintf("%d", apiID)
+	if len(s) <= 4 {
+		return "****"
+	}
+	return s[:2] + "****" + s[len(s)-2:]
+}
+
 // handleGetSettings 处理 GET /settings - 系统设置页面。
 func (s *Server) handleGetSettings(c *gin.Context) {
 	data := s.newAuthViewData(c, "settings")
@@ -26,7 +46,16 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 	credSvc := credential.NewService(s.db, s.key)
 	systemKey, err := credSvc.GetDefault()
 	if err == nil && systemKey != nil {
-		data["SystemAPIKey"] = systemKey
+		apiKeyData := SystemAPIKeyData{
+			DisplayName:  systemKey.DisplayName,
+			APIID:        systemKey.APIID,
+			APIIDMasked:  maskAPIID(systemKey.APIID),
+			APIHashHint:  systemKey.APIHashHint,
+			Status:       string(systemKey.Status),
+			UpdatedAt:    systemKey.UpdatedAt.Format("2006-01-02 15:04"),
+			HasSystemKey: true,
+		}
+		data["SystemAPIKey"] = apiKeyData
 	}
 
 	// 获取代理设置
@@ -161,6 +190,18 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 			DisplayName: systemKey.DisplayName,
 			APIID:       fmt.Sprintf("%d", systemKey.APIID),
 			APIHash:     apiHash,
+			Status:      string(systemKey.Status),
+			RiskPolicy:  string(systemKey.RiskPolicy),
+		})
+		if err != nil {
+			s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
+			return
+		}
+	} else if apiIDStr != "" {
+		// 只更新 API ID
+		_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
+			DisplayName: systemKey.DisplayName,
+			APIID:       apiIDStr,
 			Status:      string(systemKey.Status),
 			RiskPolicy:  string(systemKey.RiskPolicy),
 		})
@@ -395,7 +436,7 @@ func (s *Server) handlePostProxyTest(c *gin.Context) {
 	})
 }
 
-// contains 检查字符串是否包含子串（不区分大小写）。
+// contains 检查字符串是否包含子串。
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
 }
@@ -499,4 +540,43 @@ func (s *Server) redirectSettingsWithError(c *gin.Context, msg string) {
 // redirectSettingsWithSuccess 重定向到设置页并显示成功。
 func (s *Server) redirectSettingsWithSuccess(c *gin.Context, msg string) {
 	c.Redirect(http.StatusFound, "/settings?success="+msg)
+}
+
+// handlePostUpdateCheckJSON 处理 POST /settings/update/check/json - 检查更新（JSON 响应）。
+func (s *Server) handlePostUpdateCheckJSON(c *gin.Context) {
+	info := s.handleGetSettingsUpdate(c)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":            true,
+		"update_status": info["UpdateStatus"],
+		"latest":        info["LatestVersion"],
+		"message":       info["Message"],
+		"is_docker":     info["IsDocker"],
+	})
+}
+
+// handlePostUpdateDownloadJSON 处理 POST /settings/update/download/json - 下载更新（JSON 响应）。
+func (s *Server) handlePostUpdateDownloadJSON(c *gin.Context) {
+	s.handlePostUpdateDownload(c)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "更新已下载完成。",
+	})
+}
+
+// handlePostUpdateDryRunJSON 处理 POST /settings/update/dry-run/json - DryRun 验证（JSON 响应）。
+func (s *Server) handlePostUpdateDryRunJSON(c *gin.Context) {
+	s.handlePostUpdateDryRun(c)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "DryRun 验证通过。",
+	})
+}
+
+// handlePostUpdateApplyJSON 处理 POST /settings/update/apply/json - 应用更新（JSON 响应）。
+func (s *Server) handlePostUpdateApplyJSON(c *gin.Context) {
+	s.handlePostUpdateApply(c)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "更新已应用，服务即将重启。",
+	})
 }
