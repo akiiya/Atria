@@ -770,3 +770,155 @@ func TestRouter_LoggedIn_Dashboard_HasSidebar(t *testing.T) {
 		}
 	}
 }
+
+// ===== App Layout 结构验证测试 =====
+
+func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
+	}
+
+	body := w.Body.String()
+
+	// 必须包含 app layout 关键结构
+	mustContain := []string{
+		"app-layout",
+		"app-main",
+		"topbar",
+		"topbar-left",
+		"topbar-right",
+		"credential-switcher",
+		"app-content",
+		"sidebar",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("后台页面缺少结构 %q", s)
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_CredentialSwitcherInTopbar(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// credential-switcher 必须在 topbar-left 内部
+	topbarLeftIdx := strings.Index(body, "topbar-left")
+	credentialIdx := strings.Index(body, "credential-switcher")
+	topbarRightIdx := strings.Index(body, "topbar-right")
+
+	if topbarLeftIdx < 0 || credentialIdx < 0 || topbarRightIdx < 0 {
+		t.Fatal("页面缺少 topbar-left / credential-switcher / topbar-right")
+	}
+
+	// credential-switcher 应在 topbar-left 之后、topbar-right 之前
+	if credentialIdx < topbarLeftIdx || credentialIdx > topbarRightIdx {
+		t.Error("credential-switcher 应在 topbar-left 和 topbar-right 之间")
+	}
+}
+
+func TestRouter_LoginPage_NoCredentialSwitcher(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "credential-switcher") {
+		t.Error("/login 页面不应包含 credential-switcher")
+	}
+}
+
+func TestRouter_InitPage_NoCredentialSwitcher(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if strings.Contains(body, "credential-switcher") {
+		t.Error("/init 页面不应包含 credential-switcher")
+	}
+}
+
+func TestRouter_LoggedIn_Dashboard_NoSensitiveData(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不得包含敏感数据
+	sensitiveTerms := []string{
+		"api_hash",
+		"api_id",
+		"session_data",
+		"password123456",
+	}
+	for _, s := range sensitiveTerms {
+		if strings.Contains(body, s) {
+			t.Errorf("页面不应包含敏感数据 %q", s)
+		}
+	}
+}
+
+func TestRouter_LoggedIn_Settings_HasAppLayout(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
+	}
+
+	body := w.Body.String()
+
+	// settings 页面也必须包含 app layout 结构
+	mustContain := []string{
+		"topbar",
+		"app-content",
+		"sidebar",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(body, s) {
+			t.Errorf("settings 页面缺少结构 %q", s)
+		}
+	}
+}
