@@ -109,8 +109,8 @@ jobs:
           gh release create "$TAG" \
             tmp/dist/atria_linux_amd64.tar.gz \
             tmp/dist/atria_linux_arm64.tar.gz \
-            tmp/dist/atria_windows_amd64.tar.gz \
-            tmp/dist/atria_windows_arm64.tar.gz \
+            tmp/dist/atria_windows_amd64.zip \
+            tmp/dist/atria_windows_arm64.zip \
             tmp/dist/atria_darwin_amd64.tar.gz \
             tmp/dist/atria_darwin_arm64.tar.gz \
             tmp/dist/checksums.txt \
