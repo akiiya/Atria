@@ -15,9 +15,7 @@
                     {{end}}
                 </select>
             </form>
-            {{if not .CredentialsForSwitcher}}
-            <a href="/credentials/new" class="btn btn-sm btn-primary" style="margin-left: 8px;">新增凭据</a>
-            {{end}}
+            <a href="/credentials/new" class="btn btn-sm btn-primary">新增凭据</a>
         </div>
     </div>
     <div class="topbar-right">
@@ -34,7 +32,7 @@
             <span class="user-badge">👤 {{.CurrentAdminUsername}}</span>
         </div>
         <div class="topbar-logout">
-            <form method="POST" action="/logout" style="display: inline;">
+            <form method="POST" action="/logout">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <button type="submit" class="btn btn-sm btn-outline" title="退出登录">退出</button>
             </form>
