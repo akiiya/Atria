@@ -8,6 +8,7 @@ import (
 	"github.com/user/atria/internal/config"
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/database"
+	"github.com/user/atria/internal/migration"
 	"github.com/user/atria/internal/server"
 	"github.com/user/atria/internal/version"
 )
@@ -82,9 +83,15 @@ func runServe() {
 		os.Exit(1)
 	}
 
-	// 执行数据库迁移
+	// 执行数据库结构迁移
 	if err := database.AutoMigrate(db); err != nil {
-		slog.Error("数据库迁移失败", "error", err)
+		slog.Error("数据库结构迁移失败", "error", err)
+		os.Exit(1)
+	}
+
+	// 执行版本化数据迁移
+	if err := migration.Run(db, key); err != nil {
+		slog.Error("数据迁移失败，程序无法启动", "error", err)
 		os.Exit(1)
 	}
 

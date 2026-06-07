@@ -177,43 +177,26 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 	}
 
 	// 已有系统 API Key，更新
-	if displayName != "" && displayName != systemKey.DisplayName {
-		_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
-			DisplayName: displayName,
-			APIID:       fmt.Sprintf("%d", systemKey.APIID),
-			APIHash:     apiHash,
-			Status:      string(systemKey.Status),
-			RiskPolicy:  string(systemKey.RiskPolicy),
-		})
-		if err != nil {
-			s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
-			return
-		}
-	} else if apiHash != "" {
-		// 只更新 hash
-		_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
-			DisplayName: systemKey.DisplayName,
-			APIID:       fmt.Sprintf("%d", systemKey.APIID),
-			APIHash:     apiHash,
-			Status:      string(systemKey.Status),
-			RiskPolicy:  string(systemKey.RiskPolicy),
-		})
-		if err != nil {
-			s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
-			return
-		}
-	} else if apiIDStr != "" {
-		// 只更新 API ID
-		_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
-			DisplayName: systemKey.DisplayName,
-			APIID:       apiIDStr,
-			Status:      string(systemKey.Status),
-			RiskPolicy:  string(systemKey.RiskPolicy),
-		})
-		if err != nil {
-			s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
-			return
-		}
+	// 使用现有值作为默认，表单值覆盖
+	updateName := systemKey.DisplayName
+	if displayName != "" {
+		updateName = displayName
+	}
+	updateAPIID := fmt.Sprintf("%d", systemKey.APIID)
+	if apiIDStr != "" {
+		updateAPIID = apiIDStr
+	}
+
+	_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
+		DisplayName: updateName,
+		APIID:       updateAPIID,
+		APIHash:     apiHash, // 为空时 Update 内部保持不变
+		Status:      string(systemKey.Status),
+		RiskPolicy:  string(systemKey.RiskPolicy),
+	})
+	if err != nil {
+		s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
+		return
 	}
 
 	audit.Log(c.Request.Context(), s.db, audit.Event{

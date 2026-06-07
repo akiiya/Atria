@@ -130,6 +130,20 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 		return
 	}
 
+	// 防御：step 为 nil 或 FlowID 为空时不得 panic
+	if step == nil || step.FlowID == "" {
+		s.flowStore.Delete(c.Request.Context(), flowID)
+		slog.Error("登录流程启动失败：返回了空的步骤结果")
+
+		data := s.newAccountViewData(c, "accounts")
+		data["Error"] = "登录流程启动失败，请检查 Telegram API Key 和 API 网络代理配置。"
+		data["HasDefaultCredential"] = true
+		data["DefaultCredentialName"] = systemKey.DisplayName
+		data["DefaultCredentialID"] = credID
+		c.HTML(http.StatusOK, "account_login.html", data)
+		return
+	}
+
 	audit.Log(c.Request.Context(), s.db, audit.Event{
 		ActorType:    "admin",
 		ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),

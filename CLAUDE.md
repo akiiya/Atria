@@ -80,6 +80,18 @@ Claude Code **不得**：
 - 业务代码中不得编写 SQLite 特定逻辑
 - 使用环境变量（`ATRIA_DB_DRIVER`、`ATRIA_DB_DSN`）切换数据库
 
+## 数据迁移约束
+
+- 程序启动时自动执行版本化数据迁移（`internal/migration/`）
+- 迁移使用 Go 函数编写，不使用 SQL 文件
+- 迁移版本记录在 `data_migrations` 表中
+- 后续任何版本的数据结构或数据语义变化都必须新增 migration
+- 不允许只依赖 GORM AutoMigrate 处理数据语义变化
+- 迁移必须幂等（可重复执行不报错）
+- 迁移失败时程序不会继续启动
+- 迁移必须有测试
+- 详见 `docs/17_data_migrations.md`
+
 ## Web Embed 约束
 
 - 使用 `embed.FS` 包含 `web/templates/` 和 `web/static/`
