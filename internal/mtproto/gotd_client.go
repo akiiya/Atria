@@ -108,6 +108,12 @@ func (c *GotdClient) StartLogin(ctx context.Context, req StartLoginRequest) (*Lo
 	if err != nil {
 		return nil, err
 	}
+
+	// 防御：确保不会返回 nil step + nil error
+	if result == nil {
+		return nil, &MTProtoError{Kind: ErrNetworkError, Message: "登录流程启动失败，未获取到验证码发送结果"}
+	}
+
 	return result, nil
 }
 
@@ -207,6 +213,11 @@ func (c *GotdClient) SubmitCode(ctx context.Context, req SubmitCodeRequest) (*Lo
 		return nil, err
 	}
 
+	// 防御：确保不会返回 nil step + nil error
+	if result == nil {
+		return nil, &MTProtoError{Kind: ErrInternalError, Message: "验证码提交失败，未获取到授权结果"}
+	}
+
 	return result, nil
 }
 
@@ -295,6 +306,11 @@ func (c *GotdClient) SubmitPassword(ctx context.Context, req SubmitPasswordReque
 
 	if err != nil {
 		return nil, err
+	}
+
+	// 防御：确保不会返回 nil step + nil error
+	if result == nil {
+		return nil, &MTProtoError{Kind: ErrInternalError, Message: "密码提交失败，未获取到授权结果"}
 	}
 
 	return result, nil
