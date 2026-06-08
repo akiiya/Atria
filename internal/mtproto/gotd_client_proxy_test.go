@@ -3,6 +3,7 @@ package mtproto
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestGotdClient_UsesCustomResolverWhenDialerSet(t *testing.T) {
 }
 
 func TestGotdClient_ClassifyError_ProxyConnectFailed(t *testing.T) {
-	c := &GotdClient{}
+	c := &GotdClient{logger: slog.Default()}
 
 	// 模拟代理连接被拒绝
 	err := &net.OpError{
@@ -80,7 +81,7 @@ func TestGotdClient_ClassifyError_ProxyConnectFailed(t *testing.T) {
 }
 
 func TestGotdClient_ClassifyError_Timeout(t *testing.T) {
-	c := &GotdClient{}
+	c := &GotdClient{logger: slog.Default()}
 
 	result := c.classifyError(context.DeadlineExceeded)
 	mtprotoErr, ok := result.(*MTProtoError)
@@ -96,7 +97,7 @@ func TestGotdClient_ClassifyError_Timeout(t *testing.T) {
 }
 
 func TestGotdClient_ClassifyError_ContextCanceled(t *testing.T) {
-	c := &GotdClient{}
+	c := &GotdClient{logger: slog.Default()}
 
 	result := c.classifyError(context.Canceled)
 	mtprotoErr, ok := result.(*MTProtoError)
@@ -109,7 +110,7 @@ func TestGotdClient_ClassifyError_ContextCanceled(t *testing.T) {
 }
 
 func TestGotdClient_ClassifyError_ProxyAuth(t *testing.T) {
-	c := &GotdClient{}
+	c := &GotdClient{logger: slog.Default()}
 
 	result := c.classifyError(errors.New("proxy auth required: 407"))
 	mtprotoErr, ok := result.(*MTProtoError)
@@ -122,7 +123,7 @@ func TestGotdClient_ClassifyError_ProxyAuth(t *testing.T) {
 }
 
 func TestGotdClient_ClassifyError_NoSensitiveDataInMessage(t *testing.T) {
-	c := &GotdClient{}
+	c := &GotdClient{logger: slog.Default()}
 	apiHash := "abcdef0123456789abcdef0123456789"
 	proxyPassword := "mysecretpassword"
 
