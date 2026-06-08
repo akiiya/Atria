@@ -2,13 +2,16 @@ package mtproto
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
 	"github.com/user/atria/internal/security"
 )
@@ -19,6 +22,7 @@ type GotdClient struct {
 	key        []byte
 	flowStore  FlowStore
 	logger     *slog.Logger
+	dialFunc   dcs.DialFunc // 自定义拨号函数，用于代理；nil 表示直连
 }
 
 // NewGotdClient 创建 GotdClient 实例。
@@ -31,26 +35,42 @@ func NewGotdClient(sessionDir string, key []byte, flowStore FlowStore, logger *s
 	}
 }
 
+// SetDialer 设置自定义拨号器，用于通过代理连接 Telegram。
+// 传入 nil 恢复直连。必须在调用 StartLogin / SubmitCode 等方法前设置。
+func (c *GotdClient) SetDialer(dialFunc dcs.DialFunc) {
+	c.dialFunc = dialFunc
+}
+
 // tmpSessionDir 返回临时 session 目录。
 func (c *GotdClient) tmpSessionDir() string {
 	return fmt.Sprintf("%s/tmp", c.sessionDir)
 }
 
+// buildOptions 构建 telegram.Options，注入代理 resolver（如有）。
+func (c *GotdClient) buildOptions(opts telegram.Options) telegram.Options {
+	if c.dialFunc != nil {
+		opts.Resolver = dcs.Plain(dcs.PlainOptions{
+			Dial: c.dialFunc,
+		})
+	}
+	return opts
+}
+
 // createClient 创建 Telegram 客户端，使用 flow-specific 的 session 存储。
 func (c *GotdClient) createClient(apiID int, apiHash string, flowID string) (*telegram.Client, *GotdSessionStorage) {
 	storage := NewGotdSessionStorage(c.tmpSessionDir(), c.key, "flow_"+flowID)
-	client := telegram.NewClient(apiID, apiHash, telegram.Options{
+	client := telegram.NewClient(apiID, apiHash, c.buildOptions(telegram.Options{
 		SessionStorage: storage,
-	})
+	}))
 	return client, storage
 }
 
 // createClientFromSession 创建 Telegram 客户端，使用正式 session 文件。
 func (c *GotdClient) createClientFromSession(apiID int, apiHash string, sessionFilePath string) (*telegram.Client, *FileBackedSessionStorage) {
 	storage := NewFileBackedSessionStorage(c.key, sessionFilePath)
-	client := telegram.NewClient(apiID, apiHash, telegram.Options{
+	client := telegram.NewClient(apiID, apiHash, c.buildOptions(telegram.Options{
 		SessionStorage: storage,
-	})
+	}))
 	return client, storage
 }
 
@@ -454,6 +474,19 @@ func (c *GotdClient) classifyError(err error) error {
 		return nil
 	}
 
+	// 检查 context 错误（超时/取消）
+	if err == context.DeadlineExceeded {
+		return &MTProtoError{Kind: ErrTelegramTimeout, Message: "连接 Telegram 超时，请检查 API 网络代理配置"}
+	}
+	if err == context.Canceled {
+		return &MTProtoError{Kind: ErrNetworkError, Message: "连接已取消"}
+	}
+
+	// 检查代理相关错误
+	if isProxyError(err) {
+		return classifyProxyError(err)
+	}
+
 	errStr := err.Error()
 
 	if strings.Contains(errStr, "FLOOD_WAIT") {
@@ -524,6 +557,41 @@ func maskPhone(phone string) string {
 		return "***"
 	}
 	return phone[:3] + "***" + phone[len(phone)-2:]
+}
+
+// isProxyError 检查错误是否与代理相关。
+func isProxyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// 检查是否是 net.OpError 且涉及代理连接
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		// 连接被拒绝、超时等都可能是代理问题
+		return true
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "proxy") ||
+		strings.Contains(errStr, "SOCKS") ||
+		strings.Contains(errStr, "CONNECT") ||
+		strings.Contains(errStr, "407") // Proxy Authentication Required
+}
+
+// classifyProxyError 分类代理错误。
+func classifyProxyError(err error) error {
+	errStr := err.Error()
+
+	if strings.Contains(errStr, "auth") || strings.Contains(errStr, "407") {
+		return &MTProtoError{Kind: ErrProxyAuthFailed, Message: "代理认证失败，请检查用户名和密码", Err: err}
+	}
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline") {
+		return &MTProtoError{Kind: ErrProxyConnectFailed, Message: "连接代理服务器超时，请检查代理地址和端口", Err: err}
+	}
+	if strings.Contains(errStr, "refused") || strings.Contains(errStr, "no route") {
+		return &MTProtoError{Kind: ErrProxyConnectFailed, Message: "无法连接到代理服务器，请检查代理地址和端口", Err: err}
+	}
+
+	return &MTProtoError{Kind: ErrProxyConnectFailed, Message: "代理连接失败，请检查代理配置", Err: err}
 }
 
 // 确保 GotdClient 实现 Client 接口。

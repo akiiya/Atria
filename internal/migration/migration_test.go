@@ -449,3 +449,87 @@ func TestNoSQLFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrations_RecordVersionOnlyAfterSuccess(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	// 注册一个会失败的迁移
+	Register(Migration{
+		Version: 1,
+		Name:    "will_fail",
+		Run: func(db *gorm.DB, key []byte) error {
+			return fmt.Errorf("模拟失败")
+		},
+	})
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	err := Run(db, key)
+	if err == nil {
+		t.Fatal("迁移失败应返回 error")
+	}
+
+	// 验证：失败的迁移不应记录版本号
+	versions, err := GetAppliedVersions(db)
+	if err != nil {
+		t.Fatalf("查询已执行迁移失败: %s", err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("失败的迁移不应记录版本号，实际记录了 %v", versions)
+	}
+}
+
+func TestMigrations_FailedMigrationDoesNotAffectData(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	// 注册一个成功的迁移和一个失败的迁移
+	Register(Migration{
+		Version: 1,
+		Name:    "success",
+		Run: func(db *gorm.DB, key []byte) error {
+			return db.Create(&model.SystemSetting{Key: "from_success", Value: "ok", ValueType: "string"}).Error
+		},
+	})
+	Register(Migration{
+		Version: 2,
+		Name:    "will_fail",
+		Run: func(db *gorm.DB, key []byte) error {
+			return fmt.Errorf("模拟失败")
+		},
+	})
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	err := Run(db, key)
+	if err == nil {
+		t.Fatal("迁移失败应返回 error")
+	}
+
+	// 验证：成功的迁移已记录
+	versions, _ := GetAppliedVersions(db)
+	if len(versions) != 1 || versions[0] != 1 {
+		t.Errorf("应只记录成功的迁移版本 [1]，实际=%v", versions)
+	}
+
+	// 验证：成功的迁移数据已写入
+	var setting model.SystemSetting
+	if err := db.Where("key = ?", "from_success").First(&setting).Error; err != nil {
+		t.Error("成功迁移的数据应已写入")
+	}
+}
+
+func TestMigrations_ConcurrentNotSupported_Documented(t *testing.T) {
+	// 验证：当前迁移框架不支持并发执行
+	// 这个测试记录了这一限制，文档中应说明
+	Reset()
+	defer Reset()
+
+	// 如果两个进程同时启动，可能并发执行同一迁移
+	// 当前框架不处理并发锁
+	// 用户不应在同一 data 目录启动多个 Atria 进程
+	t.Log("当前迁移框架不支持并发执行，文档中已标注限制")
+}

@@ -115,3 +115,4 @@ func migration003YourMigration(db *gorm.DB, key []byte) error {
 - 升级版本前建议备份 `data/` 目录和 `secret.key`
 - 迁移失败时程序不会启动，需要检查日志
 - 迁移日志不会泄露敏感信息（api_hash、proxy_password、Session 等）
+- **不支持多个 Atria 进程同时操作同一 data 目录**：当前迁移框架不包含并发锁，多个进程同时启动可能导致迁移重复执行或数据竞争。请确保同一时间只有一个 Atria 实例运行。
