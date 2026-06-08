@@ -112,7 +112,8 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
@@ -236,7 +237,8 @@ func (s *Server) handlePostAccountLoginCode(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	step, err := client.SubmitCode(c.Request.Context(), mtproto.SubmitCodeRequest{
@@ -367,7 +369,8 @@ func (s *Server) handlePostAccountLoginPassword(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	step, err := client.SubmitPassword(c.Request.Context(), mtproto.SubmitPasswordRequest{
@@ -419,7 +422,8 @@ func (s *Server) handlePostAccountLoginPassword(c *gin.Context) {
 func (s *Server) completeLogin(c *gin.Context, flow *mtproto.LoginFlow, step *mtproto.LoginStep) {
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
@@ -482,7 +486,8 @@ func (s *Server) handlePostAccountSync(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
@@ -522,7 +527,8 @@ func (s *Server) handlePostAccountCheckSession(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
@@ -594,7 +600,8 @@ func (s *Server) handlePostAccountLogout(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
@@ -638,7 +645,8 @@ func (s *Server) handlePostAccountDeleteSession(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
@@ -665,7 +673,8 @@ func (s *Server) handlePostAccountDeleteSession(c *gin.Context) {
 func (s *Server) getAccountService() *account.Service {
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	return account.NewService(s.db, s.key, sessionStore, client)
@@ -722,7 +731,18 @@ func (s *Server) handleAPILoginStart(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, proxyErr := s.proxyDialerFromSettings()
+	if proxyErr != nil {
+		slog.Error("代理配置错误", "error", proxyErr)
+		s.flowStore.Delete(c.Request.Context(), flowID)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "proxy_config_invalid",
+			"message": proxyErr.Error(),
+		})
+		return
+	}
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
@@ -837,9 +857,28 @@ func (s *Server) handleAPILoginCode(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, proxyErr := s.proxyDialerFromSettings()
+	if proxyErr != nil {
+		slog.Error("代理配置错误", "error", proxyErr)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "proxy_config_invalid",
+			"message": proxyErr.Error(),
+		})
+		return
+	}
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
+
+	slog.Info("SubmitCode 请求",
+		"flow_id", flowID,
+		"has_code", code != "",
+		"has_phone_code_hash", flow.PhoneCodeHashEncrypted != "",
+		"api_credential_id", flow.APICredentialID,
+		"has_dialer", dialer != nil,
+	)
+
 	step, err := client.SubmitCode(c.Request.Context(), mtproto.SubmitCodeRequest{
 		FlowID:  flowID,
 		Code:    code,
@@ -982,7 +1021,17 @@ func (s *Server) handleAPILoginPassword(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, proxyErr := s.proxyDialerFromSettings()
+	if proxyErr != nil {
+		slog.Error("代理配置错误", "error", proxyErr)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "proxy_config_invalid",
+			"message": proxyErr.Error(),
+		})
+		return
+	}
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	step, err := client.SubmitPassword(c.Request.Context(), mtproto.SubmitPasswordRequest{
@@ -1062,7 +1111,8 @@ func (s *Server) handleAPILoginCancel(c *gin.Context) {
 func (s *Server) completeLoginJSON(c *gin.Context, flow *mtproto.LoginFlow, step *mtproto.LoginStep) (*model.TelegramAccount, error) {
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+	dialer, _ := s.proxyDialerFromSettings()
+	if dialer != nil {
 		client.SetDialer(dialer)
 	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
@@ -1116,7 +1166,8 @@ func (s *Server) completeLoginJSON(c *gin.Context, flow *mtproto.LoginFlow, step
 
 // proxyDialerFromSettings 从数据库读取代理配置，返回 gotd 兼容的 DialFunc。
 // 如果代理未启用或类型为 none，返回 nil（直连）。
-func (s *Server) proxyDialerFromSettings() dcs.DialFunc {
+// 如果代理配置不完整或解密失败，返回 error。
+func (s *Server) proxyDialerFromSettings() (dcs.DialFunc, error) {
 	var settings []model.SystemSetting
 	s.db.Where("key IN ?", []string{"proxy_enabled", "proxy_type", "proxy_host", "proxy_port", "proxy_username", "proxy_timeout"}).Find(&settings)
 
@@ -1127,24 +1178,25 @@ func (s *Server) proxyDialerFromSettings() dcs.DialFunc {
 
 	// 检查代理是否启用
 	if settingMap["proxy_enabled"] != "true" && settingMap["proxy_type"] == "none" {
-		return nil
+		return nil, nil
 	}
 
 	proxyType := settingMap["proxy_type"]
 	if proxyType == "none" || proxyType == "" {
-		return nil
+		return nil, nil
 	}
 
 	host := settingMap["proxy_host"]
 	portStr := settingMap["proxy_port"]
 	if host == "" || portStr == "" {
-		return nil
+		slog.Warn("代理配置不完整：缺少主机或端口", "host", host, "port", portStr)
+		return nil, fmt.Errorf("代理配置不完整，请检查代理类型、主机和端口")
 	}
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
-		slog.Warn("代理端口无效，使用直连", "port", portStr)
-		return nil
+		slog.Warn("代理端口无效", "port", portStr)
+		return nil, fmt.Errorf("代理端口无效: %s", portStr)
 	}
 
 	timeout := 30 * time.Second
@@ -1157,17 +1209,26 @@ func (s *Server) proxyDialerFromSettings() dcs.DialFunc {
 	username := settingMap["proxy_username"]
 
 	// 读取代理密码（加密存储）
+	// proxy_password 记录缺失时视为空密码（合法）
+	// proxy_password 存在但解密失败时返回错误，不得静默降级
 	password := ""
 	var pwdSetting model.SystemSetting
 	if err := s.db.Where("key = ?", "proxy_password").First(&pwdSetting).Error; err == nil && pwdSetting.Value != "" {
 		decrypted, err := crypto.DecryptString(s.key, pwdSetting.Value, []byte("atria:proxy:v1"))
 		if err != nil {
-			// 解密失败不应静默当空密码，否则用户会看到莫名其妙的代理认证失败
 			slog.Error("解密代理密码失败，请检查代理配置", "error", err)
-			return nil
+			return nil, fmt.Errorf("代理密码配置错误，请重新配置代理")
 		}
 		password = decrypted
 	}
+
+	slog.Info("创建代理拨号器",
+		"type", proxyType,
+		"host", host,
+		"port", port,
+		"has_username", username != "",
+		"has_password", password != "",
+	)
 
 	config := network.ProxyConfig{
 		Type:     network.ProxyType(proxyType),
@@ -1181,7 +1242,7 @@ func (s *Server) proxyDialerFromSettings() dcs.DialFunc {
 	dialer := network.NewDialer(config)
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return dialer.DialContext(ctx, network, addr)
-	}
+	}, nil
 }
 func getErrorMessage(kind mtproto.ErrorKind, err error) string {
 	switch kind {

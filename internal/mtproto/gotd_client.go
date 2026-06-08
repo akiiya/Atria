@@ -489,6 +489,19 @@ func (c *GotdClient) classifyError(err error) error {
 
 	errStr := err.Error()
 
+	// 诊断日志：记录原始错误类型和关键词，帮助定位问题
+	// 不记录 api_hash / proxy_password / 验证码 / session
+	c.logger.Warn("gotd 错误分类",
+		"error_type", fmt.Sprintf("%T", err),
+		"error_len", len(errStr),
+		"has_flood_wait", strings.Contains(errStr, "FLOOD_WAIT"),
+		"has_phone_code_invalid", strings.Contains(errStr, "PHONE_CODE_INVALID"),
+		"has_phone_code_expired", strings.Contains(errStr, "PHONE_CODE_EXPIRED"),
+		"has_session_password_needed", strings.Contains(errStr, "SESSION_PASSWORD_NEEDED"),
+		"has_api_id_invalid", strings.Contains(errStr, "API_ID_INVALID"),
+		"has_auth_key_invalid", strings.Contains(errStr, "AUTH_KEY_INVALID"),
+	)
+
 	if strings.Contains(errStr, "FLOOD_WAIT") {
 		waitSeconds := parseFloodWaitSeconds(errStr)
 		return &FloodWaitError{

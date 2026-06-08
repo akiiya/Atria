@@ -2114,3 +2114,322 @@ func TestLoginErrors_DoNotRenderSensitiveData(t *testing.T) {
 		}
 	}
 }
+
+// ===== SubmitCode API 诊断测试 =====
+
+func TestLoginCodeAPI_MissingFlowID_ReturnsFlowInvalid(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "code=12345&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/code", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("空 flow_id 应返回 ok:false")
+	}
+	if !strings.Contains(bodyStr, "missing_flow_id") {
+		t.Error("应返回 missing_flow_id 错误码")
+	}
+}
+
+func TestLoginCodeAPI_EmptyCode_ReturnsCodeEmpty(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "flow_id=some_flow&code=&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/code", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("空 code 应返回 ok:false")
+	}
+	if !strings.Contains(bodyStr, "missing_code") {
+		t.Error("应返回 missing_code 错误码")
+	}
+}
+
+func TestLoginCodeAPI_UnknownFlow_ReturnsFlowExpired(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "flow_id=nonexistent&code=12345&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/code", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("未知 flow 应返回 ok:false")
+	}
+	if !strings.Contains(bodyStr, "flow_expired") {
+		t.Error("应返回 flow_expired 错误码")
+	}
+}
+
+func TestLoginPasswordAPI_UnknownFlow_ReturnsFlowExpired(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "flow_id=nonexistent&password=test123&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("未知 flow 应返回 ok:false")
+	}
+	if !strings.Contains(bodyStr, "flow_expired") {
+		t.Error("应返回 flow_expired 错误码")
+	}
+}
+
+func TestLoginCodeAPI_DoesNotReturnGenericNetworkError(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	// 未知 flow 不应返回 "网络异常"
+	w := httptest.NewRecorder()
+	body := "flow_id=nonexistent&code=12345&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/code", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if strings.Contains(bodyStr, "网络异常") {
+		t.Error("未知 flow 不应返回 '网络异常'，应返回具体错误")
+	}
+}
+
+func TestLoginCodeAPI_ReturnsSpecificErrorCode(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	// 未知 flow 应返回 flow_expired，不是 network_error
+	w := httptest.NewRecorder()
+	body := "flow_id=nonexistent&code=12345&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/code", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	// code 字段应是具体的 flow_expired，不是 network_error
+	if strings.Contains(bodyStr, `"code":"network_error"`) {
+		t.Error("不应返回 code:network_error，应返回具体错误码")
+	}
+	if !strings.Contains(bodyStr, `"code":"flow_expired"`) {
+		t.Error("应返回 code:flow_expired")
+	}
+}
+
+func TestLoginStartAPI_ProxyConfigInvalid_ReturnsSpecificError(t *testing.T) {
+	// 测试当代理配置不完整时返回具体错误
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	// 创建 API Key
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 配置不完整的代理（有类型但没主机）
+	srv.db.Create(&model.SystemSetting{Key: "proxy_type", Value: "socks5", ValueType: "string"})
+	srv.db.Create(&model.SystemSetting{Key: "proxy_enabled", Value: "true", ValueType: "string"})
+	srv.db.Create(&model.SystemSetting{Key: "proxy_host", Value: "", ValueType: "string"})
+
+	w := httptest.NewRecorder()
+	// %2B 是 + 的 URL 编码，避免 form-urlencoded 中 + 被解析为空格
+	body := "phone=%2B8613800138000&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	t.Logf("Proxy config invalid response: %s", bodyStr)
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("代理配置不完整应返回 ok:false")
+	}
+	if !strings.Contains(bodyStr, "proxy_config_invalid") && !strings.Contains(bodyStr, "代理配置") {
+		t.Error("应返回代理配置错误")
+	}
+	// 不应返回 "网络异常"
+	if strings.Contains(bodyStr, "网络异常") {
+		t.Error("不应返回 '网络异常'，应返回代理配置错误")
+	}
+}
+
+func TestCodeStep_HasFlowIDHolder(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 验证码步骤应有 flow_id 容器
+	if !strings.Contains(body, "code-flow-id") {
+		t.Error("页面应有 code-flow-id 容器")
+	}
+	// 密码步骤应有 flow_id 容器
+	if !strings.Contains(body, "password-flow-id") {
+		t.Error("页面应有 password-flow-id 容器")
+	}
+}
+
+func TestLoginJS_CodeSubmitHasLoadingText(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "正在验证...") {
+		t.Error("提交验证码按钮应有 loading 文案 '正在验证...'")
+	}
+}
+
+func TestLoginJS_NoFullPageFormPostForCode(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 验证码表单应使用 onsubmit="return false;" 防止传统 form post
+	if !strings.Contains(body, `onsubmit="return false;"`) {
+		t.Error("验证码表单应阻止传统 form post")
+	}
+	// 应有 handleLoginCode 异步处理
+	if !strings.Contains(body, "handleLoginCode") {
+		t.Error("应有 handleLoginCode 异步处理")
+	}
+}
+
+func TestProxyPasswordDecryptFailed_ReturnsProxyConfigInvalid(t *testing.T) {
+	// 测试代理密码解密失败时返回 proxy_config_invalid
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	// 创建 API Key
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	// 配置代理但密码解密会失败（用错误的加密方式）
+	srv.db.Create(&model.SystemSetting{Key: "proxy_type", Value: "socks5", ValueType: "string"})
+	srv.db.Create(&model.SystemSetting{Key: "proxy_enabled", Value: "true", ValueType: "string"})
+	srv.db.Create(&model.SystemSetting{Key: "proxy_host", Value: "127.0.0.1", ValueType: "string"})
+	srv.db.Create(&model.SystemSetting{Key: "proxy_port", Value: "1080", ValueType: "string"})
+	srv.db.Create(&model.SystemSetting{Key: "proxy_password", Value: "invalid_encrypted_data", ValueType: "string", IsSensitive: true})
+
+	w := httptest.NewRecorder()
+	body := "phone=%2B8613800138000&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	// 应返回代理配置错误，不应静默降级为直连
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("密码解密失败应返回 ok:false")
+	}
+	// 不应返回 "网络异常"
+	if strings.Contains(bodyStr, "网络异常") {
+		t.Error("密码解密失败不应返回 '网络异常'")
+	}
+}
