@@ -1154,6 +1154,9 @@ func (s *Server) completeLoginJSON(c *gin.Context, flow *mtproto.LoginFlow, step
 	// 删除 Flow
 	s.flowStore.Delete(c.Request.Context(), flow.ID)
 
+	// 设置新登录的账号为当前活跃账号
+	s.setSelectedAccountID(c, acc.ID)
+
 	audit.Log(c.Request.Context(), s.db, audit.Event{
 		ActorType:    "admin",
 		ActorID:      fmt.Sprintf("%d", actorID),
@@ -1313,7 +1316,18 @@ func (s *Server) newAccountViewData(c *gin.Context, activeNav string) map[string
 		}
 	}
 
-	return data.ToMap()
+	result := data.ToMap()
+
+	// 注入账号切换器数据（与 newAuthViewData 保持一致）
+	accountList, currentAccount := s.getAccountSwitcherData(c)
+	result["AccountList"] = accountList
+	if currentAccount != nil {
+		result["CurrentAccountID"] = currentAccount.ID
+		result["CurrentAccountName"] = currentAccount.DisplayName
+		result["CurrentAccountUsername"] = currentAccount.Username
+	}
+
+	return result
 }
 
 // parseAccountID 从 URL 参数解析账号 ID。
