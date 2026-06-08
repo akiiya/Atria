@@ -143,6 +143,21 @@ func loginAdmin(t *testing.T, r *gin.Engine) (string, string) {
 	return csrfCookie, sessionCookie
 }
 
+// refreshCSRF 获取最新的 CSRF token（用于后续 POST 请求）。
+func refreshCSRF(t *testing.T, r *gin.Engine, sessionCookie string) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_csrf" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
 func TestRouter_Uninitialized_GetRoot_RedirectsToInit(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
@@ -1672,5 +1687,430 @@ func TestSettings_SaveSystemAPIKey_ThenAccountLoginShowsPhoneForm(t *testing.T) 
 	// 不应提示配置 API Key
 	if strings.Contains(body, "请先配置 Telegram API Key") {
 		t.Error("已配置 API Key 后，/accounts/login 不应再提示配置")
+	}
+}
+
+// ===== 异步登录 API 测试 =====
+
+func TestAccountLoginPage_HasCSRFMetaForAsyncRequests(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, `name="csrf-token"`) {
+		t.Error("页面应包含 csrf-token meta 标签")
+	}
+}
+
+func TestAccountLoginPage_StartButtonUsesAsync(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "data-loading-text") {
+		t.Error("开始登录按钮应有 data-loading-text 属性")
+	}
+	if !strings.Contains(body, "handleLoginStart") {
+		t.Error("开始登录应使用异步 handleLoginStart")
+	}
+}
+
+func TestAccountLoginStart_GetRedirectsToLogin(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login/start", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+	location := w.Header().Get("Location")
+	if !strings.Contains(location, "/accounts/login") {
+		t.Errorf("应重定向到 /accounts/login，实际=%s", location)
+	}
+}
+
+func TestLoginStartAPI_PostWithoutCSRFRejected(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	body := "phone=+8613800138000"
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("期望 403，实际=%d", w.Code)
+	}
+}
+
+func TestLoginStartAPI_PostWithCSRFAccepted(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	body := "phone=+8613800138000&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code == http.StatusForbidden {
+		t.Error("带 CSRF 的请求不应返回 403")
+	}
+	if !strings.Contains(w.Body.String(), `"ok"`) {
+		t.Error("应返回 JSON 响应")
+	}
+}
+
+func TestLoginStartAPI_ErrorReturnsJSONNoRedirect(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	body := "phone=+8613800138000&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code == http.StatusFound {
+		t.Error("异步 API 不应返回 redirect")
+	}
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok"`) {
+		t.Error("应返回 JSON 响应")
+	}
+	if strings.Contains(bodyStr, `"ok":true`) {
+		t.Error("无法连接 Telegram 时 ok 应为 false")
+	}
+}
+
+func TestLoginStartAPI_InvalidPhoneReturnsJSONError(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "phone=invalid&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("无效手机号应返回 ok: false")
+	}
+}
+
+func TestLoginStartAPI_NoAPIKeyReturnsJSONError(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "phone=+8613800138000&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("无 API Key 应返回 ok: false")
+	}
+}
+
+func TestLoginCodeAPI_UnknownFlowReturnsFlowExpired(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "flow_id=nonexistent&code=12345&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/code", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("未知 flow 应返回 ok: false")
+	}
+	if !strings.Contains(bodyStr, "flow_expired") {
+		t.Error("应返回 flow_expired 错误码")
+	}
+}
+
+func TestLoginPasswordAPI_UnknownFlowReturnsFlowExpired(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "flow_id=nonexistent&password=test123&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, `"ok":false`) {
+		t.Error("未知 flow 应返回 ok: false")
+	}
+	if !strings.Contains(bodyStr, "flow_expired") {
+		t.Error("应返回 flow_expired 错误码")
+	}
+}
+
+func TestLoginCancelAPI_ClearsFlow(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	body := "flow_id=some_flow&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/cancel", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	t.Logf("Cancel response status=%d body=%s", w.Code, bodyStr)
+	if !strings.Contains(bodyStr, `"ok"`) {
+		t.Error("取消应返回 JSON 响应")
+	}
+}
+
+func TestCodePage_UnknownFlowRedirectsToLogin(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login/code?flow_id=unknown", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+	location := w.Header().Get("Location")
+	if !strings.Contains(location, "/accounts/login") {
+		t.Errorf("应重定向到 /accounts/login，实际=%s", location)
+	}
+}
+
+func TestLoginButtonsHaveLoadingText(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "正在发送验证码") {
+		t.Error("开始登录按钮应有 loading 文案")
+	}
+	if !strings.Contains(body, "正在验证...") {
+		t.Error("提交验证码按钮应有 loading 文案")
+	}
+	if !strings.Contains(body, "正在验证密码") {
+		t.Error("提交密码按钮应有 loading 文案")
+	}
+}
+
+func TestLoginJSRegistered(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "login.js") {
+		t.Error("页面应加载 login.js")
+	}
+	if !strings.Contains(body, "app.js") {
+		t.Error("页面应加载 app.js")
+	}
+}
+
+func TestLoginJSNoExternalFramework(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts/login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	externalFrameworks := []string{
+		"react", "vue", "angular", "svelte",
+		"cdn.jsdelivr", "unpkg.com", "cdnjs.cloudflare",
+	}
+	for _, fw := range externalFrameworks {
+		if strings.Contains(strings.ToLower(body), fw) {
+			t.Errorf("页面不应引入外部框架 %q", fw)
+		}
+	}
+}
+
+func TestLoginErrors_DoNotRenderSensitiveData(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie := refreshCSRF(t, r, sessionCookie)
+
+	apiHash := "abcdef0123456789abcdef0123456789"
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     apiHash,
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+
+	w := httptest.NewRecorder()
+	body := "phone=+8613800138000&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/api/accounts/login/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+
+	sensitiveTerms := []string{
+		apiHash,
+		"proxy_password",
+		"session_data",
+	}
+	for _, s := range sensitiveTerms {
+		if strings.Contains(bodyStr, s) {
+			t.Errorf("响应不应包含敏感数据 %q", s)
+		}
 	}
 }
