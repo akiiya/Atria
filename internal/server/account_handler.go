@@ -872,11 +872,15 @@ func (s *Server) handleAPILoginCode(c *gin.Context) {
 	}
 
 	slog.Info("SubmitCode 请求",
+		"operation", "submit_code",
 		"flow_id", flowID,
 		"has_code", code != "",
-		"has_phone_code_hash", flow.PhoneCodeHashEncrypted != "",
+		"phone_code_hash_present", flow.PhoneCodeHashEncrypted != "",
+		"phone_code_hash_len", len(flow.PhoneCodeHashEncrypted),
 		"api_credential_id", flow.APICredentialID,
-		"has_dialer", dialer != nil,
+		"api_id", flow.APIID,
+		"flow_state", string(flow.State),
+		"dialer_configured", dialer != nil,
 	)
 
 	step, err := client.SubmitCode(c.Request.Context(), mtproto.SubmitCodeRequest{
@@ -889,6 +893,13 @@ func (s *Server) handleAPILoginCode(c *gin.Context) {
 	if err != nil {
 		errKind := mtproto.ClassifyError(err)
 		errMsg := getErrorMessage(errKind, err)
+
+		slog.Warn("SubmitCode 失败",
+			"operation", "submit_code",
+			"flow_id", flowID,
+			"error_kind", string(errKind),
+			"error_type", fmt.Sprintf("%T", err),
+		)
 
 		audit.Log(c.Request.Context(), s.db, audit.Event{
 			ActorType:    "admin",
@@ -1271,6 +1282,10 @@ func getErrorMessage(kind mtproto.ErrorKind, err error) string {
 		return "代理认证失败，请检查用户名和密码。"
 	case mtproto.ErrTelegramTimeout:
 		return "连接 Telegram 超时，请检查 API 网络代理配置。"
+	case mtproto.ErrSessionContextLost:
+		return "登录会话上下文已丢失，请重新开始登录流程。"
+	case mtproto.ErrTelegramError:
+		return "Telegram 返回异常，请重新开始登录流程或检查日志。"
 	case mtproto.ErrNetworkError:
 		return "网络异常，请检查网络连接或代理配置。"
 	default:

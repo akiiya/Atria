@@ -30,6 +30,8 @@ const (
 	ErrProxyConnectFailed    ErrorKind = "proxy_connect_failed"
 	ErrProxyAuthFailed       ErrorKind = "proxy_auth_failed"
 	ErrTelegramTimeout       ErrorKind = "telegram_timeout"
+	ErrTelegramError         ErrorKind = "telegram_error"
+	ErrSessionContextLost    ErrorKind = "session_context_lost"
 )
 
 // MTProtoError 表示 MTProto 操作错误。
