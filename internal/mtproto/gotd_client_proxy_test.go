@@ -463,3 +463,69 @@ func TestIsSessionPasswordNeeded_OtherError(t *testing.T) {
 		t.Error("其它错误不应被识别为 SESSION_PASSWORD_NEEDED")
 	}
 }
+
+// ===== 2FA Password 测试 =====
+
+func TestSubmitPassword_TrimsWhitespace(t *testing.T) {
+	// 验证 password 前后空白被清理
+	password := "  mypassword  "
+	trimmed := strings.TrimSpace(password)
+	if trimmed != "mypassword" {
+		t.Errorf("TrimSpace 应清理前后空白，实际=%q", trimmed)
+	}
+
+	password2 := "\n\tmypassword\n\t"
+	trimmed2 := strings.TrimSpace(password2)
+	if trimmed2 != "mypassword" {
+		t.Errorf("TrimSpace 应清理换行和制表符，实际=%q", trimmed2)
+	}
+}
+
+func TestClassifyError_PasswordHashInvalid_ReturnsPasswordInvalid(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	// 构造 PASSWORD_HASH_INVALID wrapped error
+	inner := &tgerr.Error{Code: 400, Message: "PASSWORD_HASH_INVALID", Type: "PASSWORD_HASH_INVALID"}
+	wrapped := fmt.Errorf("AuthCheckPassword failed: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr, ok := result.(*MTProtoError)
+	if !ok {
+		t.Fatalf("期望 *MTProtoError，实际 %T", result)
+	}
+	if mtprotoErr.Kind != ErrLoginPasswordInvalid {
+		t.Errorf("期望 ErrLoginPasswordInvalid，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_SRPPasswordChanged_ReturnsPasswordChanged(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 400, Message: "SRP_PASSWORD_CHANGED", Type: "SRP_PASSWORD_CHANGED"}
+	wrapped := fmt.Errorf("AuthCheckPassword failed: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr, ok := result.(*MTProtoError)
+	if !ok {
+		t.Fatalf("期望 *MTProtoError，实际 %T", result)
+	}
+	if mtprotoErr.Kind != ErrLoginPasswordInvalid {
+		t.Errorf("期望 ErrLoginPasswordInvalid，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_SRPIDInvalid_ReturnsPasswordInvalid(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 400, Message: "SRP_ID_INVALID", Type: "SRP_ID_INVALID"}
+	wrapped := fmt.Errorf("AuthCheckPassword failed: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr, ok := result.(*MTProtoError)
+	if !ok {
+		t.Fatalf("期望 *MTProtoError，实际 %T", result)
+	}
+	if mtprotoErr.Kind != ErrLoginPasswordInvalid {
+		t.Errorf("期望 ErrLoginPasswordInvalid，实际 %s", mtprotoErr.Kind)
+	}
+}

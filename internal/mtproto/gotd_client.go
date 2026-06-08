@@ -257,7 +257,20 @@ func (c *GotdClient) SubmitPassword(ctx context.Context, req SubmitPasswordReque
 		return nil, &MTProtoError{Kind: ErrInternalError, Message: "流程状态不正确，当前需要验证码而非密码"}
 	}
 
+	// 清理密码前后空白
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		return nil, &MTProtoError{Kind: ErrLoginPasswordInvalid, Message: "请输入 Telegram 两步验证密码"}
+	}
+
 	client, storage := c.createClient(req.APIID, req.APIHash, req.FlowID)
+
+	c.logger.Info("SubmitPassword 开始",
+		"operation", "submit_password",
+		"flow_id", req.FlowID,
+		"password_len", len(password),
+		"flow_state", string(flow.State),
+	)
 
 	var result *LoginStep
 
@@ -271,18 +284,23 @@ func (c *GotdClient) SubmitPassword(ctx context.Context, req SubmitPasswordReque
 			return &MTProtoError{Kind: ErrInternalError, Message: "该账号未设置两步验证"}
 		}
 
+		// 使用 CurrentAlgo（当前密码算法），不是 NewAlgo（设置新密码时的算法）
+		// 参考 gotd/td telegram/auth/user.go Password() 方法
 		inputPassword, err := auth.PasswordHash(
-			[]byte(req.Password),
+			[]byte(password),
 			passwordInfo.SRPID,
 			passwordInfo.SRPB,
 			passwordInfo.SecureRandom,
-			passwordInfo.NewAlgo,
+			passwordInfo.CurrentAlgo,
 		)
 		if err != nil {
 			return &MTProtoError{Kind: ErrInternalError, Message: "计算密码哈希失败", Err: err}
 		}
 
 		authResult, err := client.API().AuthCheckPassword(ctx, inputPassword)
+		if tg.IsPasswordHashInvalid(err) {
+			return &MTProtoError{Kind: ErrLoginPasswordInvalid, Message: "2FA 密码错误，请重新输入"}
+		}
 		if err != nil {
 			return c.classifyError(err)
 		}

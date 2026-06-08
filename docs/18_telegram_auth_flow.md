@@ -101,9 +101,36 @@ auth.sendCode(phone, api_id, api_hash)
 | API_ID_INVALID | api_key_invalid | Telegram API Key 不可用 |
 | PHONE_NUMBER_INVALID | phone_invalid | 手机号无效 |
 
+## gotd/td 源码阅读证据
+
+**版本**：github.com/gotd/td v0.115.0
+
+**已读取的本地源码文件**：
+- `telegram/auth/user.go` — `Client.Password()` 方法、`Client.SignIn()` 方法、`ErrPasswordAuthNeeded`、`ErrPasswordInvalid`
+- `telegram/auth/password.go` — `PasswordHash()` 函数（SRP 哈希计算）
+- `telegram/auth/flow.go` — `Flow.Run()` 认证流程
+- `telegram/auth/client.go` — `Client` 结构体
+- `tgerr/error.go` — `tgerr.Error` RPC 错误类型、`tgerr.As()` 解包
+- `tg/tl_errors_gen.go` — `tg.IsPasswordHashInvalid()` 错误检查
+
+**关键结论**：
+1. gotd `auth.Client.Password()` 使用 `p.CurrentAlgo`（当前密码算法），不是 `p.NewAlgo`（设置新密码算法）
+2. `PasswordHash()` 接收 `PasswordKdfAlgoClass` 接口，内部断言为 `*PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow`
+3. `auth.Client.SignIn()` 遇到 `SESSION_PASSWORD_NEEDED` 返回 `ErrPasswordAuthNeeded`
+4. `auth.Client.Password()` 遇到 `PASSWORD_HASH_INVALID` 返回 `ErrPasswordInvalid`
+5. `ErrPasswordInvalid` 注释明确说明：Telegram 默认不 trim 密码空白字符，需要 `strings.TrimSpace`
+
+**Atria 2FA 实现**：
+- 使用 `auth.PasswordHash()` gotd helper 计算 SRP 哈希
+- 使用 `tg.AuthCheckPassword` 提交验证
+- 使用 `passwordInfo.CurrentAlgo`（修复后，之前错误使用了 `NewAlgo`）
+- 对密码做 `strings.TrimSpace`
+
 ## 后续开发要求
 
 1. **修改登录链路前必须先看本文件和 Telegram 官方 Auth 文档**
 2. **不允许把未知 Telegram RPC 错误粗暴归类为 network_error**
 3. **不允许新增登录状态但不补状态机文档和测试**
 4. **SESSION_PASSWORD_NEEDED 不是错误，是状态转换信号**
+5. **2FA 密码必须使用 `CurrentAlgo`，不是 `NewAlgo`**
+6. **不允许手写未验证的 SRP，必须使用 gotd `auth.PasswordHash` helper**
