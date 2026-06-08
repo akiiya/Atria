@@ -186,27 +186,32 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleGetAccounts(c)
 	})
 
-	// 账号登录向导
+	// 账号登录向导（单页登录流程）
 	r.GET("/accounts/login", authMiddleware, func(c *gin.Context) {
 		s.handleGetAccountLogin(c)
 	})
 
-	// 开始登录流程
+	// GET /accounts/login/start 不应返回 CSRF 403，重定向回登录页
+	r.GET("/accounts/login/start", authMiddleware, func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/accounts/login")
+	})
+
+	// 传统 form POST fallback（保留兼容，但主路径使用异步 API）
 	r.POST("/accounts/login/start", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostAccountLoginStart(c)
 	})
 
-	// 验证码输入页
+	// 验证码输入页（兼容旧路由，重定向回登录页）
 	r.GET("/accounts/login/code", authMiddleware, func(c *gin.Context) {
 		s.handleGetAccountLoginCode(c)
 	})
 
-	// 提交验证码
+	// 提交验证码（传统 fallback）
 	r.POST("/accounts/login/code", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostAccountLoginCode(c)
 	})
 
-	// 2FA 密码输入页
+	// 2FA 密码输入页（兼容旧路由）
 	r.GET("/accounts/login/password", authMiddleware, func(c *gin.Context) {
 		s.handleGetAccountLoginPassword(c)
 	})
@@ -239,6 +244,28 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	// 检测 Session 状态
 	r.POST("/accounts/:id/check-session", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handlePostAccountCheckSession(c)
+	})
+
+	// ===== 异步登录 API =====
+
+	// 发送验证码
+	r.POST("/api/accounts/login/start", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPILoginStart(c)
+	})
+
+	// 提交验证码
+	r.POST("/api/accounts/login/code", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPILoginCode(c)
+	})
+
+	// 提交 2FA 密码
+	r.POST("/api/accounts/login/password", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPILoginPassword(c)
+	})
+
+	// 取消登录流程
+	r.POST("/api/accounts/login/cancel", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPILoginCancel(c)
 	})
 
 	// ===== 占位路由 =====

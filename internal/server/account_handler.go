@@ -172,21 +172,22 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 }
 
 // handleGetAccountLoginCode 处理 GET /accounts/login/code - 验证码输入页。
+// 兼容旧路由：flow_id 无效时重定向回登录页。
 func (s *Server) handleGetAccountLoginCode(c *gin.Context) {
 	flowID := c.Query("flow_id")
 	if flowID == "" {
-		RenderError(c, http.StatusBadRequest, "请求无效", "缺少流程 ID")
+		c.Redirect(http.StatusFound, "/accounts/login")
 		return
 	}
 
 	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
 	if err != nil {
-		RenderError(c, http.StatusBadRequest, "流程无效", "登录流程不存在或已过期")
+		c.Redirect(http.StatusFound, "/accounts/login")
 		return
 	}
 
 	if flow.State != mtproto.LoginStateCodeSent {
-		RenderError(c, http.StatusBadRequest, "流程状态错误", "当前流程状态不正确")
+		c.Redirect(http.StatusFound, "/accounts/login")
 		return
 	}
 
@@ -670,6 +671,447 @@ func (s *Server) getAccountService() *account.Service {
 	return account.NewService(s.db, s.key, sessionStore, client)
 }
 
+// ===== 异步登录 API =====
+
+// handleAPILoginStart 处理 POST /api/accounts/login/start - 异步发送验证码。
+func (s *Server) handleAPILoginStart(c *gin.Context) {
+	credSvc := credential.NewService(s.db, s.key)
+	systemKey, _ := credSvc.GetSystemAPIKey()
+	if systemKey == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "no_api_key",
+			"message": "请先在系统设置中配置 Telegram API Key。",
+		})
+		return
+	}
+
+	credID := systemKey.ID
+	phone := c.PostForm("phone")
+	if err := account.ValidatePhone(phone); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "invalid_phone",
+			"message": "请输入完整的国际手机号，例如 +8613800000000。",
+		})
+		return
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, systemKey.EncryptedAPIHash)
+	if err != nil {
+		slog.Error("解密 api_hash 失败", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "internal_error",
+			"message": "解密凭据失败，请检查系统设置。",
+		})
+		return
+	}
+
+	flowID := fmt.Sprintf("flow_%d_%s", credID, crypto.Fingerprint(phone)[:8])
+	phoneEncrypted, phoneFingerprint, _ := security.EncryptPhone(s.key, phone)
+
+	flow := mtproto.NewLoginFlow(flowID, credID, int(systemKey.APIID), phoneEncrypted, phoneFingerprint)
+	if err := s.flowStore.Create(c.Request.Context(), flow); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "flow_create_failed",
+			"message": "登录流程启动失败，请检查 Telegram API Key 和 API 网络代理配置。",
+		})
+		return
+	}
+
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
+	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
+		APICredentialID: credID,
+		APIID:           int(systemKey.APIID),
+		APIHash:         apiHash,
+		Phone:           phone,
+		FlowID:          flowID,
+	})
+
+	if err != nil {
+		s.flowStore.Delete(c.Request.Context(), flowID)
+		errKind := mtproto.ClassifyError(err)
+		errMsg := getErrorMessage(errKind, err)
+
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    string(errKind),
+			"message": errMsg,
+		})
+		return
+	}
+
+	if step == nil || step.FlowID == "" {
+		s.flowStore.Delete(c.Request.Context(), flowID)
+		slog.Error("登录流程启动失败：返回了空的步骤结果")
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "internal_error",
+			"message": "登录流程启动失败，请检查 Telegram API Key 和 API 网络代理配置。",
+		})
+		return
+	}
+
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+		Action:       "account.login_code_sent",
+		ResourceType: "login_flow",
+		ResourceID:   flowID,
+		RiskLevel:    "low",
+		IP:           c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
+		Message:      "验证码已发送",
+		Metadata: map[string]any{
+			"api_credential_id": credID,
+			"flow_id":           flowID,
+		},
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"next":    "code",
+		"flow_id": step.FlowID,
+		"message": "验证码已发送，请填写 Telegram 发送的验证码。",
+	})
+}
+
+// handleAPILoginCode 处理 POST /api/accounts/login/code - 异步提交验证码。
+func (s *Server) handleAPILoginCode(c *gin.Context) {
+	flowID := c.PostForm("flow_id")
+	code := c.PostForm("code")
+
+	if flowID == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "missing_flow_id",
+			"message": "缺少流程 ID，请重新开始登录。",
+		})
+		return
+	}
+
+	if code == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "missing_code",
+			"message": "验证码不能为空。",
+		})
+		return
+	}
+
+	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "flow_expired",
+			"message": "登录流程已过期，请重新开始。",
+		})
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+	cred, err := credSvc.GetByID(flow.APICredentialID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "internal_error",
+			"message": "API 凭据不存在，请重新开始。",
+		})
+		return
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		slog.Error("解密 api_hash 失败", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "internal_error",
+			"message": "解密凭据失败。",
+		})
+		return
+	}
+
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
+	step, err := client.SubmitCode(c.Request.Context(), mtproto.SubmitCodeRequest{
+		FlowID:  flowID,
+		Code:    code,
+		APIID:   flow.APIID,
+		APIHash: apiHash,
+	})
+
+	if err != nil {
+		errKind := mtproto.ClassifyError(err)
+		errMsg := getErrorMessage(errKind, err)
+
+		audit.Log(c.Request.Context(), s.db, audit.Event{
+			ActorType:    "admin",
+			ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+			Action:       "account.login_code_failed",
+			ResourceType: "login_flow",
+			ResourceID:   flowID,
+			RiskLevel:    "medium",
+			IP:           c.ClientIP(),
+			UserAgent:    c.GetHeader("User-Agent"),
+			Message:      "验证码提交失败",
+			Metadata: map[string]any{
+				"error_kind":        string(errKind),
+				"api_credential_id": flow.APICredentialID,
+			},
+		})
+
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    string(errKind),
+			"message": errMsg,
+		})
+		return
+	}
+
+	if step.State == mtproto.LoginStateWaitingPassword {
+		audit.Log(c.Request.Context(), s.db, audit.Event{
+			ActorType:    "admin",
+			ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+			Action:       "account.login_password_required",
+			ResourceType: "login_flow",
+			ResourceID:   flowID,
+			RiskLevel:    "medium",
+			IP:           c.ClientIP(),
+			UserAgent:    c.GetHeader("User-Agent"),
+			Message:      "需要两步验证密码",
+			Metadata: map[string]any{
+				"api_credential_id": flow.APICredentialID,
+			},
+		})
+
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      true,
+			"next":    "password",
+			"flow_id": flowID,
+			"message": "该账号已开启两步验证，请输入 2FA 密码。",
+		})
+		return
+	}
+
+	if step.State == mtproto.LoginStateAuthorized {
+		acc, loginErr := s.completeLoginJSON(c, flow, step)
+		if loginErr != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"ok":      false,
+				"code":    "complete_failed",
+				"message": loginErr.Error(),
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"ok":       true,
+			"next":     "done",
+			"redirect": fmt.Sprintf("/accounts/%d", acc.ID),
+			"message":  "登录成功",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      false,
+		"code":    "internal_error",
+		"message": "登录流程状态异常，请重新开始。",
+	})
+}
+
+// handleAPILoginPassword 处理 POST /api/accounts/login/password - 异步提交 2FA 密码。
+func (s *Server) handleAPILoginPassword(c *gin.Context) {
+	flowID := c.PostForm("flow_id")
+	password := c.PostForm("password")
+
+	if flowID == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "missing_flow_id",
+			"message": "缺少流程 ID，请重新开始登录。",
+		})
+		return
+	}
+
+	if password == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "missing_password",
+			"message": "密码不能为空。",
+		})
+		return
+	}
+
+	flow, err := s.flowStore.Get(c.Request.Context(), flowID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "flow_expired",
+			"message": "登录流程已过期，请重新开始。",
+		})
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+	cred, err := credSvc.GetByID(flow.APICredentialID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "internal_error",
+			"message": "API 凭据不存在，请重新开始。",
+		})
+		return
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		slog.Error("解密 api_hash 失败", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "internal_error",
+			"message": "解密凭据失败。",
+		})
+		return
+	}
+
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
+	step, err := client.SubmitPassword(c.Request.Context(), mtproto.SubmitPasswordRequest{
+		FlowID:   flowID,
+		Password: password,
+		APIID:    flow.APIID,
+		APIHash:  apiHash,
+	})
+
+	if err != nil {
+		errKind := mtproto.ClassifyError(err)
+		errMsg := getErrorMessage(errKind, err)
+
+		audit.Log(c.Request.Context(), s.db, audit.Event{
+			ActorType:    "admin",
+			ActorID:      fmt.Sprintf("%d", auth.GetAdminID(c)),
+			Action:       "account.login_password_failed",
+			ResourceType: "login_flow",
+			ResourceID:   flowID,
+			RiskLevel:    "medium",
+			IP:           c.ClientIP(),
+			UserAgent:    c.GetHeader("User-Agent"),
+			Message:      "两步验证密码提交失败",
+			Metadata: map[string]any{
+				"error_kind":        string(errKind),
+				"api_credential_id": flow.APICredentialID,
+			},
+		})
+
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    string(errKind),
+			"message": errMsg,
+		})
+		return
+	}
+
+	if step.State == mtproto.LoginStateAuthorized {
+		acc, loginErr := s.completeLoginJSON(c, flow, step)
+		if loginErr != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"ok":      false,
+				"code":    "complete_failed",
+				"message": loginErr.Error(),
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"ok":       true,
+			"next":     "done",
+			"redirect": fmt.Sprintf("/accounts/%d", acc.ID),
+			"message":  "登录成功",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      false,
+		"code":    "internal_error",
+		"message": "登录流程状态异常，请重新开始。",
+	})
+}
+
+// handleAPILoginCancel 处理 POST /api/accounts/login/cancel - 取消登录流程。
+func (s *Server) handleAPILoginCancel(c *gin.Context) {
+	flowID := c.PostForm("flow_id")
+	if flowID != "" {
+		s.flowStore.Delete(c.Request.Context(), flowID)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "登录流程已取消。",
+	})
+}
+
+// completeLoginJSON 完成登录流程（JSON 版本），返回账号或错误。
+func (s *Server) completeLoginJSON(c *gin.Context, flow *mtproto.LoginFlow, step *mtproto.LoginStep) (*model.TelegramAccount, error) {
+	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
+	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
+	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
+	actorID := auth.GetAdminID(c)
+
+	if step.Account == nil {
+		slog.Error("登录成功但未获取到账号资料")
+		return nil, fmt.Errorf("登录成功但未获取到账号资料")
+	}
+
+	acc, err := accountSvc.CompleteLogin(c.Request.Context(), account.CompleteLoginInput{
+		APICredentialID: flow.APICredentialID,
+		Profile:         step.Account,
+		SessionData:     step.SessionData,
+		ActorID:         actorID,
+		IP:              c.ClientIP(),
+		UserAgent:       c.GetHeader("User-Agent"),
+	})
+	if err != nil {
+		slog.Error("创建/更新账号失败", "error", err)
+		return nil, fmt.Errorf("创建账号失败")
+	}
+
+	// 清理临时 Session
+	tmpStorage := mtproto.NewGotdSessionStorage(s.cfg.SessionDir+"/tmp", s.key, "flow_"+flow.ID)
+	tmpStorage.DeleteSession()
+
+	// 删除 Flow
+	s.flowStore.Delete(c.Request.Context(), flow.ID)
+
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		ActorID:      fmt.Sprintf("%d", actorID),
+		Action:       "account.login_authorized",
+		ResourceType: "telegram_account",
+		ResourceID:   fmt.Sprintf("%d", acc.ID),
+		RiskLevel:    "medium",
+		IP:           c.ClientIP(),
+		UserAgent:    c.GetHeader("User-Agent"),
+		Message:      "账号登录成功",
+		Metadata: map[string]any{
+			"user_id":           acc.UserID,
+			"api_credential_id": flow.APICredentialID,
+		},
+	})
+
+	return acc, nil
+}
+
 // getErrorMessage 获取用户友好的错误消息。
 
 // proxyDialerFromSettings 从数据库读取代理配置，返回 gotd 兼容的 DialFunc。
@@ -720,10 +1162,11 @@ func (s *Server) proxyDialerFromSettings() dcs.DialFunc {
 	if err := s.db.Where("key = ?", "proxy_password").First(&pwdSetting).Error; err == nil && pwdSetting.Value != "" {
 		decrypted, err := crypto.DecryptString(s.key, pwdSetting.Value, []byte("atria:proxy:v1"))
 		if err != nil {
-			slog.Warn("解密代理密码失败，按空密码处理")
-		} else {
-			password = decrypted
+			// 解密失败不应静默当空密码，否则用户会看到莫名其妙的代理认证失败
+			slog.Error("解密代理密码失败，请检查代理配置", "error", err)
+			return nil
 		}
+		password = decrypted
 	}
 
 	config := network.ProxyConfig{
@@ -748,29 +1191,29 @@ func getErrorMessage(kind mtproto.ErrorKind, err error) string {
 		}
 		return "操作过于频繁，请稍后重试"
 	case mtproto.ErrInvalidPhone:
-		return "手机号格式不正确"
+		return "请输入完整的国际手机号，例如 +8613800000000。"
 	case mtproto.ErrLoginCodeInvalid:
-		return "验证码不正确或已过期"
+		return "验证码错误，请检查后重新输入。"
 	case mtproto.ErrLoginCodeExpired:
-		return "验证码已过期，请重新开始登录流程"
+		return "验证码已过期，请重新开始登录流程。"
 	case mtproto.ErrLoginPasswordInvalid:
-		return "两步验证密码不正确"
+		return "2FA 密码错误，请重新输入。"
 	case mtproto.ErrUnauthorized:
-		return "账号已被封禁或限制"
+		return "账号已被封禁或限制。"
 	case mtproto.ErrCredentialDisabled:
-		return "API 凭据无效或已被限制"
+		return "Telegram API Key 不可用，请检查 API ID / API Hash。"
 	case mtproto.ErrSessionInvalid:
-		return "Session 已失效，请重新登录该账号"
+		return "Session 已失效，请重新登录该账号。"
 	case mtproto.ErrProxyConnectFailed:
-		return "无法连接到代理服务器，请检查代理地址和端口"
+		return "无法连接到代理服务器，请检查代理地址和端口。"
 	case mtproto.ErrProxyAuthFailed:
-		return "代理认证失败，请检查用户名和密码"
+		return "代理认证失败，请检查用户名和密码。"
 	case mtproto.ErrTelegramTimeout:
-		return "连接 Telegram 超时，请检查 API 网络代理配置"
+		return "连接 Telegram 超时，请检查 API 网络代理配置。"
 	case mtproto.ErrNetworkError:
-		return "网络异常，请稍后重试"
+		return "网络异常，请检查网络连接或代理配置。"
 	default:
-		return "启动登录失败，请稍后重试或检查日志"
+		return "操作失败，请稍后重试或检查日志。"
 	}
 }
 
