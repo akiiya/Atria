@@ -27,7 +27,7 @@ func setupTestServer(t *testing.T) (*Server, *gorm.DB) {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(&model.Admin{}, &model.AuditLog{}, &model.APICredential{}, &model.TelegramAccount{}, &model.SystemSetting{}); err != nil {
+	if err := db.AutoMigrate(&model.Admin{}, &model.AuditLog{}, &model.APICredential{}, &model.TelegramAccount{}, &model.AccountSession{}, &model.SystemSetting{}); err != nil {
 		t.Fatalf("数据库迁移失败: %s", err)
 	}
 
@@ -2431,5 +2431,263 @@ func TestProxyPasswordDecryptFailed_ReturnsProxyConfigInvalid(t *testing.T) {
 	// 不应返回 "网络异常"
 	if strings.Contains(bodyStr, "网络异常") {
 		t.Error("密码解密失败不应返回 '网络异常'")
+	}
+}
+
+// ===== 账号切换器一致性测试 =====
+
+// createTestAccount 创建测试用的 Telegram 账号和 Session。
+func createTestAccount(t *testing.T, db *gorm.DB, displayName, username string, status model.TelegramAccountStatus) *model.TelegramAccount {
+	t.Helper()
+
+	account := &model.TelegramAccount{
+		APICredentialID:  1,
+		UserID:           123456789,
+		PhoneEncrypted:   "encrypted_phone_data",
+		PhoneFingerprint: "***1234",
+		Username:         username,
+		FirstName:        displayName,
+		LastName:         "",
+		DisplayName:      displayName,
+		Status:           status,
+	}
+	if err := db.Create(account).Error; err != nil {
+		t.Fatalf("创建测试账号失败: %s", err)
+	}
+
+	// 创建对应的 Session
+	session := &model.AccountSession{
+		TelegramAccountID:  account.ID,
+		SessionFilePath:    "sessions/test.session",
+		SessionFingerprint: "test_fingerprint",
+		EncryptionVersion:  1,
+		Status:             "active",
+	}
+	if err := db.Create(session).Error; err != nil {
+		t.Fatalf("创建测试 Session 失败: %s", err)
+	}
+
+	return account
+}
+
+func TestTopbar_CurrentAccount_ShownOnDashboard(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建一个有效账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "Aronn AT") {
+		t.Error("仪表盘顶部应显示账号名 'Aronn AT'")
+	}
+	if strings.Contains(body, "未接入账号") {
+		t.Error("有有效账号时不应显示'未接入账号'")
+	}
+}
+
+func TestTopbar_CurrentAccount_ShownOnAccountsPage(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建一个有效账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "Aronn AT") {
+		t.Error("账号页面顶部应显示账号名 'Aronn AT'")
+	}
+	if strings.Contains(body, "未接入账号") {
+		t.Error("有有效账号时不应显示'未接入账号'")
+	}
+}
+
+func TestTopbar_CurrentAccount_ConsistentAcrossPages(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建一个有效账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	pages := []string{"/", "/accounts", "/settings"}
+	for _, page := range pages {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", page, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		body := w.Body.String()
+
+		if !strings.Contains(body, "Aronn AT") {
+			t.Errorf("页面 %s 顶部应显示账号名 'Aronn AT'", page)
+		}
+		if strings.Contains(body, "未接入账号") {
+			t.Errorf("页面 %s 不应显示'未接入账号'", page)
+		}
+	}
+}
+
+func TestTopbar_FallbackToValidAccount_WhenCookieMissing(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建一个有效账号，但不设置 selected_account_id cookie
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "Aronn AT") {
+		t.Error("无 selected_account_id cookie 时应 fallback 到有效账号")
+	}
+	if strings.Contains(body, "未接入账号") {
+		t.Error("存在有效账号时不应显示'未接入账号'")
+	}
+}
+
+func TestTopbar_FallbackToValidAccount_WhenCookieInvalid(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 创建一个有效账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	// 设置 selected_account_id 为不存在的 ID
+	w := httptest.NewRecorder()
+	body := "account_id=99999&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/accounts/select", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	// 提取更新后的 session cookie
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_session" {
+			sessionCookie = cookie.Value
+		}
+	}
+
+	// 访问 /accounts，应 fallback 到有效账号
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/accounts", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+
+	if !strings.Contains(bodyStr, "Aronn AT") {
+		t.Error("selected_account_id 无效时应 fallback 到有效账号")
+	}
+	if strings.Contains(bodyStr, "未接入账号") {
+		t.Error("存在有效账号时不应显示'未接入账号'")
+	}
+}
+
+func TestTopbar_NoAccount_ShowsNotConnected(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 不创建任何账号
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	if !strings.Contains(body, "未接入账号") {
+		t.Error("无有效账号时应显示'未接入账号'")
+	}
+}
+
+func TestAccountsPage_OnlyOneConnectAccountButton(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建 API Key 和有效账号
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/accounts", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 统计主按钮 href="/accounts/login" 出现的次数（排除顶部下拉菜单中的链接）
+	// 主按钮带 class="btn btn-primary"
+	count := strings.Count(body, `href="/accounts/login" class="btn btn-primary"`)
+	if count != 1 {
+		t.Errorf("页面中 '接入账号' 主按钮应只出现一次，实际出现 %d 次", count)
+	}
+}
+
+func TestTopbar_DoesNotLeakSensitiveAccountData(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建带 Session 的账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	pages := []string{"/", "/accounts", "/settings"}
+	for _, page := range pages {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", page, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		body := w.Body.String()
+
+		sensitiveTerms := []string{
+			"abcdef0123456789",     // api_hash 明文
+			"encrypted_phone_data", // 加密手机号数据
+			"+8613800138000",       // 完整手机号
+		}
+		for _, s := range sensitiveTerms {
+			if strings.Contains(body, s) {
+				t.Errorf("页面 %s 不应包含敏感数据 %q", page, s)
+			}
+		}
 	}
 }
