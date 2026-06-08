@@ -27,6 +27,9 @@ const (
 	ErrInvalidPassword       ErrorKind = "invalid_password"
 	ErrNetworkError          ErrorKind = "network_error"
 	ErrInternalError         ErrorKind = "internal_error"
+	ErrProxyConnectFailed    ErrorKind = "proxy_connect_failed"
+	ErrProxyAuthFailed       ErrorKind = "proxy_auth_failed"
+	ErrTelegramTimeout       ErrorKind = "telegram_timeout"
 )
 
 // MTProtoError 表示 MTProto 操作错误。

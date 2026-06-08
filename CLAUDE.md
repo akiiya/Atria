@@ -90,7 +90,17 @@ Claude Code **不得**：
 - 迁移必须幂等（可重复执行不报错）
 - 迁移失败时程序不会继续启动
 - 迁移必须有测试
+- **不支持多个 Atria 进程同时操作同一 data 目录**
 - 详见 `docs/17_data_migrations.md`
+
+## 代理集成约束
+
+- API 网络代理配置会用于 Telegram MTProto 登录流程
+- GotdClient 通过 `dcs.Plain` resolver 注入自定义拨号函数
+- SOCKS5 和 HTTPS CONNECT 代理均支持无认证
+- proxy_password 缺失时视为空字符串
+- 代理连接失败、认证失败、Telegram 超时返回明确错误
+- 自动化测试不得访问真实 Telegram
 
 ## Web Embed 约束
 

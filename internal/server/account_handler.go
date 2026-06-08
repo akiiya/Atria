@@ -1,11 +1,15 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/gotd/td/telegram/dcs"
 	"github.com/user/atria/internal/account"
 	"github.com/user/atria/internal/audit"
 	"github.com/user/atria/internal/auth"
@@ -13,6 +17,7 @@ import (
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
 	"github.com/user/atria/internal/mtproto"
+	"github.com/user/atria/internal/network"
 	"github.com/user/atria/internal/security"
 
 	"github.com/gin-gonic/gin"
@@ -107,6 +112,9 @@ func (s *Server) handlePostAccountLoginStart(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	step, err := client.StartLogin(c.Request.Context(), mtproto.StartLoginRequest{
 		APICredentialID: credID,
 		APIID:           int(systemKey.APIID),
@@ -227,6 +235,9 @@ func (s *Server) handlePostAccountLoginCode(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	step, err := client.SubmitCode(c.Request.Context(), mtproto.SubmitCodeRequest{
 		FlowID:  flowID,
 		Code:    code,
@@ -355,6 +366,9 @@ func (s *Server) handlePostAccountLoginPassword(c *gin.Context) {
 	}
 
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	step, err := client.SubmitPassword(c.Request.Context(), mtproto.SubmitPasswordRequest{
 		FlowID:   flowID,
 		Password: password,
@@ -404,6 +418,9 @@ func (s *Server) handlePostAccountLoginPassword(c *gin.Context) {
 func (s *Server) completeLogin(c *gin.Context, flow *mtproto.LoginFlow, step *mtproto.LoginStep) {
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
 	actorID := auth.GetAdminID(c)
 
@@ -464,6 +481,9 @@ func (s *Server) handlePostAccountSync(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
 
 	actorID := auth.GetAdminID(c)
@@ -501,6 +521,9 @@ func (s *Server) handlePostAccountCheckSession(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
 
 	actorID := auth.GetAdminID(c)
@@ -570,6 +593,9 @@ func (s *Server) handlePostAccountLogout(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
 
 	actorID := auth.GetAdminID(c)
@@ -611,6 +637,9 @@ func (s *Server) handlePostAccountDeleteSession(c *gin.Context) {
 
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	accountSvc := account.NewService(s.db, s.key, sessionStore, client)
 
 	actorID := auth.GetAdminID(c)
@@ -635,10 +664,82 @@ func (s *Server) handlePostAccountDeleteSession(c *gin.Context) {
 func (s *Server) getAccountService() *account.Service {
 	sessionStore := mtproto.NewFileSessionStore(s.cfg.SessionDir, s.key)
 	client := mtproto.NewGotdClient(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer := s.proxyDialerFromSettings(); dialer != nil {
+		client.SetDialer(dialer)
+	}
 	return account.NewService(s.db, s.key, sessionStore, client)
 }
 
 // getErrorMessage 获取用户友好的错误消息。
+
+// proxyDialerFromSettings 从数据库读取代理配置，返回 gotd 兼容的 DialFunc。
+// 如果代理未启用或类型为 none，返回 nil（直连）。
+func (s *Server) proxyDialerFromSettings() dcs.DialFunc {
+	var settings []model.SystemSetting
+	s.db.Where("key IN ?", []string{"proxy_enabled", "proxy_type", "proxy_host", "proxy_port", "proxy_username", "proxy_timeout"}).Find(&settings)
+
+	settingMap := make(map[string]string, len(settings))
+	for _, st := range settings {
+		settingMap[st.Key] = st.Value
+	}
+
+	// 检查代理是否启用
+	if settingMap["proxy_enabled"] != "true" && settingMap["proxy_type"] == "none" {
+		return nil
+	}
+
+	proxyType := settingMap["proxy_type"]
+	if proxyType == "none" || proxyType == "" {
+		return nil
+	}
+
+	host := settingMap["proxy_host"]
+	portStr := settingMap["proxy_port"]
+	if host == "" || portStr == "" {
+		return nil
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		slog.Warn("代理端口无效，使用直连", "port", portStr)
+		return nil
+	}
+
+	timeout := 30 * time.Second
+	if t := settingMap["proxy_timeout"]; t != "" {
+		if secs, err := strconv.Atoi(t); err == nil && secs > 0 {
+			timeout = time.Duration(secs) * time.Second
+		}
+	}
+
+	username := settingMap["proxy_username"]
+
+	// 读取代理密码（加密存储）
+	password := ""
+	var pwdSetting model.SystemSetting
+	if err := s.db.Where("key = ?", "proxy_password").First(&pwdSetting).Error; err == nil && pwdSetting.Value != "" {
+		decrypted, err := crypto.DecryptString(s.key, pwdSetting.Value, []byte("atria:proxy:v1"))
+		if err != nil {
+			slog.Warn("解密代理密码失败，按空密码处理")
+		} else {
+			password = decrypted
+		}
+	}
+
+	config := network.ProxyConfig{
+		Type:     network.ProxyType(proxyType),
+		Host:     host,
+		Port:     port,
+		Username: username,
+		Password: password,
+		Timeout:  timeout,
+	}
+
+	dialer := network.NewDialer(config)
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, addr)
+	}
+}
 func getErrorMessage(kind mtproto.ErrorKind, err error) string {
 	switch kind {
 	case mtproto.ErrFloodWait:
@@ -660,10 +761,16 @@ func getErrorMessage(kind mtproto.ErrorKind, err error) string {
 		return "API 凭据无效或已被限制"
 	case mtproto.ErrSessionInvalid:
 		return "Session 已失效，请重新登录该账号"
+	case mtproto.ErrProxyConnectFailed:
+		return "无法连接到代理服务器，请检查代理地址和端口"
+	case mtproto.ErrProxyAuthFailed:
+		return "代理认证失败，请检查用户名和密码"
+	case mtproto.ErrTelegramTimeout:
+		return "连接 Telegram 超时，请检查 API 网络代理配置"
 	case mtproto.ErrNetworkError:
 		return "网络异常，请稍后重试"
 	default:
-		return "操作失败，请稍后重试"
+		return "启动登录失败，请稍后重试或检查日志"
 	}
 }
 
