@@ -635,11 +635,21 @@ func isHexChar(b byte) bool {
 }
 
 // isSessionPasswordNeeded 检查错误是否是 SESSION_PASSWORD_NEEDED。
+// 使用 tgerr.As 遍历 error chain，不依赖字符串匹配。
 func isSessionPasswordNeeded(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "SESSION_PASSWORD_NEEDED")
+	// 先用 tgerr.As 检查原始 error chain（classifyError 可能已包装）
+	if rpcErr, ok := tgerr.As(err); ok {
+		return rpcErr.Type == "SESSION_PASSWORD_NEEDED"
+	}
+	// 兜底：检查 MTProtoError 的 Kind
+	var mtprotoErr *MTProtoError
+	if errors.As(err, &mtprotoErr) {
+		return mtprotoErr.Kind == ErrLoginPasswordRequired
+	}
+	return false
 }
 
 // parseFloodWaitSeconds 从错误消息中解析 FLOOD_WAIT 秒数。
