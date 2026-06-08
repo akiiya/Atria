@@ -3,6 +3,7 @@ package mtproto
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gotd/td/telegram/dcs"
+	"github.com/gotd/td/tgerr"
 )
 
 func TestGotdClient_SetDialer_SetsDialFunc(t *testing.T) {
@@ -223,10 +225,186 @@ func TestNewErrorKinds_Documented(t *testing.T) {
 		ErrProxyConnectFailed,
 		ErrProxyAuthFailed,
 		ErrTelegramTimeout,
+		ErrTelegramError,
+		ErrSessionContextLost,
 	}
 	for _, k := range kinds {
 		if k == "" {
 			t.Error("错误类型不应为空")
 		}
+	}
+}
+
+// ===== 错误链分类测试 =====
+
+func TestClassifyError_UnwrapsErrorChain(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	// 构造 wrapped error，内层包含 PHONE_CODE_INVALID
+	inner := &tgerr.Error{Code: 400, Message: "PHONE_CODE_INVALID", Type: "PHONE_CODE_INVALID"}
+	wrapped := fmt.Errorf("AuthSignIn failed: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr, ok := result.(*MTProtoError)
+	if !ok {
+		t.Fatalf("期望 *MTProtoError，实际 %T", result)
+	}
+	if mtprotoErr.Kind != ErrLoginCodeInvalid {
+		t.Errorf("期望 ErrLoginCodeInvalid，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_WrappedPhoneCodeExpired(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 400, Message: "PHONE_CODE_EXPIRED", Type: "PHONE_CODE_EXPIRED"}
+	wrapped := fmt.Errorf("gotd error: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr := result.(*MTProtoError)
+	if mtprotoErr.Kind != ErrLoginCodeExpired {
+		t.Errorf("期望 ErrLoginCodeExpired，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_WrappedSessionPasswordNeeded(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 401, Message: "SESSION_PASSWORD_NEEDED", Type: "SESSION_PASSWORD_NEEDED"}
+	wrapped := fmt.Errorf("auth error: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr := result.(*MTProtoError)
+	if mtprotoErr.Kind != ErrLoginPasswordRequired {
+		t.Errorf("期望 ErrLoginPasswordRequired，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_WrappedAuthKeyInvalid(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 401, Message: "AUTH_KEY_INVALID", Type: "AUTH_KEY_INVALID"}
+	wrapped := fmt.Errorf("session error: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr := result.(*MTProtoError)
+	if mtprotoErr.Kind != ErrSessionContextLost {
+		t.Errorf("期望 ErrSessionContextLost，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_UnknownWrappedTelegramError(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	// 未知的 RPC 错误类型
+	inner := &tgerr.Error{Code: 406, Message: "UNKNOWN_RPC_ERROR", Type: "UNKNOWN_RPC_ERROR"}
+	wrapped := fmt.Errorf("gotd error: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr := result.(*MTProtoError)
+	// 应该返回 telegram_error，不是 network_error
+	if mtprotoErr.Kind != ErrTelegramError {
+		t.Errorf("期望 ErrTelegramError，实际 %s", mtprotoErr.Kind)
+	}
+	if mtprotoErr.Kind == ErrNetworkError {
+		t.Error("不应返回 ErrNetworkError")
+	}
+}
+
+func TestClassifyError_NetTimeout(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	// net.OpError with timeout - isProxyError catches net.OpError first
+	err := &net.OpError{Op: "dial", Err: &timeoutError{}}
+
+	result := c.classifyError(err)
+	mtprotoErr := result.(*MTProtoError)
+	// net.OpError is caught by isProxyError, timeout is handled by classifyProxyError
+	if mtprotoErr.Kind != ErrProxyConnectFailed {
+		t.Errorf("期望 ErrProxyConnectFailed，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_ProxyConnectFailed(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	// connection refused 是代理连接失败
+	err := &net.OpError{Op: "dial", Err: errors.New("connection refused")}
+
+	result := c.classifyError(err)
+	mtprotoErr := result.(*MTProtoError)
+	if mtprotoErr.Kind != ErrProxyConnectFailed {
+		t.Errorf("期望 ErrProxyConnectFailed，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+// timeoutError 实现 net.Error 接口
+type timeoutError struct{}
+
+func (e *timeoutError) Error() string   { return "timeout" }
+func (e *timeoutError) Timeout() bool   { return true }
+func (e *timeoutError) Temporary() bool { return false }
+
+// ===== 安全日志测试 =====
+
+func TestSafeErrorSummary_RedactsSensitiveData(t *testing.T) {
+	// 测试 sanitizeErrorMessage 脱敏
+	testCases := []struct {
+		name     string
+		input    string
+		badWords []string
+	}{
+		{
+			name:     "长 hex 串脱敏",
+			input:    "error with hash abcdef0123456789abcdef0123456789 inside",
+			badWords: []string{"abcdef0123456789abcdef0123456789"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := sanitizeErrorMessage(tc.input)
+			for _, bad := range tc.badWords {
+				if strings.Contains(result, bad) {
+					t.Errorf("输出不应包含敏感数据 %q，实际: %s", bad, result)
+				}
+			}
+		})
+	}
+}
+
+func TestClassifyError_WrappedFloodWait(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 420, Message: "FLOOD_WAIT_30", Type: "FLOOD_WAIT", Argument: 30}
+	wrapped := fmt.Errorf("gotd error: %w", inner)
+
+	result := c.classifyError(wrapped)
+	floodErr, ok := result.(*FloodWaitError)
+	if !ok {
+		t.Fatalf("期望 *FloodWaitError，实际 %T", result)
+	}
+	if floodErr.Wait != 30*time.Second {
+		t.Errorf("期望 30s，实际 %s", floodErr.Wait)
+	}
+}
+
+func TestClassifyError_ContextDeadlineExceeded(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	result := c.classifyError(context.DeadlineExceeded)
+	mtprotoErr := result.(*MTProtoError)
+	if mtprotoErr.Kind != ErrTelegramTimeout {
+		t.Errorf("期望 ErrTelegramTimeout，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestClassifyError_ContextCanceled(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	result := c.classifyError(context.Canceled)
+	mtprotoErr := result.(*MTProtoError)
+	if mtprotoErr.Kind != ErrNetworkError {
+		t.Errorf("期望 ErrNetworkError，实际 %s", mtprotoErr.Kind)
 	}
 }

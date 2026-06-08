@@ -13,6 +13,7 @@ import (
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 	"github.com/user/atria/internal/security"
 )
 
@@ -469,16 +470,17 @@ func (c *GotdClient) Logout(ctx context.Context, req LogoutRequest) error {
 }
 
 // classifyError 分类 gotd/td 错误。
+// 支持 errors.Unwrap 链，使用 tgerr.As 提取 Telegram RPC 错误。
 func (c *GotdClient) classifyError(err error) error {
 	if err == nil {
 		return nil
 	}
 
 	// 检查 context 错误（超时/取消）
-	if err == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return &MTProtoError{Kind: ErrTelegramTimeout, Message: "连接 Telegram 超时，请检查 API 网络代理配置"}
 	}
-	if err == context.Canceled {
+	if errors.Is(err, context.Canceled) {
 		return &MTProtoError{Kind: ErrNetworkError, Message: "连接已取消"}
 	}
 
@@ -487,60 +489,149 @@ func (c *GotdClient) classifyError(err error) error {
 		return classifyProxyError(err)
 	}
 
-	errStr := err.Error()
+	// 使用 tgerr.As 从 error chain 中提取 Telegram RPC 错误
+	if rpcErr, ok := tgerr.As(err); ok {
+		// 诊断日志：记录 RPC 错误详情
+		c.logger.Warn("gotd RPC 错误",
+			"rpc_code", rpcErr.Code,
+			"rpc_type", rpcErr.Type,
+			"rpc_message_len", len(rpcErr.Message),
+		)
+		return classifyRPCError(rpcErr)
+	}
 
-	// 诊断日志：记录原始错误类型和关键词，帮助定位问题
-	// 不记录 api_hash / proxy_password / 验证码 / session
-	c.logger.Warn("gotd 错误分类",
-		"error_type", fmt.Sprintf("%T", err),
-		"error_len", len(errStr),
-		"has_flood_wait", strings.Contains(errStr, "FLOOD_WAIT"),
-		"has_phone_code_invalid", strings.Contains(errStr, "PHONE_CODE_INVALID"),
-		"has_phone_code_expired", strings.Contains(errStr, "PHONE_CODE_EXPIRED"),
-		"has_session_password_needed", strings.Contains(errStr, "SESSION_PASSWORD_NEEDED"),
-		"has_api_id_invalid", strings.Contains(errStr, "API_ID_INVALID"),
-		"has_auth_key_invalid", strings.Contains(errStr, "AUTH_KEY_INVALID"),
-	)
+	// 检查 net.Error（超时/临时）
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return &MTProtoError{Kind: ErrTelegramTimeout, Message: "连接 Telegram 超时，请检查 API 网络代理配置"}
+		}
+		c.logger.Warn("gotd net.Error",
+			"type", fmt.Sprintf("%T", err),
+			"timeout", netErr.Timeout(),
+			"temporary", netErr.Temporary(),
+		)
+		return &MTProtoError{Kind: ErrProxyConnectFailed, Message: "网络连接失败，请检查代理配置", Err: err}
+	}
 
-	if strings.Contains(errStr, "FLOOD_WAIT") {
-		waitSeconds := parseFloodWaitSeconds(errStr)
+	// 安全诊断日志：遍历 error chain 记录每层类型
+	logErrorChain(c.logger, err)
+
+	// 未知错误：返回 telegram_error，不再归为 network_error
+	return &MTProtoError{Kind: ErrTelegramError, Message: "Telegram 返回异常，请重新开始登录流程或检查日志", Err: err}
+}
+
+// classifyRPCError 根据 Telegram RPC 错误类型分类。
+func classifyRPCError(rpcErr *tgerr.Error) error {
+	switch rpcErr.Type {
+	case "PHONE_CODE_INVALID":
+		return &MTProtoError{Kind: ErrLoginCodeInvalid, Message: "验证码错误，请检查后重新输入"}
+	case "PHONE_CODE_EXPIRED":
+		return &MTProtoError{Kind: ErrLoginCodeExpired, Message: "验证码已过期，请重新开始登录流程"}
+	case "PHONE_CODE_EMPTY":
+		return &MTProtoError{Kind: ErrLoginCodeInvalid, Message: "请输入验证码"}
+	case "SESSION_PASSWORD_NEEDED":
+		return &MTProtoError{Kind: ErrLoginPasswordRequired, Message: "该账号已开启两步验证，请输入 2FA 密码"}
+	case "PASSWORD_HASH_INVALID":
+		return &MTProtoError{Kind: ErrLoginPasswordInvalid, Message: "2FA 密码错误，请重新输入"}
+	case "SRP_ID_INVALID", "SRP_PASSWORD_CHANGED":
+		return &MTProtoError{Kind: ErrLoginPasswordInvalid, Message: "密码验证失败，请重试"}
+	case "PHONE_NUMBER_BANNED":
+		return &MTProtoError{Kind: ErrUnauthorized, Message: "该手机号已被封禁"}
+	case "PHONE_NUMBER_INVALID":
+		return &MTProtoError{Kind: ErrInvalidPhone, Message: "手机号无效"}
+	case "PHONE_NUMBER_UNOCCUPIED":
+		return &MTProtoError{Kind: ErrUnauthorized, Message: "该手机号未注册 Telegram 账号"}
+	case "API_ID_INVALID":
+		return &MTProtoError{Kind: ErrCredentialDisabled, Message: "Telegram API Key 不可用，请检查 API ID"}
+	case "API_ID_PUBLISHED_FLOOD":
+		return &MTProtoError{Kind: ErrCredentialDisabled, Message: "API ID 已被限制使用"}
+	case "API_HASH_INVALID":
+		return &MTProtoError{Kind: ErrCredentialDisabled, Message: "Telegram API Hash 不可用"}
+	case "AUTH_KEY_INVALID", "AUTH_KEY_UNREGISTERED":
+		return &MTProtoError{Kind: ErrSessionContextLost, Message: "登录会话上下文已丢失，请重新开始登录流程"}
+	case "SESSION_REVOKED", "SESSION_EXPIRED":
+		return &MTProtoError{Kind: ErrSessionInvalid, Message: "Session 已失效，请重新登录该账号"}
+	case "AUTH_RESTART":
+		return &MTProtoError{Kind: ErrSessionInvalid, Message: "登录流程已过期，请重新开始"}
+	case "USER_DEACTIVATED":
+		return &MTProtoError{Kind: ErrUnauthorized, Message: "账号已被停用"}
+	case "FLOOD_WAIT":
+		waitSeconds := rpcErr.Argument
+		if waitSeconds <= 0 {
+			waitSeconds = 60
+		}
 		return &FloodWaitError{
 			Wait:    time.Duration(waitSeconds) * time.Second,
 			Message: fmt.Sprintf("请等待 %d 秒后重试", waitSeconds),
 		}
 	}
 
-	switch {
-	case strings.Contains(errStr, "PHONE_NUMBER_BANNED"):
-		return &MTProtoError{Kind: ErrUnauthorized, Message: "该手机号已被封禁"}
-	case strings.Contains(errStr, "PHONE_NUMBER_INVALID"):
-		return &MTProtoError{Kind: ErrInvalidPhone, Message: "手机号无效"}
-	case strings.Contains(errStr, "PHONE_CODE_EXPIRED"):
-		return &MTProtoError{Kind: ErrLoginCodeExpired, Message: "验证码已过期"}
-	case strings.Contains(errStr, "PHONE_CODE_INVALID"):
-		return &MTProtoError{Kind: ErrLoginCodeInvalid, Message: "验证码不正确"}
-	case strings.Contains(errStr, "SESSION_PASSWORD_NEEDED"):
-		return &MTProtoError{Kind: ErrLoginPasswordRequired, Message: "需要两步验证密码"}
-	case strings.Contains(errStr, "PASSWORD_HASH_INVALID"):
-		return &MTProtoError{Kind: ErrLoginPasswordInvalid, Message: "两步验证密码不正确"}
-	case strings.Contains(errStr, "SRP_ID_INVALID"), strings.Contains(errStr, "SRP_PASSWORD_CHANGED"):
-		return &MTProtoError{Kind: ErrLoginPasswordInvalid, Message: "密码验证失败，请重试"}
-	case strings.Contains(errStr, "API_ID_INVALID"):
-		return &MTProtoError{Kind: ErrCredentialDisabled, Message: "API ID 无效"}
-	case strings.Contains(errStr, "API_ID_PUBLISHED_FLOOD"):
-		return &MTProtoError{Kind: ErrCredentialDisabled, Message: "API ID 已被限制使用"}
-	case strings.Contains(errStr, "AUTH_RESTART"):
-		return &MTProtoError{Kind: ErrSessionInvalid, Message: "登录流程已过期，请重新开始"}
-	case strings.Contains(errStr, "PHONE_NUMBER_UNOCCUPIED"):
-		return &MTProtoError{Kind: ErrUnauthorized, Message: "该手机号未注册 Telegram 账号"}
-	case strings.Contains(errStr, "AUTH_KEY_INVALID"), strings.Contains(errStr, "SESSION_REVOKED"),
-		strings.Contains(errStr, "SESSION_EXPIRED"):
-		return &MTProtoError{Kind: ErrSessionInvalid, Message: "Session 已失效，请重新登录该账号"}
-	case strings.Contains(errStr, "USER_DEACTIVATED"):
-		return &MTProtoError{Kind: ErrUnauthorized, Message: "账号已被停用"}
-	}
+	// 已知 RPC 错误但未匹配的类型
+	return &MTProtoError{Kind: ErrTelegramError, Message: fmt.Sprintf("Telegram 返回错误 (%s)，请重新开始登录流程", rpcErr.Type)}
+}
 
-	return &MTProtoError{Kind: ErrNetworkError, Message: "网络错误", Err: err}
+// logErrorChain 安全遍历 error chain 并记录每层类型。
+// 不记录敏感信息（api_hash、proxy_password、OTP、手机号、session）。
+func logErrorChain(logger *slog.Logger, err error) {
+	chain := []string{}
+	current := err
+	depth := 0
+	for current != nil && depth < 10 {
+		errType := fmt.Sprintf("%T", current)
+		// 安全提取错误消息，脱敏处理
+		safeMsg := sanitizeErrorMessage(current.Error())
+		chain = append(chain, fmt.Sprintf("%s:%s", errType, safeMsg))
+		current = errors.Unwrap(current)
+		depth++
+	}
+	logger.Warn("gotd 错误链",
+		"chain_depth", len(chain),
+		"chain", chain,
+	)
+}
+
+// sanitizeErrorMessage 脱敏错误消息，移除可能的敏感信息。
+func sanitizeErrorMessage(msg string) string {
+	// 截断过长的消息
+	if len(msg) > 120 {
+		msg = msg[:120] + "..."
+	}
+	// 替换可能的 hex token（api_hash 等 32 位 hex 字符串）
+	sanitized := msg
+	if len(sanitized) > 32 {
+		// 简单脱敏：如果消息包含长 hex 串，替换为 ***
+		// 这是为了安全，避免意外泄露
+		sanitized = redactLongHex(sanitized)
+	}
+	return sanitized
+}
+
+// redactLongHex 替换消息中长度 >= 32 的 hex 字符串为 ***。
+func redactLongHex(s string) string {
+	result := []byte(s)
+	i := 0
+	for i < len(result) {
+		if isHexChar(result[i]) {
+			j := i
+			for j < len(result) && isHexChar(result[j]) {
+				j++
+			}
+			if j-i >= 32 {
+				// 替换为 ***
+				redacted := []byte("***")
+				result = append(result[:i], append(redacted, result[j:]...)...)
+				i = i + 3
+				continue
+			}
+		}
+		i++
+	}
+	return string(result)
+}
+
+func isHexChar(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }
 
 // isSessionPasswordNeeded 检查错误是否是 SESSION_PASSWORD_NEEDED。
