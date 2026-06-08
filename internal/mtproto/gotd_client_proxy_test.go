@@ -408,3 +408,58 @@ func TestClassifyError_ContextCanceled(t *testing.T) {
 		t.Errorf("期望 ErrNetworkError，实际 %s", mtprotoErr.Kind)
 	}
 }
+
+// ===== SESSION_PASSWORD_NEEDED 测试 =====
+
+func TestClassifyError_SessionPasswordNeeded_ReturnsPasswordRequired(t *testing.T) {
+	c := &GotdClient{logger: slog.Default()}
+
+	// 构造 SESSION_PASSWORD_NEEDED wrapped error
+	inner := &tgerr.Error{Code: 401, Message: "SESSION_PASSWORD_NEEDED", Type: "SESSION_PASSWORD_NEEDED"}
+	wrapped := fmt.Errorf("AuthSignIn failed: %w", inner)
+
+	result := c.classifyError(wrapped)
+	mtprotoErr, ok := result.(*MTProtoError)
+	if !ok {
+		t.Fatalf("期望 *MTProtoError，实际 %T", result)
+	}
+	if mtprotoErr.Kind != ErrLoginPasswordRequired {
+		t.Errorf("期望 ErrLoginPasswordRequired，实际 %s", mtprotoErr.Kind)
+	}
+}
+
+func TestIsSessionPasswordNeeded_WrappedError(t *testing.T) {
+	// 测试 isSessionPasswordNeeded 能否识别包装后的 SESSION_PASSWORD_NEEDED
+	inner := &tgerr.Error{Code: 401, Message: "SESSION_PASSWORD_NEEDED", Type: "SESSION_PASSWORD_NEEDED"}
+	wrapped := fmt.Errorf("AuthSignIn failed: %w", inner)
+
+	if !isSessionPasswordNeeded(wrapped) {
+		t.Error("包装后的 SESSION_PASSWORD_NEEDED 应被识别")
+	}
+}
+
+func TestIsSessionPasswordNeeded_ClassifiedError(t *testing.T) {
+	// 测试 classifyError 包装后的错误也能被识别
+	c := &GotdClient{logger: slog.Default()}
+
+	inner := &tgerr.Error{Code: 401, Message: "SESSION_PASSWORD_NEEDED", Type: "SESSION_PASSWORD_NEEDED"}
+	wrapped := fmt.Errorf("AuthSignIn failed: %w", inner)
+
+	classified := c.classifyError(wrapped)
+	if !isSessionPasswordNeeded(classified) {
+		t.Error("classifyError 包装后的 SESSION_PASSWORD_NEEDED 应被 isSessionPasswordNeeded 识别")
+	}
+}
+
+func TestIsSessionPasswordNeeded_NilError(t *testing.T) {
+	if isSessionPasswordNeeded(nil) {
+		t.Error("nil 错误不应被识别为 SESSION_PASSWORD_NEEDED")
+	}
+}
+
+func TestIsSessionPasswordNeeded_OtherError(t *testing.T) {
+	err := fmt.Errorf("some other error")
+	if isSessionPasswordNeeded(err) {
+		t.Error("其它错误不应被识别为 SESSION_PASSWORD_NEEDED")
+	}
+}
