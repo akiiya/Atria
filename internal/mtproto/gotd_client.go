@@ -726,5 +726,15 @@ func classifyProxyError(err error) error {
 	return &MTProtoError{Kind: ErrProxyConnectFailed, Message: "代理连接失败，请检查代理配置", Err: err}
 }
 
+// RunWithSession 使用已有 session 文件创建 Telegram 客户端并执行回调。
+// 用于聊天等需要持久 session 的操作。
+// sessionFilePath 是解密后的 session 文件路径。
+func (c *GotdClient) RunWithSession(ctx context.Context, apiID int, apiHash string, sessionFilePath string, fn func(ctx context.Context, api *tg.Client) error) error {
+	client, _ := c.createClientFromSession(apiID, apiHash, sessionFilePath)
+	return client.Run(ctx, func(ctx context.Context) error {
+		return fn(ctx, client.API())
+	})
+}
+
 // 确保 GotdClient 实现 Client 接口。
 var _ Client = (*GotdClient)(nil)
