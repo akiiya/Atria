@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/chat"
 	"github.com/user/atria/internal/mtproto"
 
@@ -17,8 +16,8 @@ import (
 func (s *Server) handleGetChats(c *gin.Context) {
 	data := s.newAccountViewData(c, "chats")
 
-	// 获取当前账号
-	selectedID := auth.GetSelectedAccountID(c)
+	// 使用统一的当前账号解析（带 fallback）
+	selectedID := s.resolveCurrentAccountID(c)
 	if selectedID == 0 {
 		data["NoCurrentAccount"] = true
 		c.HTML(http.StatusOK, "chats.html", data)
@@ -58,7 +57,8 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 
 	data := s.newAccountViewData(c, "chats")
 
-	selectedID := auth.GetSelectedAccountID(c)
+	// 使用统一的当前账号解析（带 fallback）
+	selectedID := s.resolveCurrentAccountID(c)
 	if selectedID == 0 {
 		data["NoCurrentAccount"] = true
 		c.HTML(http.StatusOK, "chat_detail.html", data)
@@ -102,7 +102,8 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 		return
 	}
 
-	selectedID := auth.GetSelectedAccountID(c)
+	// 使用统一的当前账号解析（带 fallback）
+	selectedID := s.resolveCurrentAccountID(c)
 	if selectedID == 0 {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "no_current_account", "message": "请先接入 Telegram 账号"})
 		return

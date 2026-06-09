@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/user/atria/internal/credential"
 	"github.com/user/atria/internal/model"
+	"gorm.io/gorm"
 )
 
 // ===== 仪表盘统计测试 =====
@@ -524,5 +526,224 @@ func TestDashboardStats_ActiveSessionsExcludeLoggedOut(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, ">1<") {
 		t.Error("活跃 Session 统计应为 1")
+	}
+}
+
+// ===== 旧账号兼容测试 =====
+
+// createLegacyTestAccount 创建旧风格的测试账号（不创建 account_sessions 记录）。
+func createLegacyTestAccount(t *testing.T, db *gorm.DB, displayName, username string) *model.TelegramAccount {
+	t.Helper()
+
+	account := &model.TelegramAccount{
+		APICredentialID:  1,
+		UserID:           987654321,
+		PhoneEncrypted:   "encrypted_phone_legacy",
+		PhoneFingerprint: "***5678",
+		Username:         username,
+		FirstName:        displayName,
+		LastName:         "",
+		DisplayName:      displayName,
+		Status:           model.TelegramAccountStatusActive,
+	}
+	if err := db.Create(account).Error; err != nil {
+		t.Fatalf("创建旧测试账号失败: %s", err)
+	}
+	// 注意：不创建 AccountSession 记录，模拟旧账号
+	return account
+}
+
+func TestChatsPage_LegacyActiveAccount_IsRecognized(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 创建旧账号（无 session 记录）
+	legacy := createLegacyTestAccount(t, srv.db, "Aronn AT", "aronn_test")
+
+	// 设置为当前账号
+	w := httptest.NewRecorder()
+	body := fmt.Sprintf("account_id=%d&csrf_token=%s", legacy.ID, csrfCookie)
+	req, _ := http.NewRequest("POST", "/accounts/select", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_session" {
+			sessionCookie = cookie.Value
+		}
+	}
+
+	// 访问 /chats
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	// 不应显示"请先接入 Telegram 账号"
+	if strings.Contains(bodyStr, "请先接入") {
+		t.Error("旧账号应被识别，不应显示'请先接入 Telegram 账号'")
+	}
+}
+
+func TestChatsPage_UsesSameCurrentAccountAsTopbar(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	// 访问 /chats
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// topbar 应显示 Aronn AT
+	if !strings.Contains(body, "Aronn AT") {
+		t.Error("topbar 应显示当前账号名 Aronn AT")
+	}
+	// 不应显示"请先接入"
+	if strings.Contains(body, "请先接入") {
+		t.Error("有有效账号时不应显示'请先接入'")
+	}
+}
+
+func TestChatsPage_NoAccount_ShowsConnectPrompt(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 不创建任何账号
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "请先接入") {
+		t.Error("无账号时应显示'请先接入 Telegram 账号'")
+	}
+}
+
+func TestChatsPage_InvalidSelectedAccount_FallbackToValidAccount(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 创建一个有效账号
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	// 设置 selected_account_id 为不存在的 ID
+	w := httptest.NewRecorder()
+	body := "account_id=99999&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/accounts/select", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_session" {
+			sessionCookie = cookie.Value
+		}
+	}
+
+	// 访问 /chats
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	// 应 fallback 到有效账号，不应显示"请先接入"
+	if strings.Contains(bodyStr, "请先接入") {
+		t.Error("存在有效账号时应 fallback，不应显示'请先接入'")
+	}
+}
+
+func TestChatsPage_AccountWithoutChatPeerCache_StillAllowed(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建账号，但不创建 chat_peer_cache
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// 不应因为 peer cache 为空而显示"请先接入"
+	if strings.Contains(body, "请先接入") {
+		t.Error("peer cache 为空不应影响账号识别")
+	}
+}
+
+func TestCurrentAccountResolver_ConsistentAcrossDashboardAccountsChats(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	pages := []string{"/", "/accounts", "/chats"}
+	for _, page := range pages {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", page, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		body := w.Body.String()
+		if !strings.Contains(body, "Aronn AT") {
+			t.Errorf("页面 %s 应显示当前账号名 Aronn AT", page)
+		}
+	}
+}
+
+func TestChatsPage_DoesNotLeakSensitiveData(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	sensitiveTerms := []string{
+		"abcdef0123456789",
+		"encrypted_phone_data",
+		"+8613800138000",
+		"sessions/test.session",
+	}
+	for _, s := range sensitiveTerms {
+		if strings.Contains(body, s) {
+			t.Errorf("/chats 页面不应包含敏感数据 %q", s)
+		}
 	}
 }
