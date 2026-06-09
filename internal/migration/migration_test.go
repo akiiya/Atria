@@ -19,6 +19,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(
 		&model.APICredential{},
 		&model.SystemSetting{},
+		&model.TelegramAccount{},
+		&model.AccountSession{},
+		&model.ChatPeerCache{},
 	); err != nil {
 		t.Fatalf("数据库迁移失败: %s", err)
 	}
@@ -532,4 +535,101 @@ func TestMigrations_ConcurrentNotSupported_Documented(t *testing.T) {
 	// 当前框架不处理并发锁
 	// 用户不应在同一 data 目录启动多个 Atria 进程
 	t.Log("当前迁移框架不支持并发执行，文档中已标注限制")
+}
+
+func TestMigration_BackfillLegacyAccountSessions(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	// 只注册迁移 4
+	Register(Migration{
+		Version: 4,
+		Name:    "backfill_legacy_account_sessions",
+		Run:     migration004BackfillLegacyAccountSessions,
+	})
+
+	db := setupTestDB(t)
+
+	// 创建一个 active 账号（无 session 记录）
+	account := &model.TelegramAccount{
+		APICredentialID:  1,
+		UserID:           123456789,
+		PhoneEncrypted:   "encrypted",
+		PhoneFingerprint: "***1234",
+		Username:         "test_user",
+		DisplayName:      "Test User",
+		Status:           model.TelegramAccountStatusActive,
+	}
+	if err := db.Create(account).Error; err != nil {
+		t.Fatalf("创建测试账号失败: %s", err)
+	}
+
+	// 运行迁移
+	key := make([]byte, 32)
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 验证：session 记录已创建
+	var session model.AccountSession
+	if err := db.Where("telegram_account_id = ?", account.ID).First(&session).Error; err != nil {
+		t.Fatalf("session 记录应已创建: %s", err)
+	}
+
+	if session.SessionFilePath != fmt.Sprintf("session_%d.enc", account.ID) {
+		t.Errorf("session 文件路径不正确: %s", session.SessionFilePath)
+	}
+	if session.Status != "active" {
+		t.Errorf("session 状态应为 active，实际 %s", session.Status)
+	}
+}
+
+func TestMigration_BackfillLegacyAccountSessions_Idempotent(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	Register(Migration{
+		Version: 4,
+		Name:    "backfill_legacy_account_sessions",
+		Run:     migration004BackfillLegacyAccountSessions,
+	})
+
+	db := setupTestDB(t)
+
+	account := &model.TelegramAccount{
+		APICredentialID:  1,
+		UserID:           123456789,
+		PhoneEncrypted:   "encrypted",
+		PhoneFingerprint: "***1234",
+		Username:         "test_user",
+		DisplayName:      "Test User",
+		Status:           model.TelegramAccountStatusActive,
+	}
+	db.Create(account)
+
+	key := make([]byte, 32)
+
+	// 第一次执行
+	if err := Run(db, key); err != nil {
+		t.Fatalf("第一次迁移失败: %s", err)
+	}
+
+	// 第二次执行（幂等）
+	Reset()
+	Register(Migration{
+		Version: 4,
+		Name:    "backfill_legacy_account_sessions",
+		Run:     migration004BackfillLegacyAccountSessions,
+	})
+
+	if err := Run(db, key); err != nil {
+		t.Fatalf("第二次迁移失败: %s", err)
+	}
+
+	// 验证：只有一条 session 记录
+	var count int64
+	db.Model(&model.AccountSession{}).Where("telegram_account_id = ?", account.ID).Count(&count)
+	if count != 1 {
+		t.Errorf("应只有一条 session 记录，实际 %d", count)
+	}
 }

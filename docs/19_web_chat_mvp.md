@@ -24,6 +24,17 @@ peer_ref 是服务端生成的不透明引用，不暴露 access_hash 明文。
 - peer_ref 绑定 account_id，不允许跨账号使用
 - 前端只能看到 peer_ref，无法获取 access_hash
 
+## 旧账号兼容
+
+聊天模块必须兼容在聊天功能上线前已经接入的账号。
+
+- `chat_peer_cache` 为空不代表没有账号，只代表还没有拉取过会话列表
+- 当前账号解析使用 `resolveCurrentAccountID`，与 topbar 保持一致
+- 如果 `selected_account_id` cookie 无效，自动 fallback 到第一个有效账号
+- 旧账号如果缺少 `account_sessions` 记录，启动时迁移 4 会自动补齐
+- 不要求用户重新登录旧账号，除非 session 本身已经失效
+- 迁移 4 不访问 Telegram 网络，不修改 session 文件，不删除旧账号
+
 ## 代理要求
 
 聊天相关 MTProto 调用（ListDialogs、GetMessages、SendText）必须使用系统 API 网络代理配置。

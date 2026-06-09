@@ -3,6 +3,7 @@ package migration
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/user/atria/internal/model"
 
@@ -29,6 +30,13 @@ func init() {
 		Name:        "create_chat_peer_cache",
 		Description: "创建聊天 peer 缓存表，用于安全存储 access_hash",
 		Run:         migration003CreateChatPeerCache,
+	})
+
+	Register(Migration{
+		Version:     4,
+		Name:        "backfill_legacy_account_sessions",
+		Description: "为旧账号补齐 account_sessions 记录",
+		Run:         migration004BackfillLegacyAccountSessions,
 	})
 }
 
@@ -189,5 +197,73 @@ func migration003CreateChatPeerCache(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("创建 chat_peer_cache 表失败: %w", err)
 	}
 	slog.Info("迁移 3: chat_peer_cache 表创建/更新完成")
+	return nil
+}
+
+// migration004BackfillLegacyAccountSessions 为旧账号补齐 account_sessions 记录。
+//
+// 在聊天功能上线前已经接入的账号可能没有 account_sessions 记录。
+// 本迁移为 active 状态且缺少 session 记录的账号自动补齐。
+//
+// 规则：
+// 1. 只处理 status=active 的 telegram_accounts。
+// 2. 跳过已有 account_sessions 记录的账号。
+// 3. SessionFilePath 使用标准格式 session_<id>.enc。
+// 4. 不访问 Telegram 网络。
+// 5. 不修改 Session 文件。
+// 6. 不删除旧账号。
+// 7. 幂等：只插入不存在的记录。
+func migration004BackfillLegacyAccountSessions(db *gorm.DB, _ []byte) error {
+	// 查找所有 active 账号
+	var accounts []model.TelegramAccount
+	if err := db.Where("status = ?", model.TelegramAccountStatusActive).Find(&accounts).Error; err != nil {
+		return fmt.Errorf("查询 active 账号失败: %w", err)
+	}
+
+	if len(accounts) == 0 {
+		slog.Info("迁移 4: 无 active 账号，跳过")
+		return nil
+	}
+
+	backfilled := 0
+	for _, acc := range accounts {
+		// 检查是否已有 session 记录
+		var count int64
+		if err := db.Model(&model.AccountSession{}).
+			Where("telegram_account_id = ?", acc.ID).
+			Count(&count).Error; err != nil {
+			return fmt.Errorf("查询 session 记录失败 (account_id=%d): %w", acc.ID, err)
+		}
+
+		if count > 0 {
+			continue // 已有记录，跳过
+		}
+
+		// 补齐 session 记录
+		now := acc.CreatedAt
+		if now.IsZero() {
+			now = time.Now()
+		}
+		session := model.AccountSession{
+			TelegramAccountID:  acc.ID,
+			SessionFilePath:    fmt.Sprintf("session_%d.enc", acc.ID),
+			SessionFingerprint: fmt.Sprintf("legacy_%d", acc.ID),
+			EncryptionVersion:  1,
+			Status:             "active",
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		if err := db.Create(&session).Error; err != nil {
+			return fmt.Errorf("补齐 session 记录失败 (account_id=%d): %w", acc.ID, err)
+		}
+		slog.Info("迁移 4: 补齐旧账号 session 记录", "account_id", acc.ID, "display_name", acc.DisplayName)
+		backfilled++
+	}
+
+	if backfilled > 0 {
+		slog.Info("迁移 4: 旧账号 session 补齐完成", "count", backfilled)
+	} else {
+		slog.Info("迁移 4: 所有 active 账号已有 session 记录，无需补齐")
+	}
 	return nil
 }

@@ -360,10 +360,38 @@ type AccountSwitcherItem struct {
 	IsCurrent   bool
 }
 
+// resolveCurrentAccountID 解析当前 Telegram 账号 ID。
+// 优先使用 cookie 中的 selected_account_id，如果无效则 fallback 到第一个有效账号。
+// 返回 0 表示没有任何可用账号。
+func (s *Server) resolveCurrentAccountID(c *gin.Context) uint {
+	selectedID := auth.GetSelectedAccountID(c)
+
+	// 查询所有活跃账号
+	var accounts []model.TelegramAccount
+	s.db.Where("status IN ?", []string{"active", "logged_out"}).
+		Order("id ASC").Find(&accounts)
+
+	if len(accounts) == 0 {
+		return 0
+	}
+
+	// 检查 selectedID 是否有效
+	if selectedID > 0 {
+		for _, acc := range accounts {
+			if acc.ID == selectedID {
+				return selectedID
+			}
+		}
+	}
+
+	// fallback 到第一个账号
+	return accounts[0].ID
+}
+
 // getAccountSwitcherData 获取账号切换器数据。
 func (s *Server) getAccountSwitcherData(c *gin.Context) ([]AccountSwitcherItem, *AccountSwitcherItem) {
-	// 获取当前选中的账号 ID
-	selectedID := auth.GetSelectedAccountID(c)
+	// 获取当前选中的账号 ID（带 fallback）
+	selectedID := s.resolveCurrentAccountID(c)
 
 	// 查询所有活跃账号
 	var accounts []model.TelegramAccount
