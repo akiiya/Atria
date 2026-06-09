@@ -41,6 +41,8 @@ func ParseTemplates() (*PageTemplates, error) {
 		"templates/account_code.html",
 		"templates/account_password.html",
 		"templates/account_detail.html",
+		"templates/chats.html",
+		"templates/chat_detail.html",
 		"templates/errors/*.html",
 	)
 	if err != nil {

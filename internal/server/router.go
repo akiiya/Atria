@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/model"
@@ -71,6 +72,27 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	// 仪表盘
 	r.GET("/", authMiddleware, func(c *gin.Context) {
 		data := s.newAuthViewData(c, "dashboard")
+
+		// 统计数据
+		var apiKeyCount int64
+		s.db.Model(&model.APICredential{}).Where("status = ? AND deleted_at IS NULL", model.APICredentialStatusEnabled).Count(&apiKeyCount)
+		data["StatsAPIKeyCount"] = apiKeyCount
+
+		var accountCount int64
+		s.db.Model(&model.TelegramAccount{}).Where("status IN ?", []string{"active", "logged_out"}).Count(&accountCount)
+		data["StatsAccountCount"] = accountCount
+
+		var sessionCount int64
+		s.db.Model(&model.AccountSession{}).Where("status = ?", "active").Count(&sessionCount)
+		data["StatsSessionCount"] = sessionCount
+
+		// 今日审计事件（本地时区）
+		now := time.Now()
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		var auditTodayCount int64
+		s.db.Model(&model.AuditLog{}).Where("created_at >= ?", todayStart).Count(&auditTodayCount)
+		data["StatsAuditToday"] = auditTodayCount
+
 		c.HTML(http.StatusOK, "index.html", data)
 	})
 
@@ -266,6 +288,23 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	// 取消登录流程
 	r.POST("/api/accounts/login/cancel", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handleAPILoginCancel(c)
+	})
+
+	// ===== 聊天路由 =====
+
+	// 会话列表
+	r.GET("/chats", authMiddleware, func(c *gin.Context) {
+		s.handleGetChats(c)
+	})
+
+	// 消息历史
+	r.GET("/chats/:peer_ref", authMiddleware, func(c *gin.Context) {
+		s.handleGetChatDetail(c)
+	})
+
+	// 发送消息
+	r.POST("/api/chats/:peer_ref/messages", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostChatSend(c)
 	})
 
 	// ===== 占位路由 =====
