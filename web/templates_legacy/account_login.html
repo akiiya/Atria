@@ -1,0 +1,190 @@
+{{define "account_login.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <meta name="csrf-token" content="{{.CSRFToken}}">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <div class="page-heading">
+                        <h1 class="page-title">接入账号</h1>
+                        <p class="page-desc">通过 MTProto 登录 Telegram 账号</p>
+                    </div>
+                </div>
+
+                {{if not .HasDefaultCredential}}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <div class="empty-icon">🔑</div>
+                            <div class="empty-title">请先配置 Telegram API Key</div>
+                            <div class="empty-desc">接入账号前需要先配置 Telegram API Key（api_id / api_hash）。通常只需一套，多个 Telegram 账号可共用。</div>
+                            <a href="/settings#telegram-api-key" class="btn btn-primary">配置 API Key</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 16px;">
+                    <div class="card-body">
+                        <div class="init-guide">
+                            <div class="guide-header">
+                                <span class="guide-icon">📖</span>
+                                <strong>如何获取 API Key</strong>
+                            </div>
+                            <ol class="guide-steps">
+                                <li>前往 <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a></li>
+                                <li>使用你的 Telegram 手机号登录</li>
+                                <li>进入 <strong>API development tools</strong></li>
+                                <li>创建 application，复制 <strong>api_id</strong> 和 <strong>api_hash</strong></li>
+                            </ol>
+                            <div class="guide-note">
+                                <strong>💡 提示：</strong>通常只需申请一套 API Key。之后接入其它 Telegram 账号时，直接使用手机号 + 验证码登录，无需重复申请。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {{else}}
+
+                <!-- Step 1: 手机号输入 -->
+                <div class="card" id="step-phone">
+                    <div class="card-header">
+                        <h3 class="card-title">📱 输入手机号</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-list" style="margin-bottom: 16px;">
+                            <div class="info-row">
+                                <span class="info-label">使用 API Key</span>
+                                <span class="info-value">{{.DefaultCredentialName}}</span>
+                            </div>
+                        </div>
+
+                        <div id="phone-error" class="alert alert-error" style="display: none;"></div>
+
+                        <form id="phone-form" onsubmit="return false;">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                            <div class="form-group">
+                                <label for="phone" class="form-label">手机号</label>
+                                <input type="text" id="phone" name="phone" class="form-input"
+                                       placeholder="+8613800138000" required
+                                       pattern="\+[0-9]{7,19}" title="以 + 开头的手机号">
+                                <div class="form-hint">请输入完整的国际手机号，以 + 开头</div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" id="btn-start" class="btn btn-primary"
+                                        data-default-text="开始登录"
+                                        data-loading-text="正在发送验证码..."
+                                        onclick="handleLoginStart()">
+                                    开始登录
+                                </button>
+                                <a href="/accounts" class="btn btn-outline">取消</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Step 2: 验证码输入 -->
+                <div class="card" id="step-code" style="display: none;">
+                    <div class="card-header">
+                        <h3 class="card-title">📨 输入验证码</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="code-error" class="alert alert-error" style="display: none;"></div>
+                        <div id="code-success" class="alert alert-success" style="display: none;"></div>
+
+                        <form id="code-form" onsubmit="return false;">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" id="code-flow-id" name="flow_id" value="">
+
+                            <div class="form-group">
+                                <label for="code" class="form-label">验证码</label>
+                                <input type="text" id="code" name="code" class="form-input"
+                                       placeholder="请输入验证码" required
+                                       maxlength="10" autocomplete="one-time-code">
+                                <div class="form-hint">请填写 Telegram 发送的验证码</div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" id="btn-code" class="btn btn-primary"
+                                        data-default-text="提交验证码"
+                                        data-loading-text="正在验证..."
+                                        onclick="handleLoginCode()">
+                                    提交验证码
+                                </button>
+                                <button type="button" class="btn btn-outline" onclick="handleLoginCancel()">
+                                    重新开始
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Step 3: 2FA 密码输入 -->
+                <div class="card" id="step-password" style="display: none;">
+                    <div class="card-header">
+                        <h3 class="card-title">🔐 两步验证</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="password-error" class="alert alert-error" style="display: none;"></div>
+
+                        <form id="password-form" onsubmit="return false;">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" id="password-flow-id" name="flow_id" value="">
+
+                            <div class="form-group">
+                                <label for="password" class="form-label">两步验证密码</label>
+                                <input type="password" id="password" name="password" class="form-input"
+                                       placeholder="请输入两步验证密码" required>
+                                <div class="form-hint">该账号已开启两步验证，请输入密码</div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" id="btn-password" class="btn btn-primary"
+                                        data-default-text="提交密码"
+                                        data-loading-text="正在验证密码..."
+                                        onclick="handleLoginPassword()">
+                                    提交密码
+                                </button>
+                                <button type="button" class="btn btn-outline" onclick="handleLoginCancel()">
+                                    重新开始
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 安全说明 -->
+                <div class="card" style="margin-top: 16px;">
+                    <div class="card-body">
+                        <div class="security-notes">
+                            <div class="note-item">
+                                <span class="note-icon">🔒</span>
+                                <div class="note-content">
+                                    <strong>安全说明</strong>
+                                    <p>验证码和 2FA 密码不会写入日志。Session 将加密保存到本地文件。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {{end}}
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+    <script src="/static/login.js"></script>
+</body>
+</html>
+{{end}}

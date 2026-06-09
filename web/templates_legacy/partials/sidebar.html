@@ -1,0 +1,48 @@
+{{define "sidebar"}}
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-mark" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 2L24 24H21L18.5 19H9.5L7 24H4L14 2ZM11 17H17L14 8L11 17Z" fill="url(#brand-gradient)"/>
+                <circle cx="14" cy="22" r="2.5" fill="url(#brand-gradient)" opacity="0.6"/>
+                <defs>
+                    <linearGradient id="brand-gradient" x1="4" y1="2" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#60a5fa"/>
+                        <stop offset="1" stop-color="#a78bfa"/>
+                    </linearGradient>
+                </defs>
+            </svg>
+        </div>
+        <div class="brand-name">Atria</div>
+    </div>
+    <nav class="sidebar-nav">
+        <div class="nav-section">
+            <div class="nav-section-title">功能</div>
+            <a href="/" class="nav-item{{if eq .ActivePage "dashboard"}} active{{end}}">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">仪表盘</span>
+            </a>
+            <a href="/accounts" class="nav-item{{if eq .ActivePage "accounts"}} active{{end}}">
+                <span class="nav-icon">📱</span>
+                <span class="nav-label">账号会话</span>
+            </a>
+            <a href="/chats" class="nav-item{{if eq .ActivePage "chats"}} active{{end}}">
+                <span class="nav-icon">💬</span>
+                <span class="nav-label">聊天</span>
+            </a>
+            <a href="/contacts" class="nav-item disabled" title="即将支持">
+                <span class="nav-icon">👥</span>
+                <span class="nav-label">联系人</span>
+                <span class="nav-badge">开发中</span>
+            </a>
+            <a href="/audit" class="nav-item{{if eq .ActivePage "audit"}} active{{end}}">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">审计日志</span>
+            </a>
+        </div>
+    </nav>
+    <div class="sidebar-footer">
+        <div class="sidebar-version">v{{.Version}}</div>
+    </div>
+</aside>
+{{end}}

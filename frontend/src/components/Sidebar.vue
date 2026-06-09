@@ -5,20 +5,37 @@ const router = useRouter()
 const route = useRoute()
 
 const navItems = [
-  { path: '/dashboard', icon: '🏠', label: '仪表盘' },
-  { path: '/chats', icon: '💬', label: '聊天' },
-  { path: '/accounts', icon: '📱', label: '账号会话' },
+  { path: '/app/dashboard', icon: '🏠', label: '仪表盘', matchPrefix: '/app/dashboard' },
+  { path: '/app/accounts', icon: '📱', label: '账号会话', matchPrefix: '/app/accounts' },
+  { path: '/app/chats', icon: '💬', label: '聊天', matchPrefix: '/app/chats' },
+  { path: '/app/contacts', icon: '👥', label: '联系人', matchPrefix: '/app/contacts', disabled: true, badge: '开发中' },
+  { path: '/app/audit', icon: '📋', label: '审计日志', matchPrefix: '/app/audit' },
 ]
 
-function navigate(path: string) {
-  router.push(path)
+function isActive(item: typeof navItems[0]): boolean {
+  return route.path.startsWith(item.matchPrefix)
+}
+
+function navigate(path: string, disabled?: boolean) {
+  if (!disabled) router.push(path)
 }
 </script>
 
 <template>
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="brand-mark" aria-hidden="true">▲</div>
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14 2L24 24H21L18.5 19H9.5L7 24H4L14 2ZM11 17H17L14 8L11 17Z" fill="url(#brand-gradient)"/>
+          <circle cx="14" cy="22" r="2.5" fill="url(#brand-gradient)" opacity="0.6"/>
+          <defs>
+            <linearGradient id="brand-gradient" x1="4" y1="2" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#60a5fa"/>
+              <stop offset="1" stop-color="#a78bfa"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
       <div class="brand-name">Atria</div>
     </div>
     <nav class="sidebar-nav">
@@ -27,14 +44,19 @@ function navigate(path: string) {
         <a
           v-for="item in navItems"
           :key="item.path"
-          :class="['nav-item', { active: route.path.startsWith(item.path) }]"
-          @click.prevent="navigate(item.path)"
+          :class="['nav-item', { active: isActive(item), disabled: item.disabled }]"
+          :title="item.disabled ? '即将支持' : ''"
+          @click.prevent="navigate(item.path, item.disabled)"
           href="#"
         >
           <span class="nav-icon">{{ item.icon }}</span>
           <span class="nav-label">{{ item.label }}</span>
+          <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
         </a>
       </div>
     </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-version">v{{ $attrs.version || '0.1.0-dev' }}</div>
+    </div>
   </aside>
 </template>

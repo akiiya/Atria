@@ -22,4 +22,8 @@ export interface DashboardStats {
   account_count: number
   session_count: number
   audit_today: number
+  version?: string
+  db_driver?: string
+  data_dir?: string
+  listen_addr?: string
 }

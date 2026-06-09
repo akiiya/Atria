@@ -5,12 +5,27 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/chats',
+      redirect: '/dashboard',
     },
     {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('@/features/dashboard/DashboardView.vue'),
+    },
+    {
+      path: '/accounts',
+      name: 'accounts',
+      component: () => import('@/features/accounts/AccountsView.vue'),
+    },
+    {
+      path: '/accounts/login',
+      name: 'account-login',
+      component: () => import('@/features/accounts/AccountLoginView.vue'),
+    },
+    {
+      path: '/accounts/:id',
+      name: 'account-detail',
+      component: () => import('@/features/accounts/AccountDetailView.vue'),
     },
     {
       path: '/chats',
@@ -23,9 +38,19 @@ const router = createRouter({
       component: () => import('@/features/chat/ChatView.vue'),
     },
     {
-      path: '/accounts',
-      name: 'accounts',
-      component: () => import('@/features/dashboard/DashboardView.vue'),
+      path: '/contacts',
+      name: 'contacts',
+      component: () => import('@/features/contacts/ContactsView.vue'),
+    },
+    {
+      path: '/audit',
+      name: 'audit',
+      component: () => import('@/features/audit/AuditView.vue'),
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/features/settings/SettingsView.vue'),
     },
     {
       path: '/:pathMatch(.*)*',

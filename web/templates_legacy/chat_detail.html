@@ -1,0 +1,88 @@
+{{define "chat_detail.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <meta name="csrf-token" content="{{.CSRFToken}}">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <div class="page-heading">
+                        <h1 class="page-title">{{if .ChatTitle}}{{.ChatTitle}}{{else}}聊天{{end}}</h1>
+                        <p class="page-desc"><a href="/chats">← 返回会话列表</a></p>
+                    </div>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">{{.Error}}</div>
+                {{end}}
+
+                {{if .NoCurrentAccount}}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <div class="empty-icon">💬</div>
+                            <div class="empty-title">请先接入 Telegram 账号</div>
+                            <a href="/accounts/login" class="btn btn-primary">去接入账号</a>
+                        </div>
+                    </div>
+                </div>
+                {{else}}
+                <div class="card chat-card">
+                    <div class="chat-messages" id="chat-messages">
+                        {{if .Messages}}
+                        {{range .Messages}}
+                        <div class="chat-message {{if .IsOutgoing}}chat-message-out{{else}}chat-message-in{{end}}">
+                            {{if not .IsOutgoing}}
+                            <div class="chat-sender">{{.SenderName}}</div>
+                            {{end}}
+                            {{if eq .MessageType "text"}}
+                            <div class="chat-text">{{.Text}}</div>
+                            {{else}}
+                            <div class="chat-text chat-unsupported">[暂不支持的消息类型]</div>
+                            {{end}}
+                            <div class="chat-msg-time">{{.SentAt.Format "15:04"}}</div>
+                        </div>
+                        {{end}}
+                        {{else}}
+                        <div class="chat-empty">暂无消息</div>
+                        {{end}}
+                    </div>
+
+                    <div class="chat-input-area">
+                        <div id="chat-error" class="alert alert-error" style="display: none;"></div>
+                        <form id="chat-send-form" onsubmit="return false;">
+                            <div class="chat-input-row">
+                                <input type="text" id="chat-text" class="form-input chat-text-input"
+                                       placeholder="输入消息..." maxlength="4096" autocomplete="off">
+                                <button type="submit" id="btn-send" class="btn btn-primary chat-send-btn"
+                                        data-default-text="发送"
+                                        data-loading-text="发送中..."
+                                        onclick="sendChatMessage()">
+                                    发送
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+    <script src="/static/chat.js"></script>
+    <script>
+        var PEER_REF = '{{.PeerRef}}';
+    </script>
+</body>
+</html>
+{{end}}

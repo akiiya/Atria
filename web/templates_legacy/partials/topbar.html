@@ -1,0 +1,106 @@
+{{define "topbar"}}
+<header class="topbar">
+    <div class="topbar-left">
+        <!-- 账号 Session 切换器 -->
+        {{if .IsAuthenticated}}
+        <div class="account-switcher">
+            {{if .CurrentAccountID}}
+            <div class="account-current" onclick="toggleAccountMenu()" title="切换账号">
+                <span class="account-avatar">👤</span>
+                <span class="account-name">{{.CurrentAccountName}}</span>
+                {{if .CurrentAccountUsername}}
+                <span class="account-username">@{{.CurrentAccountUsername}}</span>
+                {{end}}
+                <span class="account-arrow">▾</span>
+            </div>
+            <div class="account-dropdown" id="account-dropdown">
+                {{range .AccountList}}
+                <a href="#" class="dropdown-item{{if .IsCurrent}} active{{end}}" onclick="switchAccount({{.ID}}); return false;">
+                    <span class="dropdown-item-name">{{.DisplayName}}</span>
+                    {{if .Username}}
+                    <span class="dropdown-item-detail">@{{.Username}}</span>
+                    {{end}}
+                    {{if .PhoneMasked}}
+                    <span class="dropdown-item-detail">{{.PhoneMasked}}</span>
+                    {{end}}
+                </a>
+                {{end}}
+                <div class="dropdown-divider"></div>
+                <a href="/accounts/login" class="dropdown-item">接入新账号</a>
+            </div>
+            {{else}}
+            <a href="/accounts/login" class="account-empty" title="接入账号">
+                <span class="account-avatar">👤</span>
+                <span class="account-name">未接入账号</span>
+            </a>
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+    <div class="topbar-right">
+        <div class="theme-switcher">
+            <button class="theme-btn" data-theme="light" title="浅色模式">☀️</button>
+            <button class="theme-btn" data-theme="dark" title="深色模式">🌙</button>
+            <button class="theme-btn" data-theme="system" title="跟随系统">💻</button>
+        </div>
+        {{if .IsAuthenticated}}
+        <div class="topbar-settings">
+            <button class="topbar-settings-btn" onclick="toggleSettingsMenu()" title="设置">
+                ⚙️
+            </button>
+            <div class="settings-dropdown" id="settings-dropdown">
+                <a href="/settings" class="dropdown-item">系统设置</a>
+                <div class="dropdown-divider"></div>
+                <form method="POST" action="/logout" id="logout-form" style="display: none;">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                </form>
+                <a href="#" class="dropdown-item" onclick="document.getElementById('logout-form').submit(); return false;">退出登录</a>
+            </div>
+        </div>
+        <div class="topbar-user">
+            <span class="user-badge">👤 {{.CurrentAdminUsername}}</span>
+        </div>
+        {{end}}
+    </div>
+</header>
+<form id="switch-account-form" method="POST" action="/accounts/select" style="display: none;">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="account_id" id="switch-account-id">
+</form>
+<script>
+function toggleSettingsMenu() {
+    var dropdown = document.getElementById('settings-dropdown');
+    dropdown.classList.toggle('show');
+    // 关闭账号下拉
+    var accountDropdown = document.getElementById('account-dropdown');
+    if (accountDropdown) accountDropdown.classList.remove('show');
+}
+function toggleAccountMenu() {
+    var dropdown = document.getElementById('account-dropdown');
+    dropdown.classList.toggle('show');
+    // 关闭设置下拉
+    var settingsDropdown = document.getElementById('settings-dropdown');
+    if (settingsDropdown) settingsDropdown.classList.remove('show');
+}
+function switchAccount(id) {
+    document.getElementById('switch-account-id').value = id;
+    document.getElementById('switch-account-form').submit();
+}
+function confirmLogout() {
+    return confirm('确定要退出登录吗？');
+}
+// 点击其他地方关闭下拉菜单
+document.addEventListener('click', function(e) {
+    var settingsDropdown = document.getElementById('settings-dropdown');
+    var settingsBtn = document.querySelector('.topbar-settings-btn');
+    if (settingsDropdown && settingsBtn && !settingsDropdown.contains(e.target) && !settingsBtn.contains(e.target)) {
+        settingsDropdown.classList.remove('show');
+    }
+    var accountDropdown = document.getElementById('account-dropdown');
+    var accountCurrent = document.querySelector('.account-current');
+    if (accountDropdown && accountCurrent && !accountDropdown.contains(e.target) && !accountCurrent.contains(e.target)) {
+        accountDropdown.classList.remove('show');
+    }
+});
+</script>
+{{end}}
