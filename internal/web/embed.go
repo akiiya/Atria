@@ -43,6 +43,7 @@ func ParseTemplates() (*PageTemplates, error) {
 		"templates/account_detail.html",
 		"templates/chats.html",
 		"templates/chat_detail.html",
+		"templates/spa_shell.html",
 		"templates/errors/*.html",
 	)
 	if err != nil {
@@ -55,4 +56,9 @@ func ParseTemplates() (*PageTemplates, error) {
 // Static 返回嵌入的静态文件系统。
 func Static() (fs.FS, error) {
 	return rootweb.Static()
+}
+
+// StaticDist 返回嵌入的 dist 文件系统（Vue SPA 构建产物）。
+func StaticDist() (fs.FS, error) {
+	return rootweb.StaticDist()
 }
