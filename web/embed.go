@@ -20,3 +20,17 @@ func TemplatesFS() (embed.FS, error) {
 func Static() (fs.FS, error) {
 	return fs.Sub(staticFS, "static")
 }
+
+// StaticDist returns the embedded dist filesystem (Vue SPA build output).
+// Returns error if dist directory doesn't exist (frontend not built).
+func StaticDist() (fs.FS, error) {
+	sub, err := fs.Sub(staticFS, "static/dist")
+	if err != nil {
+		return nil, err
+	}
+	// Check if index.html exists
+	if _, err := fs.Stat(sub, "index.html"); err != nil {
+		return nil, err
+	}
+	return sub, nil
+}

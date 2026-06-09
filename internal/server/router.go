@@ -307,6 +307,54 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostChatSend(c)
 	})
 
+	// ===== JSON API (Vue SPA) =====
+
+	// 当前用户和账号信息
+	r.GET("/api/me", authMiddleware, func(c *gin.Context) {
+		s.handleAPIMe(c)
+	})
+
+	// 仪表盘统计
+	r.GET("/api/dashboard/stats", authMiddleware, func(c *gin.Context) {
+		s.handleAPIDashboardStats(c)
+	})
+
+	// 聊天会话列表 JSON
+	r.GET("/api/chats/dialogs", authMiddleware, func(c *gin.Context) {
+		s.handleAPIDialogs(c)
+	})
+
+	// 消息历史 JSON
+	r.GET("/api/chats/:peer_ref/messages", authMiddleware, func(c *gin.Context) {
+		s.handleAPIMessages(c)
+	})
+
+	// ===== SPA Shell =====
+
+	// Vue SPA 入口 - 提供 shell HTML，Vue Router 处理内部路由
+	spaHandler := func(c *gin.Context) {
+		// 检查 dist 是否存在
+		distFS, err := web.StaticDist()
+		if err != nil {
+			data := NewViewData(s.cfg, "404")
+			data.Error = "前端资源未构建。请运行 cd frontend && npm run build"
+			c.Status(http.StatusServiceUnavailable)
+			c.HTML(http.StatusServiceUnavailable, "404.html", data.ToMap())
+			return
+		}
+		_ = distFS
+		// 返回 SPA shell（包含 CSRF token 和基础配置）
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		token := s.setCSRFToken(c)
+		c.HTML(http.StatusOK, "spa_shell.html", gin.H{
+			"CSRFToken":  token,
+			"Version":    version.Short(),
+			"IsDarkMode": false,
+		})
+	}
+	r.GET("/app", authMiddleware, spaHandler)
+	r.GET("/app/*path", authMiddleware, spaHandler)
+
 	// ===== 占位路由 =====
 
 	placeholderRoutes := []string{"/audit", "/security"}
