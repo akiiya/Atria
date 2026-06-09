@@ -71,6 +71,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.AccountSyncSnapshot{},
 		&model.AuditLog{},
 		&model.SystemSetting{},
+		&model.ChatPeerCache{},
 	)
 	if err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)

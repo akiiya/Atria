@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"strings"
 	"time"
 
+	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
+	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
 	"github.com/user/atria/internal/mtproto"
 	"github.com/user/atria/internal/security"
@@ -23,7 +24,7 @@ type ChatService struct {
 	sessionDir string
 	key        []byte
 	flowStore  mtproto.FlowStore
-	dialFunc   func(ctx context.Context, network, addr string) (interface{}, error)
+	dialFunc   dcs.DialFunc
 	logger     *slog.Logger
 }
 
@@ -36,6 +37,11 @@ func NewChatService(db *gorm.DB, sessionDir string, key []byte, flowStore mtprot
 		flowStore:  flowStore,
 		logger:     logger,
 	}
+}
+
+// SetProxyDialer 设置代理拨号函数。
+func (s *ChatService) SetProxyDialer(fn dcs.DialFunc) {
+	s.dialFunc = fn
 }
 
 // ListDialogs 获取最近会话列表。
@@ -51,10 +57,13 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
-		return nil, fmt.Errorf("解密 API Hash 失败")
+		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
 
 	client := mtproto.NewGotdClient(s.sessionDir, s.key, s.flowStore, s.logger)
+	if s.dialFunc != nil {
+		client.SetDialer(s.dialFunc)
+	}
 
 	var dialogs []Dialog
 	err = client.RunWithSession(context.Background(), int(cred.APIID), apiHash, account.Session.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
@@ -68,14 +77,14 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
 		switch d := result.(type) {
 		case *tg.MessagesDialogs:
 			for _, dialog := range d.Dialogs {
-				dlg := convertDialog(dialog, d.Messages, d.Users, d.Chats)
+				dlg := s.convertAndCacheDialog(accountID, dialog, d.Messages, d.Users, d.Chats)
 				if dlg != nil {
 					dialogs = append(dialogs, *dlg)
 				}
 			}
 		case *tg.MessagesDialogsSlice:
 			for _, dialog := range d.Dialogs {
-				dlg := convertDialog(dialog, d.Messages, d.Users, d.Chats)
+				dlg := s.convertAndCacheDialog(accountID, dialog, d.Messages, d.Users, d.Chats)
 				if dlg != nil {
 					dialogs = append(dialogs, *dlg)
 				}
@@ -104,27 +113,31 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) ([]
 		return nil, err
 	}
 
-	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	// 从缓存获取 peer 信息
+	cache, err := s.getPeerCache(accountID, peerRef)
 	if err != nil {
-		return nil, fmt.Errorf("解密 API Hash 失败")
+		return nil, err
 	}
 
-	peerID, peerType := decodePeerRef(peerRef)
-	if peerID == 0 {
-		return nil, &ChatError{Code: "peer_invalid", Message: "无效的会话引用"}
+	inputPeer, err := s.buildInputPeerFromCache(cache)
+	if err != nil {
+		return nil, err
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
 
 	client := mtproto.NewGotdClient(s.sessionDir, s.key, s.flowStore, s.logger)
+	if s.dialFunc != nil {
+		client.SetDialer(s.dialFunc)
+	}
 
 	var messages []Message
 	err = client.RunWithSession(context.Background(), int(cred.APIID), apiHash, account.Session.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
-		peer := buildInputPeer(peerID, peerType, 0)
-		if peer == nil {
-			return fmt.Errorf("无法构建 peer")
-		}
-
 		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
-			Peer:  peer,
+			Peer:  inputPeer,
 			Limit: limit,
 		})
 		if err != nil {
@@ -178,28 +191,34 @@ func (s *ChatService) SendText(accountID uint, peerRef string, text string) (*Se
 		return nil, err
 	}
 
-	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	// 从缓存获取 peer 信息
+	cache, err := s.getPeerCache(accountID, peerRef)
 	if err != nil {
-		return nil, fmt.Errorf("解密 API Hash 失败")
+		return nil, err
 	}
 
-	peerID, peerType := decodePeerRef(peerRef)
-	if peerID == 0 {
-		return nil, &ChatError{Code: "peer_invalid", Message: "无效的会话引用"}
+	inputPeer, err := s.buildInputPeerFromCache(cache)
+	if err != nil {
+		return nil, err
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
 
 	client := mtproto.NewGotdClient(s.sessionDir, s.key, s.flowStore, s.logger)
+	if s.dialFunc != nil {
+		client.SetDialer(s.dialFunc)
+	}
+
+	s.logger.Info("发送消息", "text_len", len(text), "peer_ref", peerRef)
 
 	var result *SendResult
 	err = client.RunWithSession(context.Background(), int(cred.APIID), apiHash, account.Session.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
-		peer := buildInputPeer(peerID, peerType, 0)
-		if peer == nil {
-			return fmt.Errorf("无法构建 peer")
-		}
-
-		randomID := rand.Int63()
+		randomID := crypto.SecureRandomInt64()
 		apiResult, err := api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
-			Peer:     peer,
+			Peer:     inputPeer,
 			Message:  text,
 			RandomID: randomID,
 		})
@@ -237,10 +256,73 @@ func (s *ChatService) SendText(accountID uint, peerRef string, text string) (*Se
 	return result, nil
 }
 
+// getPeerCache 从缓存获取 peer 信息，验证 account_id 匹配。
+func (s *ChatService) getPeerCache(accountID uint, peerRef string) (*model.ChatPeerCache, error) {
+	var cache model.ChatPeerCache
+	err := s.db.Where("peer_ref = ? AND account_id = ?", peerRef, accountID).First(&cache).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, &ChatError{Code: "peer_invalid", Message: "会话不存在或已过期，请刷新会话列表"}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询 peer 缓存失败: %w", err)
+	}
+	return &cache, nil
+}
+
+// buildInputPeerFromCache 从缓存构造 InputPeerClass。
+func (s *ChatService) buildInputPeerFromCache(cache *model.ChatPeerCache) (tg.InputPeerClass, error) {
+	peerType := PeerType(cache.PeerType)
+
+	switch peerType {
+	case PeerTypeUser:
+		if cache.AccessHashEncrypted == "" {
+			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
+		}
+		accessHash, err := s.decryptAccessHash(cache.AccessHashEncrypted)
+		if err != nil {
+			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败，请刷新会话列表"}
+		}
+		return &tg.InputPeerUser{UserID: cache.PeerID, AccessHash: accessHash}, nil
+
+	case PeerTypeChat:
+		// chat 类型不需要 access_hash
+		return &tg.InputPeerChat{ChatID: cache.PeerID}, nil
+
+	case PeerTypeChannel:
+		if cache.AccessHashEncrypted == "" {
+			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
+		}
+		accessHash, err := s.decryptAccessHash(cache.AccessHashEncrypted)
+		if err != nil {
+			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败，请刷新会话列表"}
+		}
+		return &tg.InputPeerChannel{ChannelID: cache.PeerID, AccessHash: accessHash}, nil
+	}
+
+	return nil, &ChatError{Code: "peer_invalid", Message: "无效的会话类型"}
+}
+
+// encryptAccessHash 加密 access_hash。
+func (s *ChatService) encryptAccessHash(accessHash int64) (string, error) {
+	plain := fmt.Sprintf("%d", accessHash)
+	return crypto.EncryptString(s.key, plain, []byte("atria:chat_peer:v1"))
+}
+
+// decryptAccessHash 解密 access_hash。
+func (s *ChatService) decryptAccessHash(encrypted string) (int64, error) {
+	plain, err := crypto.DecryptString(s.key, encrypted, []byte("atria:chat_peer:v1"))
+	if err != nil {
+		return 0, err
+	}
+	var hash int64
+	fmt.Sscanf(plain, "%d", &hash)
+	return hash, nil
+}
+
 // getAccountAndCredential 获取账号和关联的 API 凭据。
 func (s *ChatService) getAccountAndCredential(accountID uint) (*model.TelegramAccount, *model.APICredential, error) {
 	var account model.TelegramAccount
-	err := s.db.Preload("Session").Where("id = ? AND status IN ?", accountID, []string{"active", "logged_out"}).
+	err := s.db.Preload("Session").Where("id = ? AND status = ?", accountID, model.TelegramAccountStatusActive).
 		First(&account).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -265,6 +347,10 @@ func (s *ChatService) getAccountAndCredential(accountID uint) (*model.TelegramAc
 func (s *ChatService) classifyError(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	if _, ok := err.(*ChatError); ok {
+		return err
 	}
 
 	errKind := mtproto.ClassifyError(err)
@@ -298,7 +384,7 @@ func (e *ChatError) Error() string {
 	return e.Message
 }
 
-// buildInputPeer 构建 InputPeerClass。
+// buildInputPeer 构建 InputPeerClass（用于缓存写入时的临时构造）。
 func buildInputPeer(peerID int64, peerType PeerType, accessHash int64) tg.InputPeerClass {
 	switch peerType {
 	case PeerTypeUser:
@@ -311,8 +397,8 @@ func buildInputPeer(peerID int64, peerType PeerType, accessHash int64) tg.InputP
 	return nil
 }
 
-// convertDialog 转换 gotd Dialog 为内部 Dialog。
-func convertDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg.UserClass, chats []tg.ChatClass) *Dialog {
+// convertAndCacheDialog 转换 gotd Dialog 为内部 Dialog，同时缓存 peer 信息。
+func (s *ChatService) convertAndCacheDialog(accountID uint, dialog tg.DialogClass, messages []tg.MessageClass, users []tg.UserClass, chats []tg.ChatClass) *Dialog {
 	d, ok := dialog.(*tg.Dialog)
 	if !ok {
 		return nil
@@ -329,18 +415,27 @@ func convertDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg
 		IsPinned:    d.Pinned,
 	}
 
+	var peerID int64
+	var peerType PeerType
+	var accessHash int64
+
 	switch p := d.Peer.(type) {
 	case *tg.PeerUser:
+		peerType = PeerTypeUser
+		peerID = p.UserID
 		dlg.PeerType = PeerTypeUser
 		for _, u := range users {
 			if user, ok := u.(*tg.User); ok && user.ID == p.UserID {
 				dlg.Title = buildDisplayName(user.FirstName, user.LastName)
 				dlg.Username = user.Username
 				dlg.AvatarPlaceholder = getInitial(dlg.Title)
+				accessHash = user.AccessHash
 				break
 			}
 		}
 	case *tg.PeerChat:
+		peerType = PeerTypeChat
+		peerID = p.ChatID
 		dlg.PeerType = PeerTypeChat
 		for _, c := range chats {
 			if chat, ok := c.(*tg.Chat); ok && chat.ID == p.ChatID {
@@ -350,16 +445,22 @@ func convertDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg
 			}
 		}
 	case *tg.PeerChannel:
+		peerType = PeerTypeChannel
+		peerID = p.ChannelID
 		dlg.PeerType = PeerTypeChannel
 		for _, c := range chats {
 			if channel, ok := c.(*tg.Channel); ok && channel.ID == p.ChannelID {
 				dlg.Title = channel.Title
 				dlg.Username = channel.Username
 				dlg.AvatarPlaceholder = getInitial(dlg.Title)
+				accessHash = channel.AccessHash
 				break
 			}
 		}
 	}
+
+	// 缓存 peer 信息
+	s.upsertPeerCache(accountID, peerRef, peerType, peerID, accessHash, dlg.Title, dlg.Username)
 
 	for _, msg := range messages {
 		if m, ok := msg.(*tg.Message); ok && m.ID == d.TopMessage {
@@ -375,6 +476,47 @@ func convertDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg
 	}
 
 	return dlg
+}
+
+// upsertPeerCache 创建或更新 peer 缓存。
+func (s *ChatService) upsertPeerCache(accountID uint, peerRef string, peerType PeerType, peerID int64, accessHash int64, title, username string) {
+	// chat 类型不需要 access_hash
+	var encryptedHash string
+	if peerType == PeerTypeUser || peerType == PeerTypeChannel {
+		if accessHash == 0 {
+			s.logger.Warn("peer 缺少 access_hash，跳过缓存", "peer_ref", peerRef, "peer_type", string(peerType))
+			return
+		}
+		encrypted, err := s.encryptAccessHash(accessHash)
+		if err != nil {
+			s.logger.Error("加密 access_hash 失败", "error", err, "peer_ref", peerRef)
+			return
+		}
+		encryptedHash = encrypted
+	}
+
+	cache := model.ChatPeerCache{
+		AccountID:           accountID,
+		PeerRef:             peerRef,
+		PeerType:            string(peerType),
+		PeerID:              peerID,
+		AccessHashEncrypted: encryptedHash,
+		Title:               title,
+		Username:            username,
+	}
+
+	// Upsert: 先尝试更新，不存在则创建
+	var existing model.ChatPeerCache
+	err := s.db.Where("peer_ref = ? AND account_id = ?", peerRef, accountID).First(&existing).Error
+	if err == gorm.ErrRecordNotFound {
+		s.db.Create(&cache)
+	} else if err == nil {
+		s.db.Model(&existing).Updates(map[string]any{
+			"access_hash_encrypted": encryptedHash,
+			"title":                 title,
+			"username":              username,
+		})
+	}
 }
 
 // convertMessage 转换 gotd Message 为内部 Message。

@@ -30,6 +30,10 @@ func (s *Server) handleGetChats(c *gin.Context) {
 
 	// 获取会话列表
 	chatSvc := chat.NewChatService(s.db, s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
+		chatSvc.SetProxyDialer(dialer)
+	}
+
 	dialogs, err := chatSvc.ListDialogs(selectedID, 20)
 	if err != nil {
 		slog.Error("获取会话列表失败", "error", err)
@@ -67,6 +71,10 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 
 	// 获取消息历史
 	chatSvc := chat.NewChatService(s.db, s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
+		chatSvc.SetProxyDialer(dialer)
+	}
+
 	messages, err := chatSvc.GetMessages(selectedID, peerRef, 50)
 	if err != nil {
 		slog.Error("获取消息历史失败", "error", err, "peer_ref_length", len(peerRef))
@@ -83,7 +91,6 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 	}
 
 	data["Messages"] = messages
-	data["ChatTitle"] = peerRef // TODO: 从 dialogs 缓存获取真实标题
 	c.HTML(http.StatusOK, "chat_detail.html", data)
 }
 
@@ -103,11 +110,27 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 
 	// 解析请求
 	var req struct {
-		Text string `json:"text"`
+		Text         string   `json:"text"`
+		Peers        []string `json:"peers"`
+		PeerRefs     []string `json:"peer_refs"`
+		Recipients   []string `json:"recipients"`
+		RecipientIDs []string `json:"recipient_ids"`
+		Batch        bool     `json:"batch"`
+		Bulk         bool     `json:"bulk"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// 尝试 form 解析
 		req.Text = c.PostForm("text")
+	}
+
+	// 拒绝批量发送参数
+	if len(req.Peers) > 0 || len(req.PeerRefs) > 0 || len(req.Recipients) > 0 || len(req.RecipientIDs) > 0 || req.Batch || req.Bulk {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "bulk_not_supported",
+			"message": "当前版本仅支持向单个会话发送消息",
+		})
+		return
 	}
 
 	text := strings.TrimSpace(req.Text)
@@ -121,6 +144,10 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 	}
 
 	chatSvc := chat.NewChatService(s.db, s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
+		chatSvc.SetProxyDialer(dialer)
+	}
+
 	result, err := chatSvc.SendText(selectedID, peerRef, text)
 	if err != nil {
 		slog.Error("发送消息失败", "error", err, "peer_ref_length", len(peerRef), "text_len", len(text))
