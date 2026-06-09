@@ -1,0 +1,67 @@
+# Web 聊天 MVP
+
+## 支持范围
+
+- 会话列表：查看当前 Telegram 账号的最近会话
+- 消息历史：查看某个会话的最近消息
+- 单会话文本发送：向单个已存在会话发送一条文本消息
+
+## 明确不支持
+
+- 群发 / 批量发送
+- 自动回复
+- 定时消息
+- 联系人采集
+- 群成员采集
+- 风控规避
+
+## peer_ref 设计
+
+peer_ref 是服务端生成的不透明引用，不暴露 access_hash 明文。
+
+- 格式：`u_ID`、`c_ID`、`ch_ID`（分别对应 user、chat、channel）
+- access_hash 通过 AES-256-GCM 加密后存储在 `chat_peer_cache` 表
+- peer_ref 绑定 account_id，不允许跨账号使用
+- 前端只能看到 peer_ref，无法获取 access_hash
+
+## 代理要求
+
+聊天相关 MTProto 调用（ListDialogs、GetMessages、SendText）必须使用系统 API 网络代理配置。
+
+代理配置来源：`system_settings` 表中的 `proxy_*` 字段。
+
+proxy_password 缺失时视为空密码，不打印 record not found 噪音日志。
+proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
+
+## 安全日志
+
+- 不记录完整消息正文（只记录 text_len）
+- 不记录 access_hash 明文
+- 不记录 api_hash
+- 不记录 proxy_password
+- 不记录 session path
+
+## 路由
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/chats` | GET | 会话列表页面 |
+| `/chats/:peer_ref` | GET | 消息历史页面 |
+| `/api/chats/:peer_ref/messages` | POST | 发送消息（JSON） |
+
+## 错误码
+
+| code | 说明 |
+|------|------|
+| `no_current_account` | 请先接入 Telegram 账号 |
+| `session_invalid` | 当前账号 Session 不可用 |
+| `peer_invalid` | 会话不存在或已过期 |
+| `peer_incomplete` | 会话信息不完整 |
+| `text_empty` | 消息内容不能为空 |
+| `text_too_long` | 消息内容超过 4096 字符 |
+| `bulk_not_supported` | 当前版本仅支持单会话发送 |
+| `proxy_connect_failed` | 无法连接代理 |
+| `proxy_auth_failed` | 代理认证失败 |
+| `telegram_timeout` | 连接 Telegram 超时 |
+| `telegram_error` | Telegram 返回异常 |
+| `api_key_invalid` | Telegram API Key 不可用 |

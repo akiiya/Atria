@@ -23,6 +23,13 @@ func init() {
 		Description: "初始化缺失的系统设置默认值（proxy_*）",
 		Run:         migration002InitSystemSettingDefaults,
 	})
+
+	Register(Migration{
+		Version:     3,
+		Name:        "create_chat_peer_cache",
+		Description: "创建聊天 peer 缓存表，用于安全存储 access_hash",
+		Run:         migration003CreateChatPeerCache,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -171,5 +178,16 @@ func migration002InitSystemSettingDefaults(db *gorm.DB, _ []byte) error {
 	}
 
 	slog.Info("迁移 2: 系统设置默认值初始化完成")
+	return nil
+}
+
+// migration003CreateChatPeerCache 创建聊天 peer 缓存表。
+// 用于安全存储 Telegram peer 的 access_hash（AES-256-GCM 加密）。
+// 幂等：AutoMigrate 会跳过已存在的表。
+func migration003CreateChatPeerCache(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.ChatPeerCache{}); err != nil {
+		return fmt.Errorf("创建 chat_peer_cache 表失败: %w", err)
+	}
+	slog.Info("迁移 3: chat_peer_cache 表创建/更新完成")
 	return nil
 }

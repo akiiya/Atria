@@ -79,7 +79,7 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		data["StatsAPIKeyCount"] = apiKeyCount
 
 		var accountCount int64
-		s.db.Model(&model.TelegramAccount{}).Where("status IN ?", []string{"active", "logged_out"}).Count(&accountCount)
+		s.db.Model(&model.TelegramAccount{}).Where("status = ?", model.TelegramAccountStatusActive).Count(&accountCount)
 		data["StatsAccountCount"] = accountCount
 
 		var sessionCount int64

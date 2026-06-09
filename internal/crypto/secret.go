@@ -99,6 +99,18 @@ func loadKeyFromFile(path string) ([]byte, error) {
 	return key, nil
 }
 
+// SecureRandomInt64 生成加密安全的随机 int64。
+// 用于 Telegram MessagesSendMessage 的 RandomID。
+func SecureRandomInt64() int64 {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// 极端情况 fallback
+		return 0
+	}
+	return int64(b[0])<<56 | int64(b[1])<<48 | int64(b[2])<<40 | int64(b[3])<<32 |
+		int64(b[4])<<24 | int64(b[5])<<16 | int64(b[6])<<8 | int64(b[7])
+}
+
 // generateAndSaveKey 生成新密钥并保存到文件。
 func generateAndSaveKey(path string) ([]byte, error) {
 	// 确保目录存在
