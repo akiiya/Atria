@@ -1,11 +1,14 @@
 package chat
 
 import (
+	"context"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/gotd/td/tgerr"
 	"github.com/user/atria/internal/model"
+	"github.com/user/atria/internal/mtproto"
 
 	"gorm.io/gorm"
 )
@@ -368,5 +371,220 @@ func TestDashboardStats_LoggedOutNotCounted(t *testing.T) {
 	}
 }
 
-// Ensure we use time package (suppress unused import).
-var _ = time.Now()
+// ===== 聊天错误分类测试 =====
+
+func setupChatServiceForTest(t *testing.T) *ChatService {
+	t.Helper()
+	db := setupTestDB(t)
+	return NewChatService(db, "/tmp", make([]byte, 32), nil, nil)
+}
+
+func TestClassifyRPCErrorForChat_AUTH_KEY_UNREGISTERED(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "AUTH_KEY_UNREGISTERED", Code: 401})
+	if chatErr.Code != "session_invalid" {
+		t.Errorf("期望 session_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_AUTH_KEY_INVALID(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "AUTH_KEY_INVALID", Code: 401})
+	if chatErr.Code != "session_invalid" {
+		t.Errorf("期望 session_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_SESSION_REVOKED(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "SESSION_REVOKED", Code: 401})
+	if chatErr.Code != "session_invalid" {
+		t.Errorf("期望 session_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_SESSION_EXPIRED(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "SESSION_EXPIRED", Code: 401})
+	if chatErr.Code != "session_invalid" {
+		t.Errorf("期望 session_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_API_ID_INVALID(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "API_ID_INVALID", Code: 400})
+	if chatErr.Code != "api_key_invalid" {
+		t.Errorf("期望 api_key_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_API_HASH_INVALID(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "API_HASH_INVALID", Code: 400})
+	if chatErr.Code != "api_key_invalid" {
+		t.Errorf("期望 api_key_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_FLOOD_WAIT(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "FLOOD_WAIT", Code: 420, Argument: 30})
+	if chatErr.Code != "flood_wait" {
+		t.Errorf("期望 flood_wait，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_AUTH_RESTART(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "AUTH_RESTART", Code: 500})
+	if chatErr.Code != "auth_restart" {
+		t.Errorf("期望 auth_restart，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_USER_DEACTIVATED(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "USER_DEACTIVATED", Code: 401})
+	if chatErr.Code != "account_deactivated" {
+		t.Errorf("期望 account_deactivated，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_USER_DEACTIVATED_BAN(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "USER_DEACTIVATED_BAN", Code: 401})
+	if chatErr.Code != "account_deactivated" {
+		t.Errorf("期望 account_deactivated，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_TIMEOUT(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "TIMEOUT", Code: 503})
+	if chatErr.Code != "telegram_timeout" {
+		t.Errorf("期望 telegram_timeout，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_INTERNAL(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "INTERNAL", Code: 500})
+	if chatErr.Code != "telegram_error" {
+		t.Errorf("期望 telegram_error，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyRPCErrorForChat_UnknownTGError_ReturnsTelegramErrorNotNetworkError(t *testing.T) {
+	chatErr := classifyRPCErrorForChat(&tgerr.Error{Type: "UNKNOWN_RPC_ERROR", Code: 400})
+	if chatErr.Code != "telegram_error" {
+		t.Errorf("期望 telegram_error，实际 %s", chatErr.Code)
+	}
+	if chatErr.Code == "network_error" {
+		t.Error("未知 RPC 错误不应归类为 network_error")
+	}
+}
+
+func TestClassifyMTProtoErrorForChat_NetworkError(t *testing.T) {
+	chatErr := classifyMTProtoErrorForChat(&mtproto.MTProtoError{Kind: mtproto.ErrNetworkError, Message: "网络错误"})
+	if chatErr.Code != "network_error" {
+		t.Errorf("期望 network_error，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyMTProtoErrorForChat_SessionContextLost(t *testing.T) {
+	chatErr := classifyMTProtoErrorForChat(&mtproto.MTProtoError{Kind: mtproto.ErrSessionContextLost, Message: "会话丢失"})
+	if chatErr.Code != "session_invalid" {
+		t.Errorf("期望 session_invalid，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyMTProtoErrorForChat_FloodWait(t *testing.T) {
+	chatErr := classifyMTProtoErrorForChat(&mtproto.MTProtoError{Kind: mtproto.ErrFloodWait, Message: "等待"})
+	if chatErr.Code != "flood_wait" {
+		t.Errorf("期望 flood_wait，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyMTProtoErrorForChat_TelegramError(t *testing.T) {
+	chatErr := classifyMTProtoErrorForChat(&mtproto.MTProtoError{Kind: mtproto.ErrTelegramError, Message: "异常"})
+	if chatErr.Code != "telegram_error" {
+		t.Errorf("期望 telegram_error，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyError_ContextDeadlineExceeded(t *testing.T) {
+	svc := setupChatServiceForTest(t)
+	err := svc.classifyError(context.DeadlineExceeded)
+	chatErr, ok := err.(*ChatError)
+	if !ok {
+		t.Fatalf("期望 ChatError，实际 %T", err)
+	}
+	if chatErr.Code != "telegram_timeout" {
+		t.Errorf("期望 telegram_timeout，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyError_ContextCanceled(t *testing.T) {
+	svc := setupChatServiceForTest(t)
+	err := svc.classifyError(context.Canceled)
+	chatErr, ok := err.(*ChatError)
+	if !ok {
+		t.Fatalf("期望 ChatError，实际 %T", err)
+	}
+	if chatErr.Code != "telegram_timeout" {
+		t.Errorf("期望 telegram_timeout，实际 %s", chatErr.Code)
+	}
+}
+
+func TestClassifyError_NilReturnsNil(t *testing.T) {
+	svc := setupChatServiceForTest(t)
+	if err := svc.classifyError(nil); err != nil {
+		t.Errorf("nil 错误应返回 nil，实际 %v", err)
+	}
+}
+
+func TestClassifyError_ChatErrorPassthrough(t *testing.T) {
+	svc := setupChatServiceForTest(t)
+	input := &ChatError{Code: "test_code", Message: "test message"}
+	err := svc.classifyError(input)
+	if err != input {
+		t.Error("ChatError 应直接透传")
+	}
+}
+
+func TestSanitizeErrorForLog(t *testing.T) {
+	short := sanitizeErrorForLog("short error")
+	if short != "short error" {
+		t.Errorf("短消息不应被截断，实际 %s", short)
+	}
+
+	longMsg := ""
+	for i := 0; i < 300; i++ {
+		longMsg += "a"
+	}
+	longResult := sanitizeErrorForLog(longMsg)
+	if len(longResult) > 203 { // 200 + "..."
+		t.Errorf("长消息应被截断到 200 字符，实际 %d", len(longResult))
+	}
+}
+
+func TestIsProxyError(t *testing.T) {
+	if isProxyError(nil) {
+		t.Error("nil 不应是代理错误")
+	}
+	if isProxyError(fmt.Errorf("some error")) {
+		t.Error("普通错误不应是代理错误")
+	}
+	if !isProxyError(fmt.Errorf("proxy connection failed")) {
+		t.Error("proxy 关键字应识别为代理错误")
+	}
+	if !isProxyError(fmt.Errorf("SOCKS5 dial failed")) {
+		t.Error("SOCKS5 关键字应识别为代理错误")
+	}
+}
+
+func TestClassifyProxyError(t *testing.T) {
+	err := classifyProxyError(fmt.Errorf("proxy auth failed: 407"))
+	if err.Code != "proxy_auth_failed" {
+		t.Errorf("期望 proxy_auth_failed，实际 %s", err.Code)
+	}
+
+	err = classifyProxyError(fmt.Errorf("dial timeout"))
+	if err.Code != "telegram_timeout" {
+		t.Errorf("期望 telegram_timeout，实际 %s", err.Code)
+	}
+
+	err = classifyProxyError(fmt.Errorf("connection refused"))
+	if err.Code != "proxy_connect_failed" {
+		t.Errorf("期望 proxy_connect_failed，实际 %s", err.Code)
+	}
+}

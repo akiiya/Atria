@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -173,10 +172,12 @@ func (s *Server) classifyChatError(err error) string {
 		return ""
 	}
 
+	// ChatError 已经包含用户友好消息
 	if chatErr, ok := err.(*chat.ChatError); ok {
 		return chatErr.Message
 	}
 
+	// 使用 mtproto.ClassifyError 兜底
 	errKind := mtproto.ClassifyError(err)
 	switch errKind {
 	case mtproto.ErrProxyConnectFailed:
@@ -185,13 +186,19 @@ func (s *Server) classifyChatError(err error) string {
 		return "代理认证失败，请检查用户名和密码"
 	case mtproto.ErrTelegramTimeout:
 		return "连接 Telegram 超时，请稍后重试或检查代理"
-	case mtproto.ErrSessionInvalid:
-		return "账号登录状态已失效，请重新接入"
+	case mtproto.ErrSessionInvalid, mtproto.ErrSessionContextLost:
+		return "当前账号 Session 已失效，请重新接入"
 	case mtproto.ErrUnauthorized:
-		return "账号登录状态已失效，请重新接入"
+		return "该 Telegram 账号不可用或已被停用"
 	case mtproto.ErrCredentialDisabled:
 		return "Telegram API Key 不可用，请检查 API ID / API Hash"
+	case mtproto.ErrFloodWait:
+		return "Telegram 限制请求过快，请稍后再试"
+	case mtproto.ErrTelegramError:
+		return "Telegram 返回异常，请稍后重试或检查日志"
+	case mtproto.ErrNetworkError:
+		return "网络异常，请检查网络连接或代理配置"
 	default:
-		return fmt.Sprintf("Telegram 返回异常，请稍后重试或检查日志")
+		return "Telegram 返回异常，请稍后重试或检查日志"
 	}
 }
