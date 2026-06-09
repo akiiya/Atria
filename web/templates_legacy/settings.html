@@ -1,0 +1,805 @@
+{{define "settings.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <div class="page-heading">
+                        <h1 class="page-title">系统设置</h1>
+                        <p class="page-desc">系统配置与管理</p>
+                    </div>
+                </div>
+
+                {{if .Success}}
+                <div class="alert alert-success">{{.Success}}</div>
+                {{end}}
+
+                {{if .Error}}
+                <div class="alert alert-error">{{.Error}}</div>
+                {{end}}
+
+                <!-- 模块 1: 管理员安全 -->
+                <div class="card settings-module" id="admin-security">
+                    <div class="card-header">
+                        <h3 class="card-title">🔐 管理员安全</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="/settings/password">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                            <div class="form-group">
+                                <label for="current_password" class="form-label">当前密码</label>
+                                <input type="password" id="current_password" name="current_password" class="form-input"
+                                       placeholder="请输入当前密码" required>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label for="new_password" class="form-label">新密码</label>
+                                    <input type="password" id="new_password" name="new_password" class="form-input"
+                                           placeholder="请输入新密码" required minlength="10" maxlength="128">
+                                    <div class="form-hint">至少 10 个字符</div>
+                                </div>
+                                <div class="form-group form-group-half">
+                                    <label for="confirm_new_password" class="form-label">确认新密码</label>
+                                    <input type="password" id="confirm_new_password" name="confirm_new_password" class="form-input"
+                                           placeholder="请再次输入新密码" required minlength="10" maxlength="128">
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">修改密码</button>
+                            </div>
+                            <div class="form-notice">
+                                <p>⚠️ 修改密码后需要重新登录。</p>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 模块 2: Telegram API Key -->
+                <div class="card settings-module" id="telegram-api-key">
+                    <div class="card-header">
+                        <h3 class="card-title">🔑 Telegram API Key</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-notice" style="margin-bottom: 16px;">
+                            <p><strong>💡 说明：</strong>通常只需要配置一套 Telegram API Key。多个 Telegram 账号可以使用同一套 API Key 登录。修改 Telegram API Key 不会自动注销已有账号 Session。</p>
+                        </div>
+
+                        <!-- 展示态 -->
+                        <div id="api-key-display" style="display: {{if .SystemAPIKey}}{{if .SystemAPIKey.HasSystemKey}}block{{else}}none{{end}}{{else}}none{{end}};">
+                            <div class="info-list" style="margin-bottom: 16px;">
+                                <div class="info-row">
+                                    <span class="info-label">名称</span>
+                                    <span class="info-value"><strong id="display-name">{{if .SystemAPIKey}}{{.SystemAPIKey.DisplayName}}{{end}}</strong></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">API ID</span>
+                                    <span class="info-value"><code id="display-api-id">{{if .SystemAPIKey}}{{.SystemAPIKey.APIIDMasked}}{{end}}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">API Hash</span>
+                                    <span class="info-value"><code id="display-api-hash">{{if .SystemAPIKey}}{{.SystemAPIKey.APIHashHint}}{{end}}</code></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">状态</span>
+                                    <span class="info-value">
+                                        <span class="badge badge-success" id="display-status">已启用</span>
+                                    </span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">更新时间</span>
+                                    <span class="info-value" id="display-updated">{{if .SystemAPIKey}}{{.SystemAPIKey.UpdatedAt}}{{end}}</span>
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-outline" onclick="switchToEditMode()">修改配置</button>
+                            </div>
+                        </div>
+
+                        <!-- 编辑态 -->
+                        <div id="api-key-edit" style="display: {{if .SystemAPIKey}}{{if .SystemAPIKey.HasSystemKey}}none{{else}}block{{end}}{{else}}block{{end}};">
+                            <form id="api-key-form" method="POST" action="/settings/api-key">
+                                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                                <div class="form-group">
+                                    <label for="api_display_name" class="form-label">自定义名称</label>
+                                    <input type="text" id="api_display_name" name="api_display_name" class="form-input"
+                                           value="{{if .SystemAPIKey}}{{.SystemAPIKey.DisplayName}}{{end}}"
+                                           placeholder="Default API" maxlength="64">
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group form-group-half">
+                                        <label for="api_id" class="form-label">API ID</label>
+                                        <input type="text" id="api_id" name="api_id" class="form-input"
+                                               value="{{if .SystemAPIKey}}{{.SystemAPIKey.APIID}}{{end}}"
+                                               placeholder="12345678" pattern="[0-9]+" title="纯数字">
+                                    </div>
+                                    <div class="form-group form-group-half">
+                                        <label for="api_hash" class="form-label">API Hash</label>
+                                        <input type="text" id="api_hash" name="api_hash" class="form-input"
+                                               placeholder="留空表示不修改" maxlength="32"
+                                               pattern="[0-9a-fA-F]{32}" title="32位十六进制字符串">
+                                        <div class="form-hint">API Hash 会加密保存，页面不会再次完整显示</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn-primary">保存 API Key 配置</button>
+                                    {{if .SystemAPIKey}}{{if .SystemAPIKey.HasSystemKey}}
+                                    <button type="button" class="btn btn-outline" onclick="switchToDisplayMode()">取消</button>
+                                    {{end}}{{end}}
+                                </div>
+                            </form>
+
+                            <div class="init-guide" style="margin-top: 16px;">
+                                <div class="guide-header">
+                                    <span class="guide-icon">📖</span>
+                                    <strong>如何获取 API Key</strong>
+                                </div>
+                                <ol class="guide-steps">
+                                    <li>前往 <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a></li>
+                                    <li>使用你的 Telegram 手机号登录</li>
+                                    <li>进入 <strong>API development tools</strong></li>
+                                    <li>创建 application，复制 <strong>api_id</strong> 和 <strong>api_hash</strong></li>
+                                </ol>
+                                <div class="guide-note">
+                                    <strong>🌐 网络建议：</strong>申请时建议使用干净、稳定、低风险的网络环境。尽量避免机房 IP、公共代理、低评分 IP。网络出口地区建议与手机号常用地区保持一致。该建议用于提高成功率，不是官方保证。
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模块 3: API 网络代理 -->
+                <div class="card settings-module" id="api-proxy">
+                    <div class="card-header">
+                        <h3 class="card-title">🌐 API 网络代理</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-notice" style="margin-bottom: 16px;">
+                            <p><strong>💡 说明：</strong>代理配置仅用于 Telegram MTProto API 连接，不影响 Web 界面访问。保存前会先检测代理连通性。</p>
+                        </div>
+
+                        <form id="proxy-form" method="POST" action="/settings/proxy">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="test_result_confirmed" id="proxy-test-confirmed" value="false">
+                            <input type="hidden" name="force_save" id="proxy-force-save" value="false">
+
+                            <div class="form-group">
+                                <label for="proxy_type" class="form-label">代理类型</label>
+                                <select id="proxy_type" name="proxy_type" class="form-input" onchange="toggleProxyFields()">
+                                    <option value="none" {{if eq .Proxy.proxy_type "none"}}selected{{end}}>不使用代理</option>
+                                    <option value="https" {{if eq .Proxy.proxy_type "https"}}selected{{end}}>HTTPS 代理</option>
+                                    <option value="socks5" {{if eq .Proxy.proxy_type "socks5"}}selected{{end}}>SOCKS5 代理</option>
+                                </select>
+                            </div>
+
+                            <div id="proxy-fields" style="display: {{if eq .Proxy.proxy_type "none"}}none{{else}}block{{end}};">
+                                <div class="form-row">
+                                    <div class="form-group form-group-2">
+                                        <label for="proxy_host" class="form-label">主机地址</label>
+                                        <input type="text" id="proxy_host" name="proxy_host" class="form-input"
+                                               value="{{.Proxy.proxy_host}}" placeholder="127.0.0.1">
+                                    </div>
+                                    <div class="form-group form-group-1">
+                                        <label for="proxy_port" class="form-label">端口</label>
+                                        <input type="number" id="proxy_port" name="proxy_port" class="form-input"
+                                               value="{{.Proxy.proxy_port}}" placeholder="1080" min="1" max="65535">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group form-group-half">
+                                        <label for="proxy_username" class="form-label">用户名 <span class="init-optional">可选</span></label>
+                                        <input type="text" id="proxy_username" name="proxy_username" class="form-input"
+                                               value="{{.Proxy.proxy_username}}" placeholder="留空表示无需认证">
+                                    </div>
+                                    <div class="form-group form-group-half">
+                                        <label for="proxy_password" class="form-label">密码 <span class="init-optional">可选</span></label>
+                                        <input type="password" id="proxy_password" name="proxy_password" class="form-input"
+                                               placeholder="{{if .Proxy.has_password}}已设置，留空保持不变{{else}}留空表示无需认证{{end}}">
+                                        <div class="form-hint">密码会加密保存</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group form-group-half">
+                                        <label for="proxy_timeout" class="form-label">超时（秒）<span class="init-optional">可选</span></label>
+                                        <input type="number" id="proxy_timeout" name="proxy_timeout" class="form-input"
+                                               value="{{.Proxy.proxy_timeout}}" placeholder="30" min="1" max="300">
+                                    </div>
+                                    <div class="form-group form-group-half">
+                                        <label for="proxy_remark" class="form-label">备注 <span class="init-optional">可选</span></label>
+                                        <input type="text" id="proxy_remark" name="proxy_remark" class="form-input"
+                                               value="{{.Proxy.proxy_remark}}" placeholder="例如：备用线路">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-primary" id="proxy-save-btn" onclick="testAndSaveProxy()">
+                                    保存代理配置
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 模块 4: 更新程序 -->
+                <div class="card settings-module" id="update">
+                    <div class="card-header">
+                        <h3 class="card-title">📦 更新程序</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="update-section">
+                            <div class="update-info">
+                                <div class="info-row">
+                                    <span class="info-label">当前版本</span>
+                                    <span class="info-value">v{{.Version}}</span>
+                                </div>
+                                {{if .UpdateInfo}}
+                                <div class="info-row">
+                                    <span class="info-label">更新状态</span>
+                                    <span class="info-value" id="update-status-display">
+                                        {{if eq .UpdateInfo.UpdateStatus "idle"}}
+                                        <span class="badge badge-secondary">未检查</span>
+                                        {{else if eq .UpdateInfo.UpdateStatus "up_to_date"}}
+                                        <span class="badge badge-success">已是最新</span>
+                                        {{else if eq .UpdateInfo.UpdateStatus "update_available"}}
+                                        <span class="badge badge-info">有更新可用</span>
+                                        {{else if eq .UpdateInfo.UpdateStatus "downloaded"}}
+                                        <span class="badge badge-success">已下载</span>
+                                        {{else if eq .UpdateInfo.UpdateStatus "restart_required"}}
+                                        <span class="badge badge-warning">需重启</span>
+                                        {{else if eq .UpdateInfo.UpdateStatus "disabled"}}
+                                        <span class="badge badge-secondary">已禁用</span>
+                                        {{else}}
+                                        <span class="badge badge-secondary">{{.UpdateInfo.UpdateStatus}}</span>
+                                        {{end}}
+                                    </span>
+                                </div>
+                                {{if .UpdateInfo.LatestVersion}}
+                                <div class="info-row">
+                                    <span class="info-label">最新版本</span>
+                                    <span class="info-value">{{.UpdateInfo.LatestVersion}}</span>
+                                </div>
+                                {{end}}
+                                {{if .UpdateInfo.IsDocker}}
+                                <div class="update-notice">
+                                    <p>🐳 检测到 Docker 环境，不支持容器内自更新。请使用新镜像重建容器。</p>
+                                </div>
+                                {{end}}
+                                {{end}}
+                            </div>
+                            <div class="update-actions">
+                                <button type="button" class="btn btn-outline" id="btn-update-check" onclick="updateCheck()">
+                                    检查更新
+                                </button>
+                                <button type="button" class="btn btn-outline" id="btn-update-download" onclick="updateDownload()">
+                                    下载更新
+                                </button>
+                                <button type="button" class="btn btn-outline" id="btn-update-dryrun" onclick="updateDryRun()">
+                                    DryRun 验证
+                                </button>
+                                <button type="button" class="btn btn-primary" id="btn-update-apply" onclick="updateApply()">
+                                    应用更新
+                                </button>
+                            </div>
+                            <div class="update-notice">
+                                <p>⚠️ 更新前请确保已备份 data/ 目录和 secret.key。更新后需要重启服务。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模块 5: 系统信息 -->
+                <div class="card settings-module" id="system-info">
+                    <div class="card-header">
+                        <h3 class="card-title">ℹ️ 系统信息</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-list">
+                            <div class="info-row">
+                                <span class="info-label">版本</span>
+                                <span class="info-value">v{{.Version}}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Git Commit</span>
+                                <span class="info-value"><code>{{.Commit}}</code></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">构建日期</span>
+                                <span class="info-value">{{.BuildDate}}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">数据库驱动</span>
+                                <span class="info-value">{{.DatabaseDriver}}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">数据目录</span>
+                                <span class="info-value"><code>{{.DataDir}}</code></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">监听地址</span>
+                                <span class="info-value"><code>{{.ListenAddr}}</code></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用 Modal -->
+    <div class="modal-overlay" id="settings-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title"></h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-icon" id="modal-icon"></div>
+                <p class="modal-message" id="modal-message"></p>
+                <div class="modal-detail" id="modal-detail"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="modal-cancel" onclick="closeModal()">取消</button>
+                <button class="btn" id="modal-confirm"></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+    var csrfToken = '{{.CSRFToken}}';
+
+    // ===== Modal 通用逻辑 =====
+    function showModal(config) {
+        var modal = document.getElementById('settings-modal');
+        document.getElementById('modal-title').textContent = config.title;
+        document.getElementById('modal-icon').innerHTML = config.icon || '';
+        document.getElementById('modal-message').textContent = config.message || '';
+        document.getElementById('modal-detail').innerHTML = config.detail || '';
+
+        var confirmBtn = document.getElementById('modal-confirm');
+        confirmBtn.textContent = config.confirmText || '确定';
+        confirmBtn.className = 'btn ' + (config.confirmClass || 'btn-primary');
+        confirmBtn.onclick = config.onConfirm || closeModal;
+
+        var cancelBtn = document.getElementById('modal-cancel');
+        cancelBtn.style.display = config.showCancel !== false ? 'inline-block' : 'none';
+        cancelBtn.textContent = config.cancelText || '取消';
+
+        modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('settings-modal').style.display = 'none';
+    }
+
+    // ===== API Key 展示态 / 编辑态 =====
+    function switchToEditMode() {
+        document.getElementById('api-key-display').style.display = 'none';
+        document.getElementById('api-key-edit').style.display = 'block';
+    }
+
+    function switchToDisplayMode() {
+        document.getElementById('api-key-display').style.display = 'block';
+        document.getElementById('api-key-edit').style.display = 'none';
+    }
+
+    // ===== 代理检测 =====
+    function toggleProxyFields() {
+        var type = document.getElementById('proxy_type').value;
+        var fields = document.getElementById('proxy-fields');
+        fields.style.display = (type === 'none') ? 'none' : 'block';
+    }
+
+    function getProxyFormData() {
+        return {
+            proxy_type: document.getElementById('proxy_type').value,
+            proxy_host: document.getElementById('proxy_host').value,
+            proxy_port: document.getElementById('proxy_port').value,
+            proxy_username: document.getElementById('proxy_username').value,
+            proxy_password: document.getElementById('proxy_password').value,
+            proxy_timeout: document.getElementById('proxy_timeout').value,
+            proxy_remark: document.getElementById('proxy_remark').value,
+            csrf_token: csrfToken
+        };
+    }
+
+    function testAndSaveProxy() {
+        var proxyType = document.getElementById('proxy_type').value;
+
+        // 如果是 none，直接保存
+        if (proxyType === 'none') {
+            document.getElementById('proxy-test-confirmed').value = 'true';
+            document.getElementById('proxy-form').submit();
+            return;
+        }
+
+        // 显示 loading
+        var btn = document.getElementById('proxy-save-btn');
+        var originalText = btn.textContent;
+        btn.textContent = '正在检测代理...';
+        btn.disabled = true;
+
+        // 发送检测请求
+        var data = getProxyFormData();
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/settings/proxy/test', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.timeout = 15000;
+
+        xhr.onload = function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+
+            try {
+                var result = JSON.parse(xhr.responseText);
+                if (result.ok) {
+                    showModal({
+                        title: '代理检测通过',
+                        icon: '<span style="font-size: 2rem;">✅</span>',
+                        message: '当前代理配置可以建立连接。保存后，Atria 将使用该代理访问 Telegram MTProto API。',
+                        detail: '<div class="modal-info">' +
+                            '<div>代理类型：' + (data.proxy_type === 'https' ? 'HTTPS' : 'SOCKS5') + '</div>' +
+                            (result.elapsed_ms ? '<div>测试耗时：' + result.elapsed_ms + 'ms</div>' : '') +
+                            '</div>',
+                        confirmText: '保存并更新',
+                        confirmClass: 'btn-primary',
+                        showCancel: true,
+                        onConfirm: function() {
+                            document.getElementById('proxy-test-confirmed').value = 'true';
+                            document.getElementById('proxy-force-save').value = 'false';
+                            document.getElementById('proxy-form').submit();
+                        }
+                    });
+                } else {
+                    showModal({
+                        title: '代理检测未通过',
+                        icon: '<span style="font-size: 2rem;">⚠️</span>',
+                        message: result.message || '无法通过当前代理连接 Telegram。',
+                        detail: (result.detail ? '<div class="modal-info">' + result.detail + '</div>' : '') +
+                            (result.elapsed_ms ? '<div class="modal-info">检测耗时：' + result.elapsed_ms + 'ms</div>' : ''),
+                        confirmText: '仍然保存',
+                        confirmClass: 'btn-warning',
+                        showCancel: true,
+                        onConfirm: function() {
+                            document.getElementById('proxy-test-confirmed').value = 'true';
+                            document.getElementById('proxy-force-save').value = 'true';
+                            document.getElementById('proxy-form').submit();
+                        }
+                    });
+                }
+            } catch(e) {
+                showModal({
+                    title: '检测异常',
+                    icon: '<span style="font-size: 2rem;">❌</span>',
+                    message: '无法解析检测结果，请重试。',
+                    confirmText: '确定',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            }
+        };
+
+        xhr.ontimeout = function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            showModal({
+                title: '检测超时',
+                icon: '<span style="font-size: 2rem;">⏱️</span>',
+                message: '代理检测超时，请检查网络质量或代理可用性。',
+                confirmText: '仍然保存',
+                confirmClass: 'btn-warning',
+                showCancel: true,
+                onConfirm: function() {
+                    document.getElementById('proxy-test-confirmed').value = 'true';
+                    document.getElementById('proxy-force-save').value = 'true';
+                    document.getElementById('proxy-form').submit();
+                }
+            });
+        };
+
+        xhr.onerror = function() {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            showModal({
+                title: '检测失败',
+                icon: '<span style="font-size: 2rem;">❌</span>',
+                message: '无法发送检测请求，请重试。',
+                confirmText: '确定',
+                confirmClass: 'btn-outline',
+                showCancel: false,
+                onConfirm: closeModal
+            });
+        };
+
+        // 编码表单数据
+        var formData = Object.keys(data).map(function(key) {
+            return encodeURIComponent(key) + '=' + encodeURIComponent(data[key]);
+        }).join('&');
+
+        xhr.send(formData);
+    }
+
+    // ===== 更新程序操作 =====
+    function updateCheck() {
+        showModal({
+            title: '检查更新',
+            icon: '<span style="font-size: 2rem;">🔄</span>',
+            message: '正在检查更新...',
+            showCancel: false,
+            confirmText: '关闭',
+            onConfirm: closeModal
+        });
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/settings/update/check/json', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.timeout = 30000;
+
+        xhr.onload = function() {
+            try {
+                var result = JSON.parse(xhr.responseText);
+                if (result.ok) {
+                    var statusText = result.update_status;
+                    if (statusText === 'up_to_date') statusText = '已是最新';
+                    else if (statusText === 'update_available') statusText = '有更新可用';
+                    else if (statusText === 'downloaded') statusText = '已下载';
+                    else if (statusText === 'disabled') statusText = '已禁用';
+
+                    showModal({
+                        title: '检查更新完成',
+                        icon: '<span style="font-size: 2rem;">✅</span>',
+                        message: '更新检查已完成。',
+                        detail: '<div class="modal-info">' +
+                            '<div>状态：' + statusText + '</div>' +
+                            (result.latest ? '<div>最新版本：' + result.latest + '</div>' : '') +
+                            (result.message ? '<div>消息：' + result.message + '</div>' : '') +
+                            '</div>',
+                        confirmText: '关闭',
+                        confirmClass: 'btn-outline',
+                        showCancel: false,
+                        onConfirm: closeModal
+                    });
+                } else {
+                    showModal({
+                        title: '检查更新失败',
+                        icon: '<span style="font-size: 2rem;">❌</span>',
+                        message: result.message || '检查更新失败。',
+                        confirmText: '关闭',
+                        confirmClass: 'btn-outline',
+                        showCancel: false,
+                        onConfirm: closeModal
+                    });
+                }
+            } catch(e) {
+                showModal({
+                    title: '检查异常',
+                    icon: '<span style="font-size: 2rem;">❌</span>',
+                    message: '无法解析检查结果。',
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            }
+        };
+
+        xhr.ontimeout = function() {
+            showModal({
+                title: '检查超时',
+                icon: '<span style="font-size: 2rem;">⏱️</span>',
+                message: '检查更新超时，请重试。',
+                confirmText: '关闭',
+                confirmClass: 'btn-outline',
+                showCancel: false,
+                onConfirm: closeModal
+            });
+        };
+
+        xhr.send('csrf_token=' + encodeURIComponent(csrfToken));
+    }
+
+    function updateDownload() {
+        showModal({
+            title: '下载更新',
+            icon: '<span style="font-size: 2rem;">🔄</span>',
+            message: '正在下载更新...',
+            showCancel: false,
+            confirmText: '关闭',
+            onConfirm: closeModal
+        });
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/settings/update/download/json', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.timeout = 120000;
+
+        xhr.onload = function() {
+            try {
+                var result = JSON.parse(xhr.responseText);
+                showModal({
+                    title: result.ok ? '下载完成' : '下载失败',
+                    icon: result.ok ? '<span style="font-size: 2rem;">✅</span>' : '<span style="font-size: 2rem;">❌</span>',
+                    message: result.message || (result.ok ? '更新已下载。' : '下载更新失败。'),
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            } catch(e) {
+                showModal({
+                    title: '下载异常',
+                    icon: '<span style="font-size: 2rem;">❌</span>',
+                    message: '无法解析下载结果。',
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            }
+        };
+
+        xhr.ontimeout = function() {
+            showModal({
+                title: '下载超时',
+                icon: '<span style="font-size: 2rem;">⏱️</span>',
+                message: '下载超时，请检查网络后重试。',
+                confirmText: '关闭',
+                confirmClass: 'btn-outline',
+                showCancel: false,
+                onConfirm: closeModal
+            });
+        };
+
+        xhr.send('csrf_token=' + encodeURIComponent(csrfToken));
+    }
+
+    function updateDryRun() {
+        showModal({
+            title: 'DryRun 验证',
+            icon: '<span style="font-size: 2rem;">🔄</span>',
+            message: '正在执行 DryRun 验证...',
+            showCancel: false,
+            confirmText: '关闭',
+            onConfirm: closeModal
+        });
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/settings/update/dry-run/json', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.timeout = 60000;
+
+        xhr.onload = function() {
+            try {
+                var result = JSON.parse(xhr.responseText);
+                showModal({
+                    title: result.ok ? 'DryRun 验证通过' : 'DryRun 验证失败',
+                    icon: result.ok ? '<span style="font-size: 2rem;">✅</span>' : '<span style="font-size: 2rem;">❌</span>',
+                    message: result.message || (result.ok ? '验证通过。' : '验证失败。'),
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            } catch(e) {
+                showModal({
+                    title: '验证异常',
+                    icon: '<span style="font-size: 2rem;">❌</span>',
+                    message: '无法解析验证结果。',
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            }
+        };
+
+        xhr.ontimeout = function() {
+            showModal({
+                title: '验证超时',
+                icon: '<span style="font-size: 2rem;">⏱️</span>',
+                message: 'DryRun 验证超时。',
+                confirmText: '关闭',
+                confirmClass: 'btn-outline',
+                showCancel: false,
+                onConfirm: closeModal
+            });
+        };
+
+        xhr.send('csrf_token=' + encodeURIComponent(csrfToken));
+    }
+
+    function updateApply() {
+        showModal({
+            title: '应用更新',
+            icon: '<span style="font-size: 2rem;">⚠️</span>',
+            message: '应用更新前请确认已备份 data/ 目录和 secret.key，更新后需要重启服务。',
+            confirmText: '确认应用',
+            confirmClass: 'btn-primary',
+            showCancel: true,
+            cancelText: '取消',
+            onConfirm: function() {
+                closeModal();
+                doApplyUpdate();
+            }
+        });
+    }
+
+    function doApplyUpdate() {
+        showModal({
+            title: '正在应用更新',
+            icon: '<span style="font-size: 2rem;">🔄</span>',
+            message: '正在应用更新，服务即将重启...',
+            showCancel: false,
+            confirmText: '关闭',
+            onConfirm: closeModal
+        });
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/settings/update/apply/json', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.timeout = 60000;
+
+        xhr.onload = function() {
+            try {
+                var result = JSON.parse(xhr.responseText);
+                showModal({
+                    title: result.ok ? '更新已应用' : '应用更新失败',
+                    icon: result.ok ? '<span style="font-size: 2rem;">✅</span>' : '<span style="font-size: 2rem;">❌</span>',
+                    message: result.message || (result.ok ? '服务即将重启。' : '应用更新失败。'),
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            } catch(e) {
+                showModal({
+                    title: '应用异常',
+                    icon: '<span style="font-size: 2rem;">❌</span>',
+                    message: '无法解析应用结果。',
+                    confirmText: '关闭',
+                    confirmClass: 'btn-outline',
+                    showCancel: false,
+                    onConfirm: closeModal
+                });
+            }
+        };
+
+        xhr.ontimeout = function() {
+            showModal({
+                title: '应用超时',
+                icon: '<span style="font-size: 2rem;">⏱️</span>',
+                message: '应用更新超时。',
+                confirmText: '关闭',
+                confirmClass: 'btn-outline',
+                showCancel: false,
+                onConfirm: closeModal
+            });
+        };
+
+        xhr.send('csrf_token=' + encodeURIComponent(csrfToken) + '&confirm=apply_update');
+    }
+    </script>
+</body>
+</html>
+{{end}}

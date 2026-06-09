@@ -332,6 +332,26 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPIMessages(c)
 	})
 
+	// 账号列表 JSON
+	r.GET("/api/accounts", authMiddleware, func(c *gin.Context) {
+		s.handleAPIAccounts(c)
+	})
+
+	// 账号详情 JSON
+	r.GET("/api/accounts/:id", authMiddleware, func(c *gin.Context) {
+		s.handleAPIAccountDetail(c)
+	})
+
+	// 审计日志 JSON
+	r.GET("/api/audit", authMiddleware, func(c *gin.Context) {
+		s.handleAPIAudit(c)
+	})
+
+	// 系统设置 JSON
+	r.GET("/api/settings", authMiddleware, func(c *gin.Context) {
+		s.handleAPISettings(c)
+	})
+
 	// ===== SPA Shell =====
 
 	// Vue SPA 入口 - 读取 dist/index.html 并注入 CSRF token

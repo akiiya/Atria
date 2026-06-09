@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -8,9 +9,12 @@ import (
 
 	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/chat"
+	"github.com/user/atria/internal/credential"
 	"github.com/user/atria/internal/model"
+	"github.com/user/atria/internal/version"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // handleAPIMe 返回当前管理用户和 Telegram 账号状态。
@@ -89,6 +93,10 @@ func (s *Server) handleAPIDashboardStats(c *gin.Context) {
 		"account_count": accountCount,
 		"session_count": sessionCount,
 		"audit_today":   auditTodayCount,
+		"version":       version.Short(),
+		"db_driver":     s.cfg.DatabaseDriver,
+		"data_dir":      s.cfg.DataDir,
+		"listen_addr":   s.cfg.ListenAddr(),
 	})
 }
 
@@ -186,4 +194,171 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 		"ok":       true,
 		"messages": messages,
 	})
+}
+
+// handleAPIAccounts 返回账号列表 JSON。
+func (s *Server) handleAPIAccounts(c *gin.Context) {
+	var accounts []model.TelegramAccount
+	s.db.Preload("Session").Where("status IN ?", []string{"active", "logged_out", "banned", "restricted"}).
+		Order("id ASC").Find(&accounts)
+
+	type accountDTO struct {
+		ID            uint   `json:"id"`
+		DisplayName   string `json:"display_name"`
+		Username      string `json:"username"`
+		UserID        int64  `json:"user_id"`
+		Status        string `json:"status"`
+		SessionStatus string `json:"session_status"`
+		LastSync      string `json:"last_sync"`
+	}
+
+	dtos := make([]accountDTO, 0, len(accounts))
+	for _, acc := range accounts {
+		dto := accountDTO{
+			ID:          acc.ID,
+			DisplayName: acc.DisplayName,
+			Username:    acc.Username,
+			UserID:      acc.UserID,
+			Status:      string(acc.Status),
+		}
+		if acc.Session != nil {
+			dto.SessionStatus = acc.Session.Status
+		}
+		if acc.LastSyncAt != nil {
+			dto.LastSync = acc.LastSyncAt.Format("2006-01-02 15:04")
+		}
+		dtos = append(dtos, dto)
+	}
+
+	// 检查是否有 API Key
+	var apiKeyCount int64
+	s.db.Model(&model.APICredential{}).Where("status = ? AND deleted_at IS NULL", model.APICredentialStatusEnabled).Count(&apiKeyCount)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"accounts":    dtos,
+		"has_api_key": apiKeyCount > 0,
+	})
+}
+
+// handleAPIAccountDetail 返回账号详情 JSON。
+func (s *Server) handleAPIAccountDetail(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "invalid_id", "message": "无效的账号 ID"})
+		return
+	}
+
+	var account model.TelegramAccount
+	if err := s.db.Preload("Session").First(&account, uint(id)).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "not_found", "message": "账号不存在"})
+		return
+	}
+
+	result := gin.H{
+		"ok":             true,
+		"id":             account.ID,
+		"display_name":   account.DisplayName,
+		"username":       account.Username,
+		"user_id":        account.UserID,
+		"status":         string(account.Status),
+		"is_premium":     account.IsPremium,
+		"is_restricted":  account.IsRestricted,
+		"session_status": "",
+		"last_sync":      "",
+	}
+	if account.Session != nil {
+		result["session_status"] = account.Session.Status
+	}
+	if account.LastSyncAt != nil {
+		result["last_sync"] = account.LastSyncAt.Format("2006-01-02 15:04:05")
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// handleAPIAudit 返回审计日志 JSON。
+func (s *Server) handleAPIAudit(c *gin.Context) {
+	var logs []model.AuditLog
+	s.db.Order("id DESC").Limit(100).Find(&logs)
+
+	type logDTO struct {
+		ID           uint   `json:"id"`
+		Action       string `json:"action"`
+		ResourceType string `json:"resource_type"`
+		ResourceID   uint   `json:"resource_id"`
+		RiskLevel    string `json:"risk_level"`
+		IP           string `json:"ip"`
+		Message      string `json:"message"`
+		CreatedAt    string `json:"created_at"`
+	}
+
+	dtos := make([]logDTO, 0, len(logs))
+	for _, l := range logs {
+		dtos = append(dtos, logDTO{
+			ID:           l.ID,
+			Action:       l.Action,
+			ResourceType: l.ResourceType,
+			ResourceID:   l.ResourceID,
+			RiskLevel:    l.RiskLevel,
+			IP:           l.IP,
+			Message:      l.Message,
+			CreatedAt:    l.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":   true,
+		"logs": dtos,
+	})
+}
+
+// handleAPISettings 返回系统设置 JSON。
+func (s *Server) handleAPISettings(c *gin.Context) {
+	result := gin.H{
+		"ok":          true,
+		"version":     version.Short(),
+		"db_driver":   s.cfg.DatabaseDriver,
+		"data_dir":    s.cfg.DataDir,
+		"listen_addr": s.cfg.ListenAddr(),
+	}
+
+	// API Key 信息
+	credSvc := credential.NewService(s.db, s.key)
+	systemKey, _ := credSvc.GetSystemAPIKey()
+	if systemKey != nil {
+		apiIDStr := fmt.Sprintf("%d", systemKey.APIID)
+		apiIDMasked := apiIDStr
+		if len(apiIDStr) > 4 {
+			apiIDMasked = "****" + apiIDStr[len(apiIDStr)-4:]
+		}
+		result["api_key"] = gin.H{
+			"display_name":  systemKey.DisplayName,
+			"api_id_masked": apiIDMasked,
+			"api_hash_hint": systemKey.APIHashHint,
+		}
+	}
+
+	// 代理信息
+	result["proxy"] = gin.H{
+		"type":     settingMap(s.db)["proxy_type"],
+		"host":     settingMap(s.db)["proxy_host"],
+		"port":     settingMap(s.db)["proxy_port"],
+		"username": settingMap(s.db)["proxy_username"],
+		"timeout":  settingMap(s.db)["proxy_timeout"],
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// settingMap 辅助函数：读取系统设置为 map。
+func settingMap(db *gorm.DB) map[string]string {
+	var settings []model.SystemSetting
+	db.Find(&settings)
+	m := make(map[string]string, len(settings))
+	for _, s := range settings {
+		m[s.Key] = s.Value
+	}
+	return m
 }

@@ -1,0 +1,167 @@
+{{define "init_page"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="auth-shell">
+        <header class="auth-topbar">
+            <div class="auth-topbar-left">
+                <div class="auth-brand">
+                    <div class="brand-mark" aria-hidden="true">
+                        <svg width="24" height="24" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M14 2L24 24H21L18.5 19H9.5L7 24H4L14 2ZM11 17H17L14 8L11 17Z" fill="url(#auth-brand-gradient)"/>
+                            <circle cx="14" cy="22" r="2.5" fill="url(#auth-brand-gradient)" opacity="0.6"/>
+                            <defs>
+                                <linearGradient id="auth-brand-gradient" x1="4" y1="2" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                                    <stop stop-color="#60a5fa"/>
+                                    <stop offset="1" stop-color="#a78bfa"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                    <span class="brand-name">Atria</span>
+                </div>
+            </div>
+            <div class="auth-topbar-right">
+                <div class="theme-switcher">
+                    <button class="theme-btn" data-theme="light" title="浅色模式">☀️</button>
+                    <button class="theme-btn" data-theme="dark" title="深色模式">🌙</button>
+                    <button class="theme-btn" data-theme="system" title="跟随系统">💻</button>
+                </div>
+                <span class="version-badge">v{{.Version}}</span>
+            </div>
+        </header>
+        <main class="auth-main">
+            <div class="auth-card auth-card-wide">
+                <div class="auth-card-header">
+                    <h1 class="auth-card-title">初始化 Atria</h1>
+                    <p class="auth-card-desc">首次使用，请完成以下配置</p>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">
+                    {{.Error}}
+                </div>
+                {{end}}
+
+                <form class="auth-form" method="POST" action="/init">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                    <!-- 第一部分：管理员账号 -->
+                    <div class="init-section">
+                        <h2 class="init-section-title">管理员账号</h2>
+                        <div class="form-group">
+                            <label for="username" class="form-label">管理员用户名</label>
+                            <input type="text" id="username" name="username" class="form-input"
+                                   placeholder="请输入用户名" required minlength="3" maxlength="32"
+                                   pattern="[a-zA-Z0-9_-]+" title="只能包含字母、数字、下划线和短横线">
+                            <div class="form-hint">3-32 个字符，只能包含字母、数字、下划线和短横线</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="password" class="form-label">管理员密码</label>
+                            <input type="password" id="password" name="password" class="form-input"
+                                   placeholder="请输入密码" required minlength="10" maxlength="128">
+                            <div class="form-hint">至少 10 个字符，建议使用强密码</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="confirm_password" class="form-label">确认密码</label>
+                            <input type="password" id="confirm_password" name="confirm_password" class="form-input"
+                                   placeholder="请再次输入密码" required minlength="10" maxlength="128">
+                        </div>
+                    </div>
+
+                    <!-- 第二部分：Telegram API Key -->
+                    <div class="init-section">
+                        <h2 class="init-section-title">Telegram API Key <span class="init-optional">可选</span></h2>
+                        <p class="init-section-desc">配置 Telegram API 应用凭据。通常只需一套，多个 Telegram 账号可共用。</p>
+
+                        <div class="form-group">
+                            <label for="api_display_name" class="form-label">自定义名称</label>
+                            <input type="text" id="api_display_name" name="api_display_name" class="form-input"
+                                   placeholder="Default API" maxlength="64">
+                            <div class="form-hint">例如：Default API、Production</div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="api_id" class="form-label">API ID</label>
+                                <input type="text" id="api_id" name="api_id" class="form-input"
+                                       placeholder="12345678" pattern="[0-9]+" title="纯数字">
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="api_hash" class="form-label">API Hash</label>
+                                <input type="text" id="api_hash" name="api_hash" class="form-input"
+                                       placeholder="a1b2c3d4e5f6..." maxlength="32"
+                                       pattern="[0-9a-fA-F]{32}" title="32位十六进制字符串">
+                            </div>
+                        </div>
+
+                        <div class="init-guide">
+                            <div class="guide-header">
+                                <span class="guide-icon">📖</span>
+                                <strong>如何获取 API Key</strong>
+                            </div>
+                            <ol class="guide-steps">
+                                <li>前往 <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a></li>
+                                <li>使用你的 Telegram 手机号登录</li>
+                                <li>进入 <strong>API development tools</strong></li>
+                                <li>创建 application，复制 <strong>api_id</strong> 和 <strong>api_hash</strong></li>
+                            </ol>
+                            <div class="guide-note">
+                                <strong>💡 提示：</strong>通常只需申请一套 API Key。之后接入其它 Telegram 账号时，直接使用手机号 + 验证码登录，无需重复申请。
+                            </div>
+                            <div class="guide-note">
+                                <strong>🌐 网络建议：</strong>申请时建议使用干净、稳定、低风险的网络环境。网络出口地区建议与手机号常用地区保持一致，以提高成功率。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 第三部分：安全说明 -->
+                    <div class="init-section">
+                        <h2 class="init-section-title">安全说明</h2>
+                        <div class="security-info">
+                            <div class="security-item">
+                                <span class="security-icon">🔑</span>
+                                <div class="security-content">
+                                    <strong>本地密钥</strong>
+                                    <p>Atria 使用本地 master key（<code>data/secret.key</code>）加密敏感数据。请务必备份此文件，丢失后无法恢复已保存的 API Key 和 Session。</p>
+                                </div>
+                            </div>
+                            <div class="security-item">
+                                <span class="security-icon">🔐</span>
+                                <div class="security-content">
+                                    <strong>加密存储</strong>
+                                    <p>api_hash、Session 等敏感数据使用 AES-256-GCM 加密保存，数据库中不存储明文。</p>
+                                </div>
+                            </div>
+                            <div class="security-item">
+                                <span class="security-icon">🚫</span>
+                                <div class="security-content">
+                                    <strong>无默认密码</strong>
+                                    <p>Atria 不提供任何默认管理员账号，必须由用户首次访问时自行设置。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg btn-block">
+                            初始化 Atria
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

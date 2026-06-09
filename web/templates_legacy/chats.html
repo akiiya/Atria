@@ -1,0 +1,88 @@
+{{define "chats.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="app-layout">
+        {{template "sidebar" .}}
+        <div class="app-main">
+            {{template "topbar" .}}
+            <div class="app-content">
+                <div class="page-header">
+                    <div class="page-heading">
+                        <h1 class="page-title">聊天</h1>
+                        <p class="page-desc">使用当前接入账号查看最近会话</p>
+                    </div>
+                </div>
+
+                {{if .Error}}
+                <div class="alert alert-error">{{.Error}}</div>
+                {{end}}
+
+                {{if .NoCurrentAccount}}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <div class="empty-icon">💬</div>
+                            <div class="empty-title">请先接入 Telegram 账号</div>
+                            <div class="empty-desc">聊天功能需要先接入一个 Telegram 账号。</div>
+                            <a href="/accounts/login" class="btn btn-primary">去接入账号</a>
+                        </div>
+                    </div>
+                </div>
+                {{else}}
+                {{if .Dialogs}}
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">最近会话</h3>
+                    </div>
+                    <div class="card-body chat-list">
+                        {{range .Dialogs}}
+                        <a href="/chats/{{.PeerRef}}" class="chat-dialog-item">
+                            <div class="chat-avatar">{{.AvatarPlaceholder}}</div>
+                            <div class="chat-info">
+                                <div class="chat-title-row">
+                                    <span class="chat-name">{{.Title}}</span>
+                                    {{if .Username}}<span class="chat-username">@{{.Username}}</span>{{end}}
+                                    {{if .LastMessageAt}}<span class="chat-time">{{.LastMessageAt.Format "01-02 15:04"}}</span>{{end}}
+                                </div>
+                                <div class="chat-preview-row">
+                                    {{if .LastMessagePreview}}
+                                    <span class="chat-preview">{{.LastMessagePreview}}</span>
+                                    {{else}}
+                                    <span class="chat-preview text-muted">暂无消息</span>
+                                    {{end}}
+                                    {{if .UnreadCount}}
+                                    <span class="chat-unread-badge">{{.UnreadCount}}</span>
+                                    {{end}}
+                                </div>
+                            </div>
+                        </a>
+                        {{end}}
+                    </div>
+                </div>
+                {{else}}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <div class="empty-icon">💬</div>
+                            <div class="empty-title">暂无会话</div>
+                            <div class="empty-desc">当前账号没有最近会话。</div>
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+                {{end}}
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}
