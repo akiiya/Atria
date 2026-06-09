@@ -71,7 +71,7 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostLogout(c)
 	})
 
-	// 仪表盘
+	// 仪表盘（旧模板，保留兼容）
 	r.GET("/", authMiddleware, func(c *gin.Context) {
 		data := s.newAuthViewData(c, "dashboard")
 
@@ -292,16 +292,17 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPILoginCancel(c)
 	})
 
-	// ===== 聊天路由 =====
+	// ===== 聊天路由（重定向到 Vue SPA） =====
 
-	// 会话列表
+	// 会话列表 - 重定向到 Vue SPA
 	r.GET("/chats", authMiddleware, func(c *gin.Context) {
-		s.handleGetChats(c)
+		c.Redirect(http.StatusFound, "/app/chats")
 	})
 
-	// 消息历史
+	// 消息历史 - 重定向到 Vue SPA
 	r.GET("/chats/:peer_ref", authMiddleware, func(c *gin.Context) {
-		s.handleGetChatDetail(c)
+		peerRef := c.Param("peer_ref")
+		c.Redirect(http.StatusFound, "/app/chats/"+peerRef)
 	})
 
 	// 发送消息

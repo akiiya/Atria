@@ -30,17 +30,15 @@ func TestDashboardStats_APIKeyConfigured(t *testing.T) {
 		RiskPolicy:  "disabled",
 	})
 
+	// 测试 JSON API
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/api/dashboard/stats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
 	body := w.Body.String()
-	if strings.Contains(body, ">--<") {
-		t.Error("API 凭据统计不应显示 '--'")
-	}
-	if !strings.Contains(body, ">1<") {
-		t.Error("API 凭据统计应显示 1")
+	if !strings.Contains(body, `"api_key_count":1`) {
+		t.Errorf("API 凭据统计应为 1，实际: %s", body)
 	}
 }
 
@@ -51,13 +49,13 @@ func TestDashboardStats_NoAPIKey(t *testing.T) {
 	_, sessionCookie := loginAdmin(t, r)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/api/dashboard/stats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
 	body := w.Body.String()
-	if !strings.Contains(body, ">0<") {
-		t.Error("无 API Key 时统计应显示 0")
+	if !strings.Contains(body, `"api_key_count":0`) {
+		t.Errorf("无 API Key 时统计应为 0，实际: %s", body)
 	}
 }
 
@@ -175,19 +173,22 @@ func TestChatsPage_NoCurrentAccount_ShowsConnectPrompt(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /chats 现在重定向到 /app/chats
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	// 无当前账号时应显示接入提示
-	if !strings.Contains(body, "请先接入") && !strings.Contains(body, "接入账号") {
-		t.Errorf("无当前账号时应显示接入提示，实际内容包含: %v", strings.Contains(body, "请先接入"))
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/app/chats") {
+		t.Errorf("应重定向到 /app/chats，实际 %s", loc)
 	}
 }
 
-func TestChatsPage_WithCurrentAccount_ShowsDialogContent(t *testing.T) {
+func TestChatsPage_WithCurrentAccount_RedirectsToSPA(t *testing.T) {
 	r, srv := setupTestRouter(t)
 
 	initAdmin(t, r)
@@ -209,20 +210,18 @@ func TestChatsPage_WithCurrentAccount_ShowsDialogContent(t *testing.T) {
 		}
 	}
 
-	// 访问 /chats
+	// /chats 应重定向到 /app/chats
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	bodyStr := w.Body.String()
-	// 不应显示"请先接入 Telegram 账号"
-	if strings.Contains(bodyStr, "请先接入 Telegram 账号") {
-		t.Error("有当前账号时不应显示'请先接入 Telegram 账号'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-	// 应该显示聊天页面标题
-	if !strings.Contains(bodyStr, "聊天") {
-		t.Error("应显示聊天页面标题")
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/app/chats") {
+		t.Errorf("应重定向到 /app/chats，实际 %s", loc)
 	}
 }
 
@@ -598,20 +597,18 @@ func TestChatsPage_UsesSameCurrentAccountAsTopbar(t *testing.T) {
 	// 创建账号
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	// 访问 /chats
+	// /chats 应重定向到 /app/chats
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	// topbar 应显示 Aronn AT
-	if !strings.Contains(body, "Aronn AT") {
-		t.Error("topbar 应显示当前账号名 Aronn AT")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-	// 不应显示"请先接入"
-	if strings.Contains(body, "请先接入") {
-		t.Error("有有效账号时不应显示'请先接入'")
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/app/chats") {
+		t.Errorf("应重定向到 /app/chats，实际 %s", loc)
 	}
 }
 
@@ -623,14 +620,14 @@ func TestChatsPage_NoAccount_ShowsConnectPrompt(t *testing.T) {
 
 	// 不创建任何账号
 
+	// /chats 应重定向到 /app/chats
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, "请先接入") {
-		t.Error("无账号时应显示'请先接入 Telegram 账号'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
@@ -699,8 +696,9 @@ func TestCurrentAccountResolver_ConsistentAcrossDashboardAccountsChats(t *testin
 
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	pages := []string{"/", "/accounts", "/chats"}
-	for _, page := range pages {
+	// / 和 /accounts 是 Go 模板页面，应显示账号名
+	htmlPages := []string{"/", "/accounts"}
+	for _, page := range htmlPages {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", page, nil)
 		req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -710,6 +708,15 @@ func TestCurrentAccountResolver_ConsistentAcrossDashboardAccountsChats(t *testin
 		if !strings.Contains(body, "Aronn AT") {
 			t.Errorf("页面 %s 应显示当前账号名 Aronn AT", page)
 		}
+	}
+
+	// /chats 现在重定向到 /app/chats
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/chats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusFound {
+		t.Errorf("/chats 期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
