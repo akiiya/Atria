@@ -79,7 +79,8 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
 	var dialogs []Dialog
 	err = client.RunWithSession(context.Background(), int(cred.APIID), apiHash, account.Session.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
 		result, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-			Limit: limit,
+			Limit:      limit,
+			OffsetPeer: &tg.InputPeerEmpty{},
 		})
 		if err != nil {
 			return err
