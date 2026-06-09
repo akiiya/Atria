@@ -3,13 +3,16 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
 	"github.com/user/atria/internal/mtproto"
@@ -64,6 +67,14 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
 	if s.dialFunc != nil {
 		client.SetDialer(s.dialFunc)
 	}
+
+	s.logger.Info("ListDialogs 开始",
+		"operation", "list_dialogs",
+		"account_id", accountID,
+		"session_configured", account.Session != nil,
+		"dialer_configured", s.dialFunc != nil,
+		"api_id_present", cred.APIID > 0,
+	)
 
 	var dialogs []Dialog
 	err = client.RunWithSession(context.Background(), int(cred.APIID), apiHash, account.Session.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
@@ -344,6 +355,8 @@ func (s *ChatService) getAccountAndCredential(accountID uint) (*model.TelegramAc
 }
 
 // classifyError 分类错误。
+// 使用 tgerr.As 从 error chain 中提取 Telegram RPC 错误，
+// 不再依赖 mtproto.ClassifyError 的粗暴兜底。
 func (s *ChatService) classifyError(err error) error {
 	if err == nil {
 		return nil
@@ -353,25 +366,136 @@ func (s *ChatService) classifyError(err error) error {
 		return err
 	}
 
-	errKind := mtproto.ClassifyError(err)
+	// 检查 context 错误
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &ChatError{Code: "telegram_timeout", Message: "连接 Telegram 超时，请稍后重试或检查代理"}
+	}
+	if errors.Is(err, context.Canceled) {
+		return &ChatError{Code: "telegram_timeout", Message: "连接已取消"}
+	}
 
-	switch errKind {
+	// 检查代理相关错误
+	if isProxyError(err) {
+		return classifyProxyError(err)
+	}
+
+	// 使用 tgerr.As 从 error chain 中提取 Telegram RPC 错误
+	if rpcErr, ok := tgerr.As(err); ok {
+		s.logger.Warn("chat RPC 错误",
+			"rpc_code", rpcErr.Code,
+			"rpc_type", rpcErr.Type,
+		)
+		return classifyRPCErrorForChat(rpcErr)
+	}
+
+	// 检查 net.Error（超时/连接失败）
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return &ChatError{Code: "telegram_timeout", Message: "连接 Telegram 超时，请稍后重试或检查代理"}
+		}
+		return &ChatError{Code: "network_error", Message: "网络异常，请检查网络连接或代理配置"}
+	}
+
+	// 检查是否是 mtproto.MTProtoError
+	if mtprotoErr, ok := err.(*mtproto.MTProtoError); ok {
+		return classifyMTProtoErrorForChat(mtprotoErr)
+	}
+
+	// 未知错误：归类为 telegram_error，不是 network_error
+	s.logger.Warn("未分类的聊天错误",
+		"error_type", fmt.Sprintf("%T", err),
+		"error_summary", sanitizeErrorForLog(err.Error()),
+	)
+	return &ChatError{Code: "telegram_error", Message: "Telegram 返回异常，请稍后重试或检查日志"}
+}
+
+// classifyRPCErrorForChat 根据 Telegram RPC 错误类型分类（聊天场景）。
+func classifyRPCErrorForChat(rpcErr *tgerr.Error) *ChatError {
+	switch rpcErr.Type {
+	case "AUTH_KEY_UNREGISTERED", "AUTH_KEY_INVALID":
+		return &ChatError{Code: "session_invalid", Message: "当前账号 Session 已失效，请重新接入"}
+	case "SESSION_REVOKED", "SESSION_EXPIRED":
+		return &ChatError{Code: "session_invalid", Message: "当前账号 Session 已失效，请重新接入"}
+	case "USER_DEACTIVATED", "USER_DEACTIVATED_BAN":
+		return &ChatError{Code: "account_deactivated", Message: "该 Telegram 账号不可用或已被停用"}
+	case "API_ID_INVALID":
+		return &ChatError{Code: "api_key_invalid", Message: "Telegram API Key 不可用，请检查 API ID / API Hash"}
+	case "API_HASH_INVALID":
+		return &ChatError{Code: "api_key_invalid", Message: "Telegram API Hash 不可用"}
+	case "FLOOD_WAIT":
+		return &ChatError{Code: "flood_wait", Message: "Telegram 限制请求过快，请稍后再试"}
+	case "AUTH_RESTART":
+		return &ChatError{Code: "auth_restart", Message: "Telegram 要求重新开始认证，请重新接入账号"}
+	case "TIMEOUT":
+		return &ChatError{Code: "telegram_timeout", Message: "连接 Telegram 超时，请稍后重试或检查代理"}
+	case "INTERNAL":
+		return &ChatError{Code: "telegram_error", Message: "Telegram 内部错误，请稍后重试"}
+	default:
+		return &ChatError{Code: "telegram_error", Message: fmt.Sprintf("Telegram 返回错误 (%s)，请稍后重试", rpcErr.Type)}
+	}
+}
+
+// classifyMTProtoErrorForChat 分类 mtproto.MTProtoError（聊天场景）。
+func classifyMTProtoErrorForChat(mtprotoErr *mtproto.MTProtoError) *ChatError {
+	switch mtprotoErr.Kind {
 	case mtproto.ErrProxyConnectFailed:
 		return &ChatError{Code: "proxy_connect_failed", Message: "无法连接代理，请检查 API 网络代理配置"}
 	case mtproto.ErrProxyAuthFailed:
-		return &ChatError{Code: "proxy_auth_failed", Message: "代理认证失败，请检查用户名和密码"}
+		return &ChatError{Code: "proxy_auth_failed", Message: "代理认证失败，请检查代理用户名和密码"}
 	case mtproto.ErrTelegramTimeout:
 		return &ChatError{Code: "telegram_timeout", Message: "连接 Telegram 超时，请稍后重试或检查代理"}
-	case mtproto.ErrSessionInvalid:
-		return &ChatError{Code: "session_invalid", Message: "账号登录状态已失效，请重新接入"}
+	case mtproto.ErrSessionInvalid, mtproto.ErrSessionContextLost:
+		return &ChatError{Code: "session_invalid", Message: "当前账号 Session 已失效，请重新接入"}
 	case mtproto.ErrUnauthorized:
-		return &ChatError{Code: "session_invalid", Message: "账号登录状态已失效，请重新接入"}
+		return &ChatError{Code: "session_invalid", Message: "当前账号 Session 已失效，请重新接入"}
 	case mtproto.ErrCredentialDisabled:
 		return &ChatError{Code: "api_key_invalid", Message: "Telegram API Key 不可用，请检查 API ID / API Hash"}
+	case mtproto.ErrFloodWait:
+		return &ChatError{Code: "flood_wait", Message: "Telegram 限制请求过快，请稍后再试"}
+	case mtproto.ErrTelegramError:
+		return &ChatError{Code: "telegram_error", Message: "Telegram 返回异常，请稍后重试或检查日志"}
+	case mtproto.ErrNetworkError:
+		return &ChatError{Code: "network_error", Message: "网络异常，请检查网络连接或代理配置"}
 	default:
-		s.logger.Warn("未分类的 Telegram 错误", "error_kind", string(errKind))
 		return &ChatError{Code: "telegram_error", Message: "Telegram 返回异常，请稍后重试或检查日志"}
 	}
+}
+
+// isProxyError 检查错误是否与代理相关。
+func isProxyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "proxy") ||
+		strings.Contains(errStr, "SOCKS") ||
+		strings.Contains(errStr, "CONNECT") ||
+		strings.Contains(errStr, "407")
+}
+
+// classifyProxyError 分类代理错误。
+func classifyProxyError(err error) *ChatError {
+	errStr := err.Error()
+	if strings.Contains(errStr, "auth") || strings.Contains(errStr, "407") {
+		return &ChatError{Code: "proxy_auth_failed", Message: "代理认证失败，请检查代理用户名和密码"}
+	}
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline") {
+		return &ChatError{Code: "telegram_timeout", Message: "连接 Telegram 超时，请稍后重试或检查代理"}
+	}
+	return &ChatError{Code: "proxy_connect_failed", Message: "无法连接代理，请检查 API 网络代理配置"}
+}
+
+// sanitizeErrorForLog 安全脱敏错误消息用于日志。
+func sanitizeErrorForLog(msg string) string {
+	if len(msg) > 200 {
+		return msg[:200] + "..."
+	}
+	return msg
 }
 
 // ChatError 聊天错误。

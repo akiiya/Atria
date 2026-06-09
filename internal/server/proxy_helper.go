@@ -24,8 +24,12 @@ type ProxyDialerFunc = dcs.DialFunc
 // 如果代理未启用或类型为 none，返回 nil（直连）。
 // 如果代理配置不完整或解密失败，返回 error。
 func BuildProxyDialerFromDB(db *gorm.DB, key []byte) (ProxyDialerFunc, error) {
+	// 批量读取所有代理配置，避免单独查询 proxy_password 触发 record not found 噪音
 	var settings []model.SystemSetting
-	db.Where("key IN ?", []string{"proxy_enabled", "proxy_type", "proxy_host", "proxy_port", "proxy_username", "proxy_timeout"}).Find(&settings)
+	db.Where("key IN ?", []string{
+		"proxy_enabled", "proxy_type", "proxy_host", "proxy_port",
+		"proxy_username", "proxy_timeout", "proxy_password",
+	}).Find(&settings)
 
 	settingMap := make(map[string]string, len(settings))
 	for _, st := range settings {
@@ -63,18 +67,11 @@ func BuildProxyDialerFromDB(db *gorm.DB, key []byte) (ProxyDialerFunc, error) {
 	username := settingMap["proxy_username"]
 
 	// 读取代理密码（加密存储）
-	// proxy_password 记录缺失时视为空密码（合法）
+	// proxy_password 缺失时视为空密码（合法）
 	// proxy_password 存在但解密失败时返回错误，不得静默降级
 	password := ""
-	var pwdSetting model.SystemSetting
-	err = db.Where("key = ?", "proxy_password").First(&pwdSetting).Error
-	if err == gorm.ErrRecordNotFound {
-		// 记录缺失，视为空密码，不打印 record not found 噪音日志
-	} else if err != nil {
-		slog.Error("查询代理密码失败", "error", err)
-		return nil, fmt.Errorf("查询代理密码失败")
-	} else if pwdSetting.Value != "" {
-		decrypted, err := crypto.DecryptString(key, pwdSetting.Value, []byte("atria:proxy:v1"))
+	if pwdValue, ok := settingMap["proxy_password"]; ok && pwdValue != "" {
+		decrypted, err := crypto.DecryptString(key, pwdValue, []byte("atria:proxy:v1"))
 		if err != nil {
 			slog.Error("解密代理密码失败，请检查代理配置", "error", err)
 			return nil, fmt.Errorf("代理密码配置错误，请重新配置代理")

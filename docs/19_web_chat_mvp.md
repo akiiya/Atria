@@ -65,14 +65,34 @@ proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 | code | 说明 |
 |------|------|
 | `no_current_account` | 请先接入 Telegram 账号 |
-| `session_invalid` | 当前账号 Session 不可用 |
+| `session_invalid` | 当前账号 Session 已失效，请重新接入 |
 | `peer_invalid` | 会话不存在或已过期 |
 | `peer_incomplete` | 会话信息不完整 |
 | `text_empty` | 消息内容不能为空 |
 | `text_too_long` | 消息内容超过 4096 字符 |
 | `bulk_not_supported` | 当前版本仅支持单会话发送 |
-| `proxy_connect_failed` | 无法连接代理 |
-| `proxy_auth_failed` | 代理认证失败 |
-| `telegram_timeout` | 连接 Telegram 超时 |
-| `telegram_error` | Telegram 返回异常 |
+| `proxy_connect_failed` | 无法连接代理，请检查 API 网络代理配置 |
+| `proxy_auth_failed` | 代理认证失败，请检查代理用户名和密码 |
+| `telegram_timeout` | 连接 Telegram 超时，请稍后重试或检查代理 |
+| `telegram_error` | Telegram 返回异常，请稍后重试或检查日志 |
 | `api_key_invalid` | Telegram API Key 不可用 |
+| `flood_wait` | Telegram 限制请求过快，请稍后再试 |
+| `auth_restart` | Telegram 要求重新开始认证，请重新接入账号 |
+| `account_deactivated` | 该 Telegram 账号不可用或已被停用 |
+| `network_error` | 网络异常，请检查网络连接或代理配置 |
+
+## 真实聊天错误诊断
+
+/chats 真实调用 Telegram MessagesGetDialogs 失败时，错误分类流程：
+
+1. 检查 context 错误（DeadlineExceeded → telegram_timeout）
+2. 检查代理错误（net.OpError → proxy_connect_failed）
+3. 使用 tgerr.As 提取 Telegram RPC 错误（AUTH_KEY_UNREGISTERED → session_invalid）
+4. 检查 net.Error（timeout → telegram_timeout）
+5. 检查 mtproto.MTProtoError 类型
+6. 未知错误归类为 telegram_error（不是 network_error）
+
+proxy_password 缺失是正常情况（代理无密码），不会触发 record not found 噪音日志。
+proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
+
+诊断日志记录 rpc_code、rpc_type、error_type、error_summary，不记录敏感信息。
