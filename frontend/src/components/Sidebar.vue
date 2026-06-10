@@ -5,15 +5,15 @@ const router = useRouter()
 const route = useRoute()
 
 const navItems = [
-  { path: '/app/dashboard', icon: '🏠', label: '仪表盘', matchPrefix: '/app/dashboard' },
-  { path: '/app/accounts', icon: '📱', label: '账号会话', matchPrefix: '/app/accounts' },
-  { path: '/app/chats', icon: '💬', label: '聊天', matchPrefix: '/app/chats' },
-  { path: '/app/contacts', icon: '👥', label: '联系人', matchPrefix: '/app/contacts', disabled: true, badge: '开发中' },
-  { path: '/app/audit', icon: '📋', label: '审计日志', matchPrefix: '/app/audit' },
+  { path: '/dashboard', icon: '🏠', label: '仪表盘' },
+  { path: '/accounts', icon: '📱', label: '账号会话' },
+  { path: '/chats', icon: '💬', label: '聊天' },
+  { path: '/contacts', icon: '👥', label: '联系人', disabled: true, badge: '开发中' },
+  { path: '/audit', icon: '📋', label: '审计日志' },
 ]
 
-function isActive(item: typeof navItems[0]): boolean {
-  return route.path.startsWith(item.matchPrefix)
+function isActive(path: string): boolean {
+  return route.path === path || route.path.startsWith(path + '/')
 }
 
 function navigate(path: string, disabled?: boolean) {
@@ -44,7 +44,7 @@ function navigate(path: string, disabled?: boolean) {
         <a
           v-for="item in navItems"
           :key="item.path"
-          :class="['nav-item', { active: isActive(item), disabled: item.disabled }]"
+          :class="['nav-item', { active: isActive(item.path), disabled: item.disabled }]"
           :title="item.disabled ? '即将支持' : ''"
           @click.prevent="navigate(item.path, item.disabled)"
           href="#"

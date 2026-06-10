@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { useQuery } from '@tanstack/vue-query'
 import { fetchMe } from '@/api/me'
+
+const router = useRouter()
 
 const account = useAccountStore()
 const app = useAppStore()
@@ -16,12 +19,19 @@ const { data: meData } = useQuery({
   retry: 1,
 })
 
-if (meData.value?.current_account) {
-  account.setCurrent(meData.value.current_account)
-}
-if (meData.value?.accounts) {
-  account.setAccounts(meData.value.accounts)
-}
+// Reactively sync account store when meData changes
+watch(meData, (val) => {
+  if (val?.ok) {
+    if (val.current_account) {
+      account.setCurrent(val.current_account)
+    } else {
+      account.setCurrent(null)
+    }
+    if (val.accounts) {
+      account.setAccounts(val.accounts)
+    }
+  }
+}, { immediate: true })
 
 function toggleAccountMenu() {
   showAccountMenu.value = !showAccountMenu.value
@@ -34,7 +44,6 @@ function toggleSettingsMenu() {
 }
 
 function switchAccount(id: number) {
-  // POST /api/accounts/select
   const form = document.createElement('form')
   form.method = 'POST'
   form.action = '/accounts/select'
@@ -94,7 +103,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenus))
           <span v-if="meData?.current_account?.username" class="account-username">@{{ meData.current_account.username }}</span>
           <span class="account-arrow">▾</span>
         </div>
-        <a v-else href="/accounts/login" class="account-empty" title="接入账号">
+        <a v-else href="#" @click.prevent="router.push('/accounts/login')" class="account-empty" title="接入账号">
           <span class="account-avatar">👤</span>
           <span class="account-name">未接入账号</span>
         </a>
@@ -107,7 +116,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenus))
             <span v-if="acc.username" class="dropdown-item-detail">@{{ acc.username }}</span>
           </a>
           <div class="dropdown-divider"></div>
-          <a href="/accounts/login" class="dropdown-item">接入新账号</a>
+          <a href="#" @click.prevent="router.push('/accounts/login')" class="dropdown-item">接入新账号</a>
         </div>
       </div>
     </div>
@@ -122,7 +131,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenus))
       <div class="topbar-settings">
         <button class="topbar-settings-btn" @click="toggleSettingsMenu" title="设置">⚙️</button>
         <div :class="['settings-dropdown', { show: showSettingsMenu }]">
-          <a href="/settings" class="dropdown-item">系统设置</a>
+          <a href="#" @click.prevent="router.push('/settings')" class="dropdown-item">系统设置</a>
           <div class="dropdown-divider"></div>
           <a href="#" class="dropdown-item" @click.prevent="logout()">退出登录</a>
         </div>

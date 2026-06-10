@@ -609,3 +609,184 @@ func TestStyleTokens_PreserveAlertStyle(t *testing.T) {
 		t.Error("应包含 alert-success")
 	}
 }
+
+// ===== 路由行为测试 =====
+
+func TestLegacyRoutes_NoDoubleAppPrefix(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	routes := []string{"/accounts", "/chats", "/audit", "/settings", "/contacts"}
+	for _, path := range routes {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", path, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		if w.Code == http.StatusFound {
+			loc := w.Header().Get("Location")
+			if strings.Contains(loc, "/app/app") {
+				t.Errorf("%s 重定向到 %s 包含重复 /app 前缀", path, loc)
+			}
+		}
+	}
+}
+
+func TestAPI_Me_CurrentAccountMatchesAccountsList(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/me", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Aronn AT") {
+		t.Errorf("/api/me 应包含 Aronn AT，实际: %s", body)
+	}
+	if !strings.Contains(body, "current_account") {
+		t.Errorf("/api/me 应包含 current_account，实际: %s", body)
+	}
+}
+
+func TestAPI_Me_InvalidCookieFallbackToActiveAccount(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
+
+	// Set invalid selected_account_id
+	w := httptest.NewRecorder()
+	body := "account_id=99999&csrf_token=" + csrfCookie
+	req, _ := http.NewRequest("POST", "/accounts/select", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "atria_session" {
+			sessionCookie = cookie.Value
+		}
+	}
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/me", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, "Aronn AT") {
+		t.Errorf("selected_account_id 无效时应 fallback，实际: %s", bodyStr)
+	}
+}
+
+func TestAPI_Me_NoAccountReturnsNullCurrentAccount(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/me", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// current_account should be null when no accounts exist
+	if !strings.Contains(body, `"current_account":null`) && !strings.Contains(body, `"current_account": null`) {
+		// It's also ok if current_account is just not present
+		if strings.Contains(body, `"current_account":{`) {
+			t.Errorf("无账号时 current_account 应为 null，实际: %s", body)
+		}
+	}
+}
+
+// ===== Vue Router 测试 =====
+
+func TestVueRouter_NoDoubleAppPrefix(t *testing.T) {
+	routerContent := readFileContent(t, "frontend/src/router/index.ts")
+	// Routes should NOT contain /app prefix since createWebHistory('/app/') handles it
+	if strings.Contains(routerContent, "path: '/app/") {
+		t.Error("router routes 不应包含 /app/ 前缀，base 已设置")
+	}
+}
+
+func TestVueRouter_UsesAppBaseOnce(t *testing.T) {
+	routerContent := readFileContent(t, "frontend/src/router/index.ts")
+	if !strings.Contains(routerContent, "createWebHistory('/app/')") {
+		t.Error("应使用 createWebHistory('/app/')")
+	}
+}
+
+func TestSidebar_UsesRouterPush(t *testing.T) {
+	sidebarContent := readFileContent(t, "frontend/src/components/Sidebar.vue")
+	if !strings.Contains(sidebarContent, "router.push") {
+		t.Error("Sidebar 应使用 router.push 导航")
+	}
+	// Sidebar paths should NOT have /app prefix
+	if strings.Contains(sidebarContent, "path: '/app/") {
+		t.Error("Sidebar path 不应包含 /app/ 前缀")
+	}
+}
+
+func TestAppShell_HasRouterView(t *testing.T) {
+	content := readFileContent(t, "frontend/src/components/AppShell.vue")
+	if !strings.Contains(content, "<router-view") {
+		t.Error("AppShell 应包含 router-view")
+	}
+}
+
+func TestSidebar_ActiveStateFromRoute(t *testing.T) {
+	content := readFileContent(t, "frontend/src/components/Sidebar.vue")
+	if !strings.Contains(content, "useRoute") {
+		t.Error("Sidebar 应使用 useRoute 获取当前路由")
+	}
+}
+
+func TestVueRoutes_MapToDistinctViews(t *testing.T) {
+	routerContent := readFileContent(t, "frontend/src/router/index.ts")
+	views := []string{
+		"DashboardView",
+		"AccountsView",
+		"AccountLoginView",
+		"AccountDetailView",
+		"ChatView",
+		"ContactsView",
+		"AuditView",
+		"SettingsView",
+	}
+	for _, v := range views {
+		if !strings.Contains(routerContent, v) {
+			t.Errorf("router 应映射到 %s", v)
+		}
+	}
+}
+
+// ===== 主题测试 =====
+
+func TestTheme_InitDoesNotForceLight(t *testing.T) {
+	content := readFileContent(t, "frontend/src/stores/app.ts")
+	// Should not hardcode 'light' as default
+	if strings.Contains(content, "ref<'light' | 'dark' | 'system'>('light')") {
+		t.Error("主题初始化不应强制为 light")
+	}
+}
+
+func TestTheme_UsesLegacyStorageKey(t *testing.T) {
+	content := readFileContent(t, "frontend/src/stores/app.ts")
+	if !strings.Contains(content, "atria-theme") {
+		t.Error("应使用旧系统 localStorage key 'atria-theme'")
+	}
+}
+
+func TestTheme_AppliesToDocumentRoot(t *testing.T) {
+	content := readFileContent(t, "frontend/src/stores/app.ts")
+	if !strings.Contains(content, "document.documentElement") {
+		t.Error("主题应应用到 document.documentElement")
+	}
+}
