@@ -118,9 +118,50 @@ npm run build
 - 保存写回同一套 `system_settings` key
 - 页面加载不会覆盖旧代理配置（watcher 从 API 响应初始化表单）
 
+## Vue Router Hash Mode
+
+- 使用 `createWebHashHistory('/app/')` 替代 `createWebHistory('/app/')`
+- 最终 URL 格式：`/app/#/dashboard`、`/app/#/chats/u_123`
+- 优势：降低 Go 后端 fallback 复杂度，避免刷新/复制链接/旧路由跳转问题
+- 旧 history URL（如 `/app/chats/u_123`）通过 Go 后端 SPA handler 兼容
+
+## 聊天缓存策略
+
+### Cache-first 加载
+
+- 会话列表优先从 `chat_peer_cache` 表读取，再后台刷新 Telegram
+- 消息历史优先从 `chat_message_cache` 表读取，再后台刷新 Telegram
+- Telegram 刷新失败时保留缓存数据，返回 `stale: true`
+- 前端 TanStack Query 使用 `staleTime: 30s` 避免重复请求
+
+### 消息缓存（ChatMessageCache）
+
+- 按 `account_id + peer_ref + telegram_message_id` 唯一
+- 消息正文使用 AES-256-GCM 加密存储
+- 每个 peer 最多缓存 100 条最近消息
+- 不做全量历史扫描
+- 不做自动后台同步
+
+### 参考 Telegram Web 但不复制源码
+
+- 参考产品体验：先显示本地数据，再后台刷新
+- 参考缓存架构：按账号/会话隔离，限制缓存大小
+- 不复制 Telegram Web 源码、CSS、图标、品牌资产
+- 不引入 Telegram Web 的 GPL 源码
+
+## 消息排版修复
+
+- 每条消息独立 block，不使用 absolute 定位
+- 长文本自动换行：`overflow-wrap: anywhere; word-break: break-word`
+- 时间显示在气泡底部，不覆盖正文
+- 关闭 MessageList 虚拟滚动（动态高度导致重叠）
+- DialogList 保留虚拟滚动
+
 ## 安全约束
 
 - 不记录 api_hash、proxy_password、session path、access_hash
 - 不记录完整消息正文
 - 不记录 OTP、2FA 密码
 - 用户消息使用 escapeHtml，不使用 v-html
+- access_hash 加密存储在 chat_peer_cache
+- 消息正文加密存储在 chat_message_cache

@@ -47,19 +47,28 @@ func (s *ChatService) SetProxyDialer(fn dcs.DialFunc) {
 	s.dialFunc = fn
 }
 
-// ListDialogs 获取最近会话列表。
-func (s *ChatService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
+// ListDialogs 获取最近会话列表（cache-first）。
+func (s *ChatService) ListDialogs(accountID uint, limit int) (*DialogsResult, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 
+	// 先尝试从缓存读取
+	cached := s.listDialogsFromCache(accountID, limit)
+
 	account, cred, err := s.getAccountAndCredential(accountID)
 	if err != nil {
+		if cached != nil {
+			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, err
 	}
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
+		if cached != nil {
+			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
 
@@ -105,14 +114,23 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
 		return nil
 	})
 	if err != nil {
+		// Telegram 刷新失败，返回缓存（如有）
+		if cached != nil {
+			s.logger.Warn("Telegram 刷新失败，返回缓存", "error", err)
+			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, s.classifyError(err)
 	}
 
-	return dialogs, nil
+	source := "telegram"
+	if cached != nil {
+		source = "mixed"
+	}
+	return &DialogsResult{Dialogs: dialogs, Source: source, Stale: false}, nil
 }
 
-// GetMessages 获取指定会话的最近消息。
-func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) ([]Message, error) {
+// GetMessages 获取指定会话的最近消息（cache-first）。
+func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -120,24 +138,38 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) ([]
 		return nil, &ChatError{Code: "peer_invalid", Message: "会话引用不能为空"}
 	}
 
+	// 先尝试从缓存读取
+	cached := s.getMessagesFromCache(accountID, peerRef, limit)
+
 	account, cred, err := s.getAccountAndCredential(accountID)
 	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, err
 	}
 
-	// 从缓存获取 peer 信息
 	cache, err := s.getPeerCache(accountID, peerRef)
 	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, err
 	}
 
 	inputPeer, err := s.buildInputPeerFromCache(cache)
 	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, err
 	}
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
 
@@ -179,10 +211,21 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) ([]
 		return nil
 	})
 	if err != nil {
+		if cached != nil {
+			s.logger.Warn("Telegram 刷新消息失败，返回缓存", "error", err, "peer_ref", peerRef)
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
+		}
 		return nil, s.classifyError(err)
 	}
 
-	return messages, nil
+	// 缓存消息
+	s.cacheMessages(accountID, peerRef, messages)
+
+	source := "telegram"
+	if cached != nil {
+		source = "mixed"
+	}
+	return &MessagesResult{Messages: messages, Source: source, Stale: false}, nil
 }
 
 // SendText 发送文本消息。
@@ -329,6 +372,137 @@ func (s *ChatService) decryptAccessHash(encrypted string) (int64, error) {
 	var hash int64
 	fmt.Sscanf(plain, "%d", &hash)
 	return hash, nil
+}
+
+// listDialogsFromCache 从 peer 缓存读取会话列表。
+func (s *ChatService) listDialogsFromCache(accountID uint, limit int) []Dialog {
+	var peers []model.ChatPeerCache
+	if err := s.db.Where("account_id = ?", accountID).
+		Order("is_pinned DESC, last_message_at DESC").
+		Limit(limit).Find(&peers).Error; err != nil {
+		return nil
+	}
+	if len(peers) == 0 {
+		return nil
+	}
+
+	dialogs := make([]Dialog, 0, len(peers))
+	for _, p := range peers {
+		dlg := Dialog{
+			PeerRef:            p.PeerRef,
+			PeerType:           PeerType(p.PeerType),
+			Title:              p.Title,
+			Username:           p.Username,
+			AvatarPlaceholder:  getInitial(p.Title),
+			LastMessagePreview: p.LastMessagePreview,
+			UnreadCount:        p.UnreadCount,
+		}
+		if p.LastMessageAt != nil {
+			dlg.LastMessageAt = *p.LastMessageAt
+		}
+		dialogs = append(dialogs, dlg)
+	}
+	return dialogs
+}
+
+// getMessagesFromCache 从消息缓存读取消息。
+func (s *ChatService) getMessagesFromCache(accountID uint, peerRef string, limit int) []Message {
+	var cached []model.ChatMessageCache
+	if err := s.db.Where("account_id = ? AND peer_ref = ?", accountID, peerRef).
+		Order("sent_at DESC").Limit(limit).Find(&cached).Error; err != nil {
+		return nil
+	}
+	if len(cached) == 0 {
+		return nil
+	}
+
+	messages := make([]Message, 0, len(cached))
+	for i := len(cached) - 1; i >= 0; i-- {
+		c := cached[i]
+		msg := Message{
+			MessageID:   c.TelegramMessageID,
+			PeerRef:     c.PeerRef,
+			Direction:   MessageDirection(c.Direction),
+			SenderName:  c.SenderName,
+			SentAt:      c.SentAt,
+			IsOutgoing:  c.Direction == "out",
+			Status:      MessageStatusSent,
+			MessageType: c.Kind,
+		}
+		// 解密消息正文
+		if c.TextEncrypted != "" {
+			text, err := crypto.DecryptString(s.key, c.TextEncrypted, []byte("atria:msg:v1"))
+			if err == nil {
+				msg.Text = text
+			}
+		}
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
+// cacheMessages 缓存消息到数据库。
+func (s *ChatService) cacheMessages(accountID uint, peerRef string, messages []Message) {
+	if len(messages) == 0 {
+		return
+	}
+
+	// 限制每个 peer 最多缓存 100 条
+	const maxCachePerPeer = 100
+
+	for _, msg := range messages {
+		// 加密消息正文
+		textEncrypted := ""
+		if msg.Text != "" {
+			encrypted, err := crypto.EncryptString(s.key, msg.Text, []byte("atria:msg:v1"))
+			if err != nil {
+				s.logger.Warn("加密消息正文失败", "error", err)
+				continue
+			}
+			textEncrypted = encrypted
+		}
+
+		cache := model.ChatMessageCache{
+			AccountID:         accountID,
+			PeerRef:           peerRef,
+			TelegramMessageID: msg.MessageID,
+			Direction:         string(msg.Direction),
+			SenderName:        msg.SenderName,
+			Kind:              msg.MessageType,
+			TextEncrypted:     textEncrypted,
+			SentAt:            msg.SentAt,
+		}
+
+		// Upsert by (account_id, peer_ref, telegram_message_id)
+		var existing model.ChatMessageCache
+		err := s.db.Where("account_id = ? AND peer_ref = ? AND telegram_message_id = ?",
+			accountID, peerRef, msg.MessageID).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			s.db.Create(&cache)
+		} else if err == nil {
+			s.db.Model(&existing).Updates(map[string]any{
+				"text_encrypted": textEncrypted,
+				"sender_name":    msg.SenderName,
+				"kind":           msg.MessageType,
+				"sent_at":        msg.SentAt,
+			})
+		}
+	}
+
+	// 清理旧缓存，只保留最近 maxCachePerPeer 条
+	var count int64
+	s.db.Model(&model.ChatMessageCache{}).
+		Where("account_id = ? AND peer_ref = ?", accountID, peerRef).
+		Count(&count)
+	if count > maxCachePerPeer {
+		// 删除最旧的记录
+		s.db.Exec(`DELETE FROM chat_message_cache
+			WHERE account_id = ? AND peer_ref = ? AND id NOT IN (
+				SELECT id FROM chat_message_cache
+				WHERE account_id = ? AND peer_ref = ?
+				ORDER BY sent_at DESC LIMIT ?
+			)`, accountID, peerRef, accountID, peerRef, maxCachePerPeer)
+	}
 }
 
 // getAccountAndCredential 获取账号和关联的 API 凭据。

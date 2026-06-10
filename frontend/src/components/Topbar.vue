@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { useQuery } from '@tanstack/vue-query'
 import { fetchMe } from '@/api/me'
 
 const router = useRouter()
+const route = useRoute()
 
 const account = useAccountStore()
 const app = useAppStore()
@@ -33,6 +34,12 @@ watch(meData, (val) => {
   }
 }, { immediate: true })
 
+// Close menus on route change
+watch(() => route.path, () => {
+  showAccountMenu.value = false
+  showSettingsMenu.value = false
+})
+
 function toggleAccountMenu() {
   showAccountMenu.value = !showAccountMenu.value
   showSettingsMenu.value = false
@@ -44,6 +51,7 @@ function toggleSettingsMenu() {
 }
 
 function switchAccount(id: number) {
+  showAccountMenu.value = false
   const form = document.createElement('form')
   form.method = 'POST'
   form.action = '/accounts/select'
@@ -89,8 +97,21 @@ function closeMenus(e: Event) {
   if (!target.closest('.topbar-settings')) showSettingsMenu.value = false
 }
 
-onMounted(() => document.addEventListener('click', closeMenus))
-onUnmounted(() => document.removeEventListener('click', closeMenus))
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    showAccountMenu.value = false
+    showSettingsMenu.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeMenus)
+  document.addEventListener('keydown', handleKeydown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', closeMenus)
+  document.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
@@ -116,7 +137,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenus))
             <span v-if="acc.username" class="dropdown-item-detail">@{{ acc.username }}</span>
           </a>
           <div class="dropdown-divider"></div>
-          <a href="#" @click.prevent="router.push('/accounts/login')" class="dropdown-item">接入新账号</a>
+          <a href="#" @click.prevent="showAccountMenu = false; router.push('/accounts/login')" class="dropdown-item">接入新账号</a>
         </div>
       </div>
     </div>

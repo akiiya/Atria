@@ -74,7 +74,7 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 		chatSvc.SetProxyDialer(dialer)
 	}
 
-	messages, err := chatSvc.GetMessages(selectedID, peerRef, 50)
+	result, err := chatSvc.GetMessages(selectedID, peerRef, 50)
 	if err != nil {
 		slog.Error("获取消息历史失败", "error", err, "peer_ref_length", len(peerRef))
 		errMsg := s.classifyChatError(err)
@@ -84,12 +84,7 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 		return
 	}
 
-	// 反转消息顺序（Telegram 返回最新在前，页面需要正序）
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
-	}
-
-	data["Messages"] = messages
+	data["Messages"] = result.Messages
 	c.HTML(http.StatusOK, "chat_detail.html", data)
 }
 

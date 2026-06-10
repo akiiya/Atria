@@ -716,10 +716,10 @@ func TestVueRouter_NoDoubleAppPrefix(t *testing.T) {
 	}
 }
 
-func TestVueRouter_UsesAppBaseOnce(t *testing.T) {
+func TestVueRouter_UsesHashHistory(t *testing.T) {
 	routerContent := readFileContent(t, "frontend/src/router/index.ts")
-	if !strings.Contains(routerContent, "createWebHistory('/app/')") {
-		t.Error("应使用 createWebHistory('/app/')")
+	if !strings.Contains(routerContent, "createWebHashHistory") {
+		t.Error("应使用 createWebHashHistory")
 	}
 }
 
