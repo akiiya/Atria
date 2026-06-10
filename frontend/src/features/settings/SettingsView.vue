@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { apiGet, apiPost } from '@/api/http'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
@@ -13,35 +13,85 @@ const { data: settings, isLoading } = useQuery({
   retry: 1,
 })
 
-// API Key form
+// API Key edit mode
+const apiKeyEditMode = ref(false)
 const apiKeyForm = ref({ display_name: '', api_id: '', api_hash: '' })
 const apiKeySaving = ref(false)
 const apiKeyMsg = ref('')
 
+function enterApiKeyEdit() {
+  apiKeyEditMode.value = true
+  apiKeyForm.value = {
+    display_name: settings.value?.api_key?.display_name || '',
+    api_id: '',
+    api_hash: '',
+  }
+}
+
+function cancelApiKeyEdit() {
+  apiKeyEditMode.value = false
+  apiKeyMsg.value = ''
+}
+
 function saveApiKey() {
   apiKeySaving.value = true
   apiKeyMsg.value = ''
-  apiPost<any>('/settings/api-key', {
+  apiPost<any>('/api/settings/api-key', {
     display_name: apiKeyForm.value.display_name,
     api_id: apiKeyForm.value.api_id,
     api_hash: apiKeyForm.value.api_hash,
   }).then(data => {
-    apiKeyMsg.value = data.ok ? 'API Key 已保存' : (data.message || '保存失败')
+    if (data.ok) {
+      apiKeyMsg.value = 'API Key 已保存'
+      apiKeyEditMode.value = false
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    } else {
+      apiKeyMsg.value = data.message || '保存失败'
+    }
     apiKeySaving.value = false
-    if (data.ok) queryClient.invalidateQueries({ queryKey: ['settings'] })
   }).catch(() => { apiKeyMsg.value = '保存失败'; apiKeySaving.value = false })
 }
 
-// Proxy form
-const proxyForm = ref({ proxy_type: 'none', proxy_host: '', proxy_port: '', proxy_username: '', proxy_password: '', proxy_timeout: '30' })
+// Proxy form - initialized from settings data via watcher
+const proxyForm = ref({
+  proxy_type: 'none',
+  proxy_host: '',
+  proxy_port: '',
+  proxy_username: '',
+  proxy_password: '',
+  proxy_timeout: '30',
+  proxy_remark: '',
+})
 const proxySaving = ref(false)
 const proxyMsg = ref('')
+
+// Sync proxy form from settings data when it loads
+watch(settings, (val) => {
+  if (val?.proxy) {
+    // Determine proxy type: if enabled and type is set, use it; otherwise 'none'
+    const isEnabled = val.proxy.enabled === 'true'
+    const proxyType = val.proxy.type || 'none'
+    proxyForm.value.proxy_type = (isEnabled && proxyType !== 'none') ? proxyType : 'none'
+    proxyForm.value.proxy_host = val.proxy.host || ''
+    proxyForm.value.proxy_port = val.proxy.port || ''
+    proxyForm.value.proxy_username = val.proxy.username || ''
+    proxyForm.value.proxy_timeout = val.proxy.timeout || '30'
+    proxyForm.value.proxy_remark = val.proxy.remark || ''
+    // Password is never returned from API, keep empty
+    proxyForm.value.proxy_password = ''
+  }
+}, { immediate: true })
 
 function saveProxy() {
   proxySaving.value = true
   proxyMsg.value = ''
-  apiPost<any>('/settings/proxy', proxyForm.value).then(data => {
-    proxyMsg.value = data.ok ? '代理配置已保存' : (data.message || '保存失败')
+  apiPost<any>('/api/settings/proxy', proxyForm.value).then(data => {
+    if (data.ok) {
+      proxyMsg.value = '代理配置已保存'
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    } else {
+      proxyMsg.value = data.message || '保存失败'
+    }
     proxySaving.value = false
   }).catch(() => { proxyMsg.value = '保存失败'; proxySaving.value = false })
 }
@@ -111,14 +161,14 @@ function savePassword() {
           <div v-if="apiKeyMsg" :class="['alert', apiKeyMsg.includes('失败') ? 'alert-error' : 'alert-success']">{{ apiKeyMsg }}</div>
 
           <!-- 展示态 -->
-          <div v-if="settings?.api_key">
+          <div v-if="settings?.api_key && !apiKeyEditMode">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
               <div><span style="color:var(--text-secondary);">名称</span><br><strong>{{ settings.api_key.display_name }}</strong></div>
               <div><span style="color:var(--text-secondary);">API ID</span><br><code>{{ settings.api_key.api_id_masked }}</code></div>
               <div><span style="color:var(--text-secondary);">API Hash</span><br><code>{{ settings.api_key.api_hash_hint }}</code></div>
               <div><span style="color:var(--text-secondary);">状态</span><br><span class="badge badge-success">已启用</span></div>
             </div>
-            <button class="btn btn-outline" @click="apiKeyForm = { display_name: settings.api_key.display_name, api_id: '', api_hash: '' }">修改配置</button>
+            <button class="btn btn-outline" @click="enterApiKeyEdit()">修改配置</button>
           </div>
 
           <!-- 编辑态 -->
@@ -134,13 +184,16 @@ function savePassword() {
               </div>
               <div class="form-group">
                 <label class="form-label">API Hash</label>
-                <input v-model="apiKeyForm.api_hash" type="text" class="form-input" placeholder="留空表示不修改">
+                <input v-model="apiKeyForm.api_hash" type="text" class="form-input" placeholder="留空则保持原值">
                 <div class="form-hint">API Hash 会加密保存</div>
               </div>
             </div>
             <div class="form-actions">
               <button class="btn btn-primary" @click="saveApiKey" :disabled="apiKeySaving">
                 {{ apiKeySaving ? '保存中...' : '保存 API Key 配置' }}
+              </button>
+              <button v-if="settings?.api_key" class="btn btn-outline" @click="cancelApiKeyEdit()" :disabled="apiKeySaving">
+                取消
               </button>
             </div>
           </div>

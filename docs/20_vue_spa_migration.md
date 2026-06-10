@@ -79,6 +79,45 @@ npm run build
 2. 修改 `internal/server/router.go` 中的路由重定向
 3. 重新构建
 
+## 真实验收回归修复
+
+### 聊天页 full-width 布局规则
+
+- 聊天页 (`/app/chats`) 使用 `page-full` class，移除 padding，禁止页面级滚动
+- 普通页面（Dashboard、Settings、Accounts）保持 `padding: 24px` 和页面级滚动
+- `AppShell` 根据 `route.path` 自动判断是否启用 full-width 模式
+- `.app-layout` 使用 `height: 100vh` 替代 `min-height: 100vh`，确保 flex 布局正确撑满
+- `.chat-layout` 使用 `height: 100%; width: 100%`，不受 max-width 限制
+
+### 普通页面和聊天页布局差异
+
+| 属性 | 普通页面 | 聊天页 |
+|------|----------|--------|
+| padding | 24px | 0 |
+| overflow | auto (页面滚动) | hidden (内部滚动) |
+| width | 受 max-width 限制 | 100% 填满 |
+| height | 内容撑开 | 100vh - topbar |
+
+### Settings API Key 编辑态规则
+
+- 展示态：显示名称、脱敏 API ID、API Hash hint、状态
+- 点击"修改配置"：切换到编辑态（`apiKeyEditMode = true`）
+- 编辑态：显示名称、API ID、API Hash 输入框
+- API Hash placeholder："留空则保持原值"
+- 保存成功：退出编辑态，刷新数据
+- 取消：退出编辑态，不保存
+- loading 时按钮 disabled
+
+### Settings 代理配置兼容旧 system_settings 规则
+
+- `/api/settings` 读取 `system_settings` 表中的 `proxy_*` 字段
+- `proxy_enabled=true` 时显示代理类型、host、port 等
+- `proxy_enabled` 缺失或 `proxy_type=none` 时显示"不使用代理"
+- `proxy_password` 不回显明文
+- `proxy_password` 留空时保持旧值
+- 保存写回同一套 `system_settings` key
+- 页面加载不会覆盖旧代理配置（watcher 从 API 响应初始化表单）
+
 ## 安全约束
 
 - 不记录 api_hash、proxy_password、session path、access_hash

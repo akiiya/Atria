@@ -353,6 +353,16 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPISettings(c)
 	})
 
+	// 保存代理配置 JSON
+	r.POST("/api/settings/proxy", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPISaveProxy(c)
+	})
+
+	// 保存 API Key JSON
+	r.POST("/api/settings/api-key", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPISaveAPIKey(c)
+	})
+
 	// ===== SPA Shell =====
 
 	// Vue SPA 入口 - 读取 dist/index.html 并注入 CSRF token
