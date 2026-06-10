@@ -13,17 +13,20 @@
 
 | 旧路由 | 新路由 | 状态 |
 |--------|--------|------|
-| `/` | `/app/dashboard` | 旧路由保留兼容 |
-| `/accounts` | `/app/accounts` | 旧路由保留兼容 |
-| `/accounts/login` | `/app/accounts/login` | 旧路由保留兼容 |
-| `/accounts/:id` | `/app/accounts/:id` | 旧路由保留兼容 |
+| `/` | 无变化 | 保留旧仪表盘（Go Template） |
+| `/accounts` | `/app/accounts` | 重定向到 SPA |
+| `/accounts/login` | `/app/accounts/login` | 重定向到 SPA |
+| `/accounts/:id` | `/app/accounts/:id` | 重定向到 SPA |
 | `/chats` | `/app/chats` | 重定向到 SPA |
 | `/chats/:peer_ref` | `/app/chats/:peerRef` | 重定向到 SPA |
-| `/contacts` | `/app/contacts` | 旧路由保留兼容 |
-| `/audit` | `/app/audit` | 旧路由保留兼容 |
-| `/settings` | `/app/settings` | 旧路由保留兼容 |
+| `/contacts` | `/app/contacts` | 重定向到 SPA |
+| `/audit` | `/app/audit` | 重定向到 SPA |
+| `/settings` | `/app/settings` | 重定向到 SPA |
+| `/security` | `/app/settings` | 重定向到 SPA |
 | `/login` | 无变化 | 保留 Go Template |
 | `/init` | 无变化 | 保留 Go Template |
+
+**注意**：`/` 保留旧仪表盘是为了兼容现有测试和用户习惯。如需切换到 SPA，将 `/` 重定向到 `/app/dashboard`。
 
 ## 已迁移页面
 

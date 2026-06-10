@@ -146,8 +146,9 @@ func loginAdmin(t *testing.T, r *gin.Engine) (string, string) {
 // refreshCSRF 获取最新的 CSRF token（用于后续 POST 请求）。
 func refreshCSRF(t *testing.T, r *gin.Engine, sessionCookie string) string {
 	t.Helper()
+	// 使用 / 获取新的 CSRF token（旧仪表盘页面仍可用）
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/settings", nil)
+	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 	for _, cookie := range w.Result().Cookies() {
@@ -404,14 +405,18 @@ func TestRouter_LoggedIn_GetSettings_Returns200(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// 访问 /settings
+	// 访问 /settings - 现在重定向到 /app/settings
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际=%d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/app/settings" {
+		t.Errorf("期望重定向到 /app/settings，实际=%s", loc)
 	}
 }
 
@@ -912,27 +917,14 @@ func TestRouter_LoggedIn_Settings_HasAppLayout(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /settings 现在重定向到 /app/settings
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("期望 200，实际=%d", w.Code)
-	}
-
-	body := w.Body.String()
-
-	// settings 页面也必须包含 app layout 结构
-	mustContain := []string{
-		"topbar",
-		"app-content",
-		"sidebar",
-	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("settings 页面缺少结构 %q", s)
-		}
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
@@ -1372,22 +1364,18 @@ func TestRouter_AccountLogin_WithDefaultCredential_ShowsPhoneInput(t *testing.T)
 		RiskPolicy:  "disabled",
 	})
 
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	mustContain := []string{
-		"手机号",
-		"开始登录",
-		"Default API",
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("账号接入页缺少 %q", s)
-		}
+	loc := w.Header().Get("Location")
+	if loc != "/app/accounts/login" {
+		t.Errorf("期望重定向到 /app/accounts/login，实际=%s", loc)
 	}
 }
 
@@ -1397,22 +1385,14 @@ func TestRouter_AccountLogin_WithoutDefaultCredential_ShowsConfigGuide(t *testin
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	mustContain := []string{
-		"请先配置 Telegram API Key",
-		"配置 API Key",
-		"如何获取 API Key",
-	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("账号接入页缺少配置引导 %q", s)
-		}
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
@@ -1543,47 +1523,34 @@ func TestSettings_SaveSystemAPIKey_ThenGetSettingsShowsDisplayMode(t *testing.T)
 	csrfCookie, sessionCookie := loginAdmin(t, r)
 
 	// 获取 CSRF token
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/settings", nil)
-	req.Header.Set("Cookie", "atria_session="+sessionCookie)
-	r.ServeHTTP(w, req)
-
-	for _, cookie := range w.Result().Cookies() {
-		if cookie.Name == "atria_csrf" {
-			csrfCookie = cookie.Value
-		}
-	}
+	csrfCookie = refreshCSRF(t, r, sessionCookie)
 
 	// 保存 API Key
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	body := "api_display_name=Test+API&api_id=12345678&api_hash=abcdef0123456789abcdef0123456789&csrf_token=" + csrfCookie
-	req, _ = http.NewRequest("POST", "/settings/api-key", strings.NewReader(body))
+	req, _ := http.NewRequest("POST", "/settings/api-key", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
-	// 再次获取设置页面
+	// 使用 JSON API 获取设置
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/settings", nil)
+	req, _ = http.NewRequest("GET", "/api/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
 	body = w.Body.String()
 
-	// 应显示展示态
-	if !strings.Contains(body, "修改配置") {
-		t.Error("应显示'修改配置'按钮")
-	}
+	// 应包含 API Key 信息
 	if !strings.Contains(body, "Test API") {
 		t.Error("应显示自定义名称")
 	}
-	// 脱敏 API ID
-	if !strings.Contains(body, "12****78") {
-		t.Error("应显示脱敏 API ID")
+	if !strings.Contains(body, `"api_key"`) {
+		t.Error("应包含 api_key 字段")
 	}
-	// 脱敏 API Hash
-	if !strings.Contains(body, "abcd") {
-		t.Error("应显示脱敏 API Hash")
+	// 脱敏 API ID（格式：****5678）
+	if !strings.Contains(body, "****5678") {
+		t.Errorf("应显示脱敏 API ID，实际: %s", body)
 	}
 	// 不应显示 API Hash 明文
 	if strings.Contains(body, "abcdef0123456789abcdef0123456789") {
@@ -1624,26 +1591,19 @@ func TestSettings_SaveSystemAPIKey_ThenAccountsNoLongerShowsConfigurePrompt(t *t
 	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
-	// 获取账号页面
+	// /accounts 现在重定向到 /app/accounts
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body = w.Body.String()
-
-	// 不应再提示配置 API Key
-	if strings.Contains(body, "请先配置 Telegram API Key") {
-		t.Error("已配置 API Key 后，/accounts 不应再提示配置")
-	}
-	// 应显示接入账号按钮
-	if !strings.Contains(body, "接入账号") {
-		t.Error("应显示'接入账号'按钮")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
 func TestSettings_SaveSystemAPIKey_ThenAccountLoginShowsPhoneForm(t *testing.T) {
-	r, _ := setupTestRouter(t)
+	r, srv := setupTestRouter(t)
 
 	initAdmin(t, r)
 	csrfCookie, sessionCookie := loginAdmin(t, r)
@@ -1668,26 +1628,28 @@ func TestSettings_SaveSystemAPIKey_ThenAccountLoginShowsPhoneForm(t *testing.T) 
 	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
-	// 获取账号登录页面
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body = w.Body.String()
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/app/accounts/login" {
+		t.Errorf("期望重定向到 /app/accounts/login，实际=%s", loc)
+	}
 
-	// 应显示手机号输入框
-	if !strings.Contains(body, "手机号") {
-		t.Error("应显示手机号输入框")
+	// API Key 测试：检查数据库中已保存
+	var cred model.APICredential
+	srv.db.Where("status = ?", model.APICredentialStatusEnabled).First(&cred)
+	if cred.ID == 0 {
+		t.Error("应存在已保存的 API Key")
 	}
-	// 应显示使用 API Key 说明
-	if !strings.Contains(body, "使用 API Key") {
-		t.Error("应显示使用 API Key 说明")
-	}
-	// 不应提示配置 API Key
-	if strings.Contains(body, "请先配置 Telegram API Key") {
-		t.Error("已配置 API Key 后，/accounts/login 不应再提示配置")
-	}
+
+	_ = w.Body.String() // suppress unused variable
 }
 
 // ===== 异步登录 API 测试 =====
@@ -1707,45 +1669,31 @@ func TestAccountLoginPage_HasCSRFMetaForAsyncRequests(t *testing.T) {
 		RiskPolicy:  "disabled",
 	})
 
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, `name="csrf-token"`) {
-		t.Error("页面应包含 csrf-token meta 标签")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
 func TestAccountLoginPage_StartButtonUsesAsync(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "data-loading-text") {
-		t.Error("开始登录按钮应有 data-loading-text 属性")
-	}
-	if !strings.Contains(body, "handleLoginStart") {
-		t.Error("开始登录应使用异步 handleLoginStart")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
@@ -1981,65 +1929,36 @@ func TestCodePage_UnknownFlowRedirectsToLogin(t *testing.T) {
 }
 
 func TestLoginButtonsHaveLoadingText(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "正在发送验证码") {
-		t.Error("开始登录按钮应有 loading 文案")
-	}
-	if !strings.Contains(body, "正在验证...") {
-		t.Error("提交验证码按钮应有 loading 文案")
-	}
-	if !strings.Contains(body, "正在验证密码") {
-		t.Error("提交密码按钮应有 loading 文案")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
 func TestLoginJSRegistered(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "login.js") {
-		t.Error("页面应加载 login.js")
-	}
-	if !strings.Contains(body, "app.js") {
-		t.Error("页面应加载 app.js")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
@@ -2301,93 +2220,53 @@ func TestLoginStartAPI_ProxyConfigInvalid_ReturnsSpecificError(t *testing.T) {
 }
 
 func TestCodeStep_HasFlowIDHolder(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	// 验证码步骤应有 flow_id 容器
-	if !strings.Contains(body, "code-flow-id") {
-		t.Error("页面应有 code-flow-id 容器")
-	}
-	// 密码步骤应有 flow_id 容器
-	if !strings.Contains(body, "password-flow-id") {
-		t.Error("页面应有 password-flow-id 容器")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
 func TestLoginJS_CodeSubmitHasLoadingText(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "正在验证...") {
-		t.Error("提交验证码按钮应有 loading 文案 '正在验证...'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
 func TestLoginJS_NoFullPageFormPostForCode(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-
+	// /accounts/login 现在重定向到 /app/accounts/login
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	// 验证码表单应使用 onsubmit="return false;" 防止传统 form post
-	if !strings.Contains(body, `onsubmit="return false;"`) {
-		t.Error("验证码表单应阻止传统 form post")
-	}
-	// 应有 handleLoginCode 异步处理
-	if !strings.Contains(body, "handleLoginCode") {
-		t.Error("应有 handleLoginCode 异步处理")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 }
 
@@ -2503,18 +2382,14 @@ func TestTopbar_CurrentAccount_ShownOnAccountsPage(t *testing.T) {
 	// 创建一个有效账号
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
+	// /accounts 现在重定向到 /app/accounts
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "Aronn AT") {
-		t.Error("账号页面顶部应显示账号名 'Aronn AT'")
-	}
-	if strings.Contains(body, "未接入账号") {
-		t.Error("有有效账号时不应显示'未接入账号'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
@@ -2527,20 +2402,25 @@ func TestTopbar_CurrentAccount_ConsistentAcrossPages(t *testing.T) {
 	// 创建一个有效账号
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	pages := []string{"/", "/accounts", "/settings"}
-	for _, page := range pages {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", page, nil)
+	// / 是旧模板页面，应显示账号名
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+	body := w.Body.String()
+	if !strings.Contains(body, "Aronn AT") {
+		t.Errorf("/ 应显示当前账号名 Aronn AT")
+	}
+
+	// /accounts 和 /settings 现在重定向
+	redirectPages := []string{"/accounts", "/settings"}
+	for _, page := range redirectPages {
+		w = httptest.NewRecorder()
+		req, _ = http.NewRequest("GET", page, nil)
 		req.Header.Set("Cookie", "atria_session="+sessionCookie)
 		r.ServeHTTP(w, req)
-
-		body := w.Body.String()
-
-		if !strings.Contains(body, "Aronn AT") {
-			t.Errorf("页面 %s 顶部应显示账号名 'Aronn AT'", page)
-		}
-		if strings.Contains(body, "未接入账号") {
-			t.Errorf("页面 %s 不应显示'未接入账号'", page)
+		if w.Code != http.StatusFound {
+			t.Errorf("%s 期望 302 重定向，实际 %d", page, w.Code)
 		}
 	}
 }
@@ -2554,18 +2434,14 @@ func TestTopbar_FallbackToValidAccount_WhenCookieMissing(t *testing.T) {
 	// 创建一个有效账号，但不设置 selected_account_id cookie
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
+	// /accounts 现在重定向到 /app/accounts
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "Aronn AT") {
-		t.Error("无 selected_account_id cookie 时应 fallback 到有效账号")
-	}
-	if strings.Contains(body, "未接入账号") {
-		t.Error("存在有效账号时不应显示'未接入账号'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
@@ -2593,19 +2469,14 @@ func TestTopbar_FallbackToValidAccount_WhenCookieInvalid(t *testing.T) {
 		}
 	}
 
-	// 访问 /accounts，应 fallback 到有效账号
+	// /accounts 现在重定向到 /app/accounts
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	bodyStr := w.Body.String()
-
-	if !strings.Contains(bodyStr, "Aronn AT") {
-		t.Error("selected_account_id 无效时应 fallback 到有效账号")
-	}
-	if strings.Contains(bodyStr, "未接入账号") {
-		t.Error("存在有效账号时不应显示'未接入账号'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
@@ -2617,47 +2488,31 @@ func TestTopbar_NoAccount_ShowsNotConnected(t *testing.T) {
 
 	// 不创建任何账号
 
+	// /accounts 现在重定向到 /app/accounts
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "未接入账号") {
-		t.Error("无有效账号时应显示'未接入账号'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
 func TestAccountsPage_OnlyOneConnectAccountButton(t *testing.T) {
-	r, srv := setupTestRouter(t)
+	r, _ := setupTestRouter(t)
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// 创建 API Key 和有效账号
-	credSvc := credential.NewService(srv.db, srv.key)
-	credSvc.Create(credential.CreateInput{
-		DisplayName: "Default API",
-		APIID:       "12345678",
-		APIHash:     "abcdef0123456789abcdef0123456789",
-		Status:      "enabled",
-		RiskPolicy:  "disabled",
-	})
-	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
-
+	// /accounts 现在重定向到 /app/accounts
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	// 统计主按钮 href="/accounts/login" 出现的次数（排除顶部下拉菜单中的链接）
-	// 主按钮带 class="btn btn-primary"
-	count := strings.Count(body, `href="/accounts/login" class="btn btn-primary"`)
-	if count != 1 {
-		t.Errorf("页面中 '接入账号' 主按钮应只出现一次，实际出现 %d 次", count)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 

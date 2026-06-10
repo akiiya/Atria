@@ -98,9 +98,9 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		c.HTML(http.StatusOK, "index.html", data)
 	})
 
-	// 系统设置
+	// 系统设置 - 重定向到 Vue SPA
 	r.GET("/settings", authMiddleware, func(c *gin.Context) {
-		s.handleGetSettings(c)
+		c.Redirect(http.StatusFound, "/app/settings")
 	})
 
 	// 修改密码
@@ -205,14 +205,14 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 
 	// ===== 账号路由 =====
 
-	// 账号列表
+	// 账号列表 - 重定向到 Vue SPA
 	r.GET("/accounts", authMiddleware, func(c *gin.Context) {
-		s.handleGetAccounts(c)
+		c.Redirect(http.StatusFound, "/app/accounts")
 	})
 
-	// 账号登录向导（单页登录流程）
+	// 账号登录向导 - 重定向到 Vue SPA
 	r.GET("/accounts/login", authMiddleware, func(c *gin.Context) {
-		s.handleGetAccountLogin(c)
+		c.Redirect(http.StatusFound, "/app/accounts/login")
 	})
 
 	// GET /accounts/login/start 不应返回 CSRF 403，重定向回登录页
@@ -245,9 +245,10 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostAccountLoginPassword(c)
 	})
 
-	// 账号详情
+	// 账号详情 - 重定向到 Vue SPA
 	r.GET("/accounts/:id", authMiddleware, func(c *gin.Context) {
-		s.handleGetAccountDetail(c)
+		id := c.Param("id")
+		c.Redirect(http.StatusFound, "/app/accounts/"+id)
 	})
 
 	// 远端 Logout
@@ -388,15 +389,22 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	r.GET("/app", authMiddleware, spaHandler)
 	r.GET("/app/*path", authMiddleware, spaHandler)
 
-	// ===== 占位路由 =====
+	// ===== 旧路由重定向到 Vue SPA =====
 
-	placeholderRoutes := []string{"/audit", "/security"}
-	for _, route := range placeholderRoutes {
-		r.GET(route, authMiddleware, func(c *gin.Context) {
-			data := s.newAuthViewData(c, "placeholder")
-			c.HTML(http.StatusOK, "placeholder.html", data)
-		})
-	}
+	// 审计日志 - 重定向到 Vue SPA
+	r.GET("/audit", authMiddleware, func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/app/audit")
+	})
+
+	// 联系人 - 重定向到 Vue SPA
+	r.GET("/contacts", authMiddleware, func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/app/contacts")
+	})
+
+	// 安全 - 重定向到 Vue SPA
+	r.GET("/security", authMiddleware, func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/app/settings")
+	})
 
 	// 404 处理
 	r.NoRoute(func(c *gin.Context) {
