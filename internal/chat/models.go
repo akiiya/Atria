@@ -65,13 +65,27 @@ type SendResult struct {
 	Text      string    `json:"text"`
 }
 
+// DialogsResult 会话列表结果（含缓存元数据）。
+type DialogsResult struct {
+	Dialogs []Dialog `json:"dialogs"`
+	Source  string   `json:"source"` // cache, telegram, mixed
+	Stale   bool     `json:"stale"`  // true 表示数据可能过期
+}
+
+// MessagesResult 消息历史结果（含缓存元数据）。
+type MessagesResult struct {
+	Messages []Message `json:"messages"`
+	Source   string    `json:"source"` // cache, telegram, mixed
+	Stale    bool      `json:"stale"`  // true 表示数据可能过期
+}
+
 // Service 定义聊天服务接口。
 type Service interface {
 	// ListDialogs 获取最近会话列表。
-	ListDialogs(accountID uint, limit int) ([]Dialog, error)
+	ListDialogs(accountID uint, limit int) (*DialogsResult, error)
 
 	// GetMessages 获取指定会话的最近消息。
-	GetMessages(accountID uint, peerRef string, limit int) ([]Message, error)
+	GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error)
 
 	// SendText 向指定会话发送文本消息。
 	SendText(accountID uint, peerRef string, text string) (*SendResult, error)

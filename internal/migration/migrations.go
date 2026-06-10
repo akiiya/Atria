@@ -38,6 +38,13 @@ func init() {
 		Description: "为旧账号补齐 account_sessions 记录",
 		Run:         migration004BackfillLegacyAccountSessions,
 	})
+
+	Register(Migration{
+		Version:     5,
+		Name:        "create_chat_message_cache",
+		Description: "创建聊天消息缓存表，用于 cache-first 聊天加载",
+		Run:         migration005CreateChatMessageCache,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -265,5 +272,16 @@ func migration004BackfillLegacyAccountSessions(db *gorm.DB, _ []byte) error {
 	} else {
 		slog.Info("迁移 4: 所有 active 账号已有 session 记录，无需补齐")
 	}
+	return nil
+}
+
+// migration005CreateChatMessageCache 创建聊天消息缓存表。
+// 用于 cache-first 聊天加载，避免每次都实时请求 Telegram。
+// 幂等：AutoMigrate 会跳过已存在的表。
+func migration005CreateChatMessageCache(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.ChatMessageCache{}); err != nil {
+		return fmt.Errorf("创建 chat_message_cache 表失败: %w", err)
+	}
+	slog.Info("迁移 5: chat_message_cache 表创建/更新完成")
 	return nil
 }

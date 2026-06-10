@@ -13,25 +13,27 @@ type FakeService struct {
 }
 
 // ListDialogs 返回预设的会话列表。
-func (f *FakeService) ListDialogs(accountID uint, limit int) ([]Dialog, error) {
+func (f *FakeService) ListDialogs(accountID uint, limit int) (*DialogsResult, error) {
 	if f.ListErr != nil {
 		return nil, f.ListErr
 	}
-	if limit > 0 && limit < len(f.Dialogs) {
-		return f.Dialogs[:limit], nil
+	dialogs := f.Dialogs
+	if limit > 0 && limit < len(dialogs) {
+		dialogs = dialogs[:limit]
 	}
-	return f.Dialogs, nil
+	return &DialogsResult{Dialogs: dialogs, Source: "cache", Stale: false}, nil
 }
 
 // GetMessages 返回预设的消息列表。
-func (f *FakeService) GetMessages(accountID uint, peerRef string, limit int) ([]Message, error) {
+func (f *FakeService) GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error) {
 	if f.GetErr != nil {
 		return nil, f.GetErr
 	}
-	if limit > 0 && limit < len(f.Messages) {
-		return f.Messages[:limit], nil
+	messages := f.Messages
+	if limit > 0 && limit < len(messages) {
+		messages = messages[:limit]
 	}
-	return f.Messages, nil
+	return &MessagesResult{Messages: messages, Source: "cache", Stale: false}, nil
 }
 
 // SendText 返回预设的发送结果，并记录调用次数。

@@ -126,7 +126,7 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 		chatSvc.SetProxyDialer(dialer)
 	}
 
-	dialogs, err := chatSvc.ListDialogs(selectedID, limit)
+	result, err := chatSvc.ListDialogs(selectedID, limit)
 	if err != nil {
 		errMsg := s.classifyChatError(err)
 		c.JSON(http.StatusOK, gin.H{
@@ -140,7 +140,9 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
-		"dialogs": dialogs,
+		"dialogs": result.Dialogs,
+		"source":  result.Source,
+		"stale":   result.Stale,
 	})
 }
 
@@ -170,7 +172,7 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 		chatSvc.SetProxyDialer(dialer)
 	}
 
-	messages, err := chatSvc.GetMessages(selectedID, peerRef, limit)
+	result, err := chatSvc.GetMessages(selectedID, peerRef, limit)
 	if err != nil {
 		errMsg := s.classifyChatError(err)
 		errCode := "telegram_error"
@@ -186,14 +188,11 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 		return
 	}
 
-	// 反转消息顺序
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"ok":       true,
-		"messages": messages,
+		"messages": result.Messages,
+		"source":   result.Source,
+		"stale":    result.Stale,
 	})
 }
 

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { useVirtualizer } from '@tanstack/vue-virtual'
 import type { ChatMessage } from '@/types/chat'
 import MessageBubble from './MessageBubble.vue'
 import ServiceMessage from './ServiceMessage.vue'
@@ -10,18 +9,12 @@ const props = defineProps<{ messages: ChatMessage[] }>()
 
 const scrollParent = ref<HTMLElement | null>(null)
 
-const virtualizer = useVirtualizer({
-  count: props.messages.length,
-  getScrollElement: () => scrollParent.value,
-  estimateSize: () => 60,
-  overscan: 10,
-})
-
+// Auto-scroll to bottom when new messages arrive
 watch(() => props.messages.length, async () => {
   await nextTick()
   if (scrollParent.value) {
     const el = scrollParent.value
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200
     if (isNearBottom) {
       el.scrollTop = el.scrollHeight
     }
@@ -38,20 +31,24 @@ function isNewDay(idx: number): boolean {
 
 <template>
   <div ref="scrollParent" class="message-scroll-container">
-    <div :style="{ height: virtualizer.getTotalSize() + 'px', position: 'relative' }">
-      <div
-        v-for="row in virtualizer.getVirtualItems()"
-        :key="String(row.key)"
-        :style="{
-          position: 'absolute',
-          top: row.start + 'px',
-          width: '100%',
-        }"
-      >
-        <DateDivider v-if="isNewDay(row.index)" :date="messages[row.index].sent_at" />
-        <ServiceMessage v-if="messages[row.index].message_type === 'service'" :message="messages[row.index]" />
-        <MessageBubble v-else :message="messages[row.index]" />
-      </div>
+    <div v-if="messages.length === 0" class="message-empty">
+      暂无消息
     </div>
+    <template v-for="(msg, idx) in messages" :key="msg.id || idx">
+      <DateDivider v-if="isNewDay(idx)" :date="msg.sent_at" />
+      <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
+      <MessageBubble v-else :message="msg" />
+    </template>
   </div>
 </template>
+
+<style scoped>
+.message-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+</style>

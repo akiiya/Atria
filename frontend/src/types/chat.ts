@@ -50,12 +50,16 @@ export interface SendResult {
 export interface DialogsResponse {
   ok: boolean
   dialogs: Dialog[]
+  source?: string  // cache, telegram, mixed
+  stale?: boolean   // true 表示数据可能过期
   error?: string
 }
 
 export interface MessagesResponse {
   ok: boolean
   messages: ChatMessage[]
+  source?: string  // cache, telegram, mixed
+  stale?: boolean   // true 表示数据可能过期
   error?: string
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { fetchDialogs } from '@/api/chat'
@@ -19,26 +19,25 @@ const { data: dialogsData, isLoading, error, refetch } = useQuery({
   queryKey: ['dialogs'],
   queryFn: () => fetchDialogs(30),
   retry: 1,
+  staleTime: 30_000,
 })
 
-const dialogs = dialogsData.value?.dialogs || []
+// Use computed to reactively derive dialogs from query data
+const dialogs = computed(() => dialogsData.value?.dialogs || [])
 
-const peerRef = route.params.peerRef as string | undefined
-if (peerRef) {
-  chat.selectPeer(peerRef)
-}
+// Sync selectedPeerRef from route params
+const routePeerRef = computed(() => route.params.peerRef as string | undefined)
 
-watch(() => route.params.peerRef, (val) => {
-  if (val) chat.selectPeer(val as string)
-  else chat.selectPeer(null)
-})
+watch(routePeerRef, (val) => {
+  chat.selectPeer(val || null)
+}, { immediate: true })
 
 function selectDialog(ref: string) {
   chat.selectPeer(ref)
   router.push(`/chats/${ref}`)
 }
 
-const noAccount = !account.currentAccountId
+const noAccount = computed(() => !account.currentAccountId)
 </script>
 
 <template>
@@ -57,7 +56,15 @@ const noAccount = !account.currentAccountId
         />
       </div>
       <div v-else-if="isLoading" class="chat-sidebar-body">
-        <LoadingSkeleton />
+        <div class="skeleton-list">
+          <div v-for="i in 8" :key="i" class="skeleton-item">
+            <div class="skeleton-avatar"></div>
+            <div class="skeleton-lines">
+              <div class="skeleton-line long"></div>
+              <div class="skeleton-line short"></div>
+            </div>
+          </div>
+        </div>
       </div>
       <div v-else-if="error" class="chat-sidebar-body">
         <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
@@ -68,7 +75,7 @@ const noAccount = !account.currentAccountId
     </div>
 
     <div class="chat-main" :class="{ 'mobile-hidden': !chat.selectedPeerRef }">
-      <MessagePanel v-if="chat.selectedPeerRef" :peer-ref="chat.selectedPeerRef" />
+      <MessagePanel v-if="chat.selectedPeerRef" :peer-ref="chat.selectedPeerRef" :key="chat.selectedPeerRef" />
       <div v-else class="chat-main-empty">
         <EmptyState
           icon="💬"
