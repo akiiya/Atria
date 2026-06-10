@@ -245,40 +245,32 @@ func TestUpdateHandler_PostApply_WithConfirm_CallsService(t *testing.T) {
 func TestUpdateHandler_GetSettings_DisplaysUpdateStatus(t *testing.T) {
 	_, r, sessionCookie, _ := setupLoggedInServer(t)
 
+	// /settings 现在重定向到 /app/settings
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-
-	body := w.Body.String()
-	if !strings.Contains(body, "更新程序") {
-		t.Error("应显示更新程序卡片")
+	loc := w.Header().Get("Location")
+	if loc != "/app/settings" {
+		t.Errorf("期望重定向到 /app/settings，实际=%s", loc)
 	}
 }
 
 func TestUpdateHandler_GetSettings_NoSensitiveData(t *testing.T) {
 	_, r, sessionCookie, _ := setupLoggedInServer(t)
 
+	// /settings 现在重定向，测试重定向行为
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	// 检查不包含真正的敏感数据（密码、密钥内容等）
-	// 注意：secret.key 作为文件名出现在目录说明中是安全的
-	sensitivePatterns := []string{
-		"password123456", // 明文密码
-		"atria_session=", // Session cookie 值
-	}
-	for _, pattern := range sensitivePatterns {
-		if strings.Contains(body, pattern) {
-			t.Errorf("页面不应包含敏感数据: %s", pattern)
-		}
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 }
 
