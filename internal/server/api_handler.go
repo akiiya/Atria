@@ -10,6 +10,7 @@ import (
 	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/chat"
 	"github.com/user/atria/internal/credential"
+	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
 	"github.com/user/atria/internal/version"
 
@@ -341,12 +342,15 @@ func (s *Server) handleAPISettings(c *gin.Context) {
 	}
 
 	// 代理信息
+	sm := settingMap(s.db)
 	result["proxy"] = gin.H{
-		"type":     settingMap(s.db)["proxy_type"],
-		"host":     settingMap(s.db)["proxy_host"],
-		"port":     settingMap(s.db)["proxy_port"],
-		"username": settingMap(s.db)["proxy_username"],
-		"timeout":  settingMap(s.db)["proxy_timeout"],
+		"enabled":  sm["proxy_enabled"],
+		"type":     sm["proxy_type"],
+		"host":     sm["proxy_host"],
+		"port":     sm["proxy_port"],
+		"username": sm["proxy_username"],
+		"timeout":  sm["proxy_timeout"],
+		"remark":   sm["proxy_remark"],
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -361,4 +365,143 @@ func settingMap(db *gorm.DB) map[string]string {
 		m[s.Key] = s.Value
 	}
 	return m
+}
+
+// handleAPISaveProxy 处理 POST /api/settings/proxy - 保存代理配置（JSON）。
+func (s *Server) handleAPISaveProxy(c *gin.Context) {
+	var req struct {
+		ProxyType     string `json:"proxy_type"`
+		ProxyHost     string `json:"proxy_host"`
+		ProxyPort     string `json:"proxy_port"`
+		ProxyUsername string `json:"proxy_username"`
+		ProxyPassword string `json:"proxy_password"`
+		ProxyTimeout  string `json:"proxy_timeout"`
+		ProxyRemark   string `json:"proxy_remark"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "请求格式错误"})
+		return
+	}
+
+	// 校验
+	if req.ProxyType != "none" && req.ProxyType != "https" && req.ProxyType != "socks5" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的代理类型"})
+		return
+	}
+
+	if req.ProxyType != "none" {
+		if req.ProxyHost == "" {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "代理主机不能为空"})
+			return
+		}
+		port, err := strconv.Atoi(req.ProxyPort)
+		if err != nil || port < 1 || port > 65535 {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的代理端口"})
+			return
+		}
+	}
+
+	// 保存设置
+	saveSetting := func(key, value string, isSensitive bool) {
+		setting := model.SystemSetting{
+			Key:         key,
+			Value:       value,
+			ValueType:   "string",
+			IsSensitive: isSensitive,
+		}
+		s.db.Where("key = ?", key).Assign(setting).FirstOrCreate(&model.SystemSetting{})
+	}
+
+	// 更新 proxy_enabled
+	enabled := "false"
+	if req.ProxyType != "none" {
+		enabled = "true"
+	}
+
+	saveSetting("proxy_enabled", enabled, false)
+	saveSetting("proxy_type", req.ProxyType, false)
+	saveSetting("proxy_host", req.ProxyHost, false)
+	saveSetting("proxy_port", req.ProxyPort, false)
+	saveSetting("proxy_username", req.ProxyUsername, false)
+	saveSetting("proxy_timeout", req.ProxyTimeout, false)
+	saveSetting("proxy_remark", req.ProxyRemark, false)
+
+	// 只有提供了新密码才更新
+	if req.ProxyPassword != "" {
+		encryptedPassword, err := crypto.EncryptString(s.key, req.ProxyPassword, []byte("atria:proxy:v1"))
+		if err != nil {
+			slog.Error("加密代理密码失败", "error", err)
+		} else {
+			saveSetting("proxy_password", encryptedPassword, true)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "代理配置已保存"})
+}
+
+// handleAPISaveAPIKey 处理 POST /api/settings/api-key - 保存 API Key（JSON）。
+func (s *Server) handleAPISaveAPIKey(c *gin.Context) {
+	var req struct {
+		DisplayName string `json:"display_name"`
+		APIID       string `json:"api_id"`
+		APIHash     string `json:"api_hash"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "请求格式错误"})
+		return
+	}
+
+	credSvc := credential.NewService(s.db, s.key)
+	systemKey, _ := credSvc.GetSystemAPIKey()
+
+	if systemKey == nil {
+		// 创建新的
+		if req.APIID == "" || req.APIHash == "" {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "API ID 和 API Hash 不能为空"})
+			return
+		}
+		if req.DisplayName == "" {
+			req.DisplayName = "Default API"
+		}
+		newCred, err := credSvc.Create(credential.CreateInput{
+			DisplayName: req.DisplayName,
+			APIID:       req.APIID,
+			APIHash:     req.APIHash,
+			Status:      "enabled",
+			RiskPolicy:  "disabled",
+		})
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "创建 API Key 失败: " + err.Error()})
+			return
+		}
+		if !newCred.IsDefault {
+			credSvc.SetDefault(newCred.ID)
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "API Key 已保存"})
+		return
+	}
+
+	// 更新现有
+	updateName := systemKey.DisplayName
+	if req.DisplayName != "" {
+		updateName = req.DisplayName
+	}
+	updateAPIID := fmt.Sprintf("%d", systemKey.APIID)
+	if req.APIID != "" {
+		updateAPIID = req.APIID
+	}
+
+	_, err := credSvc.Update(systemKey.ID, credential.UpdateInput{
+		DisplayName: updateName,
+		APIID:       updateAPIID,
+		APIHash:     req.APIHash, // 为空时保持不变
+		Status:      string(systemKey.Status),
+		RiskPolicy:  string(systemKey.RiskPolicy),
+	})
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "更新 API Key 失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "API Key 已保存"})
 }
