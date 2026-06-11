@@ -10,11 +10,13 @@ import (
 type FakeAdapter struct {
 	Dialogs       []telegramclient.Dialog
 	Messages      []telegramclient.Message
+	OlderMessages []telegramclient.Message
 	SendResult    telegramclient.SendResult
 	ListErr       error
 	GetErr        error
 	SendErr       error
 	LoadErr       error
+	HasOlder      bool
 	SendCallCount int
 }
 
@@ -35,23 +37,39 @@ func (f *FakeAdapter) GetRecentMessages(ctx context.Context, req telegramclient.
 	if f.GetErr != nil {
 		return telegramclient.MessagesPage{}, f.GetErr
 	}
-	return telegramclient.MessagesPage{
+	page := telegramclient.MessagesPage{
 		Source:   telegramclient.DataSourceCache,
 		Stale:    false,
 		Messages: f.Messages,
-	}, nil
+		HasOlder: f.HasOlder,
+	}
+	if len(f.Messages) > 0 {
+		page.OldestMessageID = int64(f.Messages[0].TelegramMessageID)
+		page.NewestMessageID = int64(f.Messages[len(f.Messages)-1].TelegramMessageID)
+	}
+	return page, nil
 }
 
-// LoadOlderMessages 返回预设的消息列表。
+// LoadOlderMessages 返回预设的更早消息列表。
 func (f *FakeAdapter) LoadOlderMessages(ctx context.Context, req telegramclient.LoadOlderMessagesRequest) (telegramclient.MessagesPage, error) {
 	if f.LoadErr != nil {
 		return telegramclient.MessagesPage{}, f.LoadErr
 	}
-	return telegramclient.MessagesPage{
+	msgs := f.OlderMessages
+	if msgs == nil {
+		msgs = f.Messages
+	}
+	page := telegramclient.MessagesPage{
 		Source:   telegramclient.DataSourceCache,
 		Stale:    false,
-		Messages: f.Messages,
-	}, nil
+		Messages: msgs,
+		HasOlder: f.HasOlder,
+	}
+	if len(msgs) > 0 {
+		page.OldestMessageID = int64(msgs[0].TelegramMessageID)
+		page.NewestMessageID = int64(msgs[len(msgs)-1].TelegramMessageID)
+	}
+	return page, nil
 }
 
 // SendText 返回预设的发送结果。

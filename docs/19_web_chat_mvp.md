@@ -72,10 +72,40 @@ proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 
 - 按 `account_id + peer_ref + telegram_message_id` 唯一索引
 - 消息正文（text、caption）使用 AES-256-GCM 加密存储
-- 每个 peer 最多缓存 100 条最近消息
+- 每个 peer 最多缓存 500 条最近消息
 - 不做全量历史扫描
 - 不做自动后台同步
 - 不做浏览器长期正文缓存（IndexedDB/localStorage）
+
+### 消息历史分段加载策略
+
+首屏加载：
+1. 首次打开会话，请求 `GET /api/chats/:peer_ref/messages?limit=50`
+2. 优先读本地 cache 最近 50 条
+3. cache 不足时通过 adapter 拉 Telegram 最近 50 条
+4. 返回给前端按时间正序
+5. 前端滚到底部
+
+向上加载更早消息：
+1. 用户距离 message-list 顶部小于 300px 时触发预加载
+2. 请求 `GET /api/chats/:peer_ref/messages?before_id=xxx&limit=50`
+3. 后端优先从 cache 查 `telegram_message_id < before_id` 的消息
+4. cache 不足时通过 adapter.LoadOlderMessages 拉 Telegram
+5. 拉到后写入 ChatMessageCache
+6. 前端插入到现有 messages 顶部
+7. 滚动锚点保持，视图不跳动
+
+边界状态：
+- `has_older=true` 表示还可能有更早历史
+- `has_older=false` 表示已经到顶部
+- `loading_older` 表示正在加载更早历史
+- `older_error` 表示加载失败
+
+### before_id / offset_id 映射
+
+- 前端传递 `before_id` = 当前已加载最早的 `telegram_message_id`
+- 后端 adapter 将其映射为 gotd `MessagesGetHistoryRequest.OffsetID`
+- Telegram 返回 `OffsetID` 之前的消息
 
 ### Cache-first 加载流程
 
@@ -98,7 +128,30 @@ proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 |------|------|------|
 | `/chats` | GET | 会话列表页面 |
 | `/chats/:peer_ref` | GET | 消息历史页面 |
+| `/api/chats/:peer_ref/messages` | GET | 获取消息历史（支持分页） |
 | `/api/chats/:peer_ref/messages` | POST | 发送消息（JSON） |
+
+### GET /api/chats/:peer_ref/messages 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `limit` | int | 50 | 消息数量，最大 100 |
+| `before_id` | int | 0 | 加载此 ID 之前的消息，0 表示最近消息 |
+| `prefer_cache` | bool | true | 优先从缓存读取 |
+
+### 响应结构
+
+```json
+{
+  "ok": true,
+  "messages": [],
+  "source": "cache|telegram|mixed",
+  "stale": false,
+  "has_older": true,
+  "oldest_message_id": 123,
+  "newest_message_id": 456
+}
+```
 
 ## 错误码
 
