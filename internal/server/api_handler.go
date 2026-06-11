@@ -124,6 +124,7 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
 	adapter.SetGate(s.accountGate)
+	adapter.SetRuntime(s.runtimeManager)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}
@@ -181,6 +182,7 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
 	adapter.SetGate(s.accountGate)
+	adapter.SetRuntime(s.runtimeManager)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}

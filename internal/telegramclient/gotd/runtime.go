@@ -19,12 +19,13 @@ import (
 )
 
 // AccountRuntime 管理单个 Telegram 账号的运行时生命周期。
-// 持有一个长-lived telegram.Client 和 updates.Manager。
+// 持有一个长-lived telegram.Client、updates.Manager 和 execution queue。
 type AccountRuntime struct {
 	accountID uint
 	state     telegramclient.RuntimeState
 	cancel    context.CancelFunc
 	logger    *slog.Logger
+	executor  *RuntimeExecutor // 串行执行队列
 
 	mu        sync.Mutex
 	lastSync  *time.Time
@@ -166,6 +167,7 @@ func (m *RuntimeManagerImpl) StartAccount(accountID uint) error {
 		state:     telegramclient.RuntimeStateConnecting,
 		cancel:    cancel,
 		logger:    m.logger,
+		executor:  NewRuntimeExecutor(accountID, 64, m.logger),
 	}
 
 	m.mu.Lock()
@@ -179,16 +181,13 @@ func (m *RuntimeManagerImpl) StartAccount(accountID uint) error {
 	return nil
 }
 
-// runAccount 运行单个账号的 gotd client + updates.Manager。
+// runAccount 运行单个账号的 gotd client + updates.Manager + execution queue。
 // 此函数阻塞直到 context 取消或发生致命错误。
-// 持有 per-account execution gate 锁，防止 REST 临时 client 并发。
+// 不再长期持有 AccountGate，REST 请求通过 executor 使用 runtime client。
 func (m *RuntimeManagerImpl) runAccount(ctx context.Context, rt *AccountRuntime, apiID int, apiHash string, sessionFilePath string, userID int64) {
-	// 获取 per-account 执行锁，runtime 持有期间 REST 无法并发使用同一 account
-	m.gate.Lock(rt.accountID, "runtime")
-	defer m.gate.Unlock(rt.accountID)
-
 	defer func() {
 		rt.setState(telegramclient.RuntimeStateStopped)
+		rt.executor.Close() // 关闭 executor，排空等待中的请求
 		m.logger.Info("AccountRuntime 停止", "account_id", rt.accountID)
 	}()
 
@@ -232,6 +231,11 @@ func (m *RuntimeManagerImpl) runAccount(ctx context.Context, rt *AccountRuntime,
 			Type:      telegramclient.EventAccountConnected,
 			CreatedAt: time.Now(),
 		})
+
+		// 启动 executor 消费 goroutine
+		// executor 与 updates.Manager 共用同一个 client.API()
+		// gotd *tg.Client 通过 connection manager 路由，支持并发调用
+		go rt.executor.Run(runCtx, client.API())
 
 		// 启动 updates.Manager
 		// 这会阻塞，处理 state sync 和 getDifference
@@ -306,6 +310,27 @@ func (m *RuntimeManagerImpl) Status(accountID uint) telegramclient.RuntimeStatus
 // Subscribe 订阅指定账号的更新事件。
 func (m *RuntimeManagerImpl) Subscribe(accountID uint, sink telegramclient.UpdateSink) (telegramclient.Subscription, error) {
 	return m.bus.Subscribe(accountID, sink)
+}
+
+// GetExecutor 获取指定账号的 execution queue。
+// 只有 runtime 处于 live/syncing/connecting 状态时返回 executor。
+// stopped/degraded/offline 返回 nil。
+func (m *RuntimeManagerImpl) GetExecutor(accountID uint) *RuntimeExecutor {
+	m.mu.RLock()
+	rt, ok := m.runtimes[accountID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	state := rt.GetState().State
+	if state == telegramclient.RuntimeStateLive ||
+		state == telegramclient.RuntimeStateSyncing ||
+		state == telegramclient.RuntimeStateConnecting {
+		return rt.executor
+	}
+	return nil
 }
 
 // StopAll 停止所有运行时。

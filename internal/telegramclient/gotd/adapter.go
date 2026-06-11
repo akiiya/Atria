@@ -21,7 +21,8 @@ type Adapter struct {
 	flowStore  mtproto.FlowStore
 	logger     *slog.Logger
 	dialFunc   dcs.DialFunc
-	gate       *AccountGate // per-account 执行锁，可选
+	gate       *AccountGate        // per-account 执行锁，用于 fallback
+	runtime    *RuntimeManagerImpl // runtime manager，用于 execution queue
 }
 
 // NewAdapter 创建 gotd adapter。
@@ -39,10 +40,15 @@ func (a *Adapter) SetDialer(fn dcs.DialFunc) {
 	a.dialFunc = fn
 }
 
-// SetGate 设置 per-account 执行锁。
-// 设置后，所有 API 调用会先获取对应 account 的锁，防止与 runtime 并发。
+// SetGate 设置 per-account 执行锁（用于 fallback）。
 func (a *Adapter) SetGate(gate *AccountGate) {
 	a.gate = gate
+}
+
+// SetRuntime 设置 runtime manager。
+// 设置后，API 调用优先通过 runtime execution queue 执行。
+func (a *Adapter) SetRuntime(rm *RuntimeManagerImpl) {
+	a.runtime = rm
 }
 
 // acquireGate 获取指定 account 的执行锁。
@@ -55,10 +61,68 @@ func (a *Adapter) acquireGate(accountID uint) func() {
 	return func() { a.gate.Unlock(accountID) }
 }
 
+// getExecutor 获取指定 account 的 runtime executor。
+// 如果 runtime 未设置或 account 未启动，返回 nil。
+func (a *Adapter) getExecutor(accountID uint) *RuntimeExecutor {
+	if a.runtime == nil {
+		return nil
+	}
+	return a.runtime.GetExecutor(accountID)
+}
+
 // ListDialogs 获取会话列表。
+// 优先通过 runtime execution queue 执行，fallback 到临时 client。
 func (a *Adapter) ListDialogs(ctx context.Context, req telegramclient.ListDialogsRequest) (telegramclient.DialogsPage, error) {
+	// 尝试通过 runtime executor 执行
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		var dialogs []telegramclient.Dialog
+		err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+			result, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+				Limit:      req.Limit,
+				OffsetPeer: &tg.InputPeerEmpty{},
+			})
+			if err != nil {
+				return err
+			}
+
+			switch d := result.(type) {
+			case *tg.MessagesDialogs:
+				for _, dialog := range d.Dialogs {
+					dlg := mapDialog(dialog, d.Messages, d.Users, d.Chats)
+					if dlg != nil {
+						dialogs = append(dialogs, *dlg)
+					}
+				}
+			case *tg.MessagesDialogsSlice:
+				for _, dialog := range d.Dialogs {
+					dlg := mapDialog(dialog, d.Messages, d.Users, d.Chats)
+					if dlg != nil {
+						dialogs = append(dialogs, *dlg)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return telegramclient.DialogsPage{}, classifyError(err)
+		}
+		return telegramclient.DialogsPage{
+			Source:  telegramclient.DataSourceTelegram,
+			Stale:   false,
+			Dialogs: dialogs,
+		}, nil
+	}
+
+	// Fallback: 临时 client + AccountGate
+	return a.listDialogsFallback(ctx, req)
+}
+
+// listDialogsFallback 使用临时 client 获取会话列表（runtime 不可用时的 fallback）。
+func (a *Adapter) listDialogsFallback(ctx context.Context, req telegramclient.ListDialogsRequest) (telegramclient.DialogsPage, error) {
 	unlock := a.acquireGate(req.AccountID)
 	defer unlock()
+
+	a.logger.Debug("使用临时 client fallback", "operation", "list_dialogs", "account_id", req.AccountID)
 
 	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
 	if a.dialFunc != nil {
@@ -105,14 +169,57 @@ func (a *Adapter) ListDialogs(ctx context.Context, req telegramclient.ListDialog
 }
 
 // GetRecentMessages 获取最近消息。
+// 优先通过 runtime execution queue 执行，fallback 到临时 client。
 func (a *Adapter) GetRecentMessages(ctx context.Context, req telegramclient.GetRecentMessagesRequest) (telegramclient.MessagesPage, error) {
-	unlock := a.acquireGate(req.AccountID)
-	defer unlock()
-
 	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
 	if inputPeer == nil {
 		return telegramclient.MessagesPage{}, telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
 	}
+
+	// 尝试通过 runtime executor 执行
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		return a.getRecentMessagesViaExecutor(ctx, executor, inputPeer, req)
+	}
+
+	// Fallback: 临时 client + AccountGate
+	return a.getRecentMessagesFallback(ctx, inputPeer, req)
+}
+
+func (a *Adapter) getRecentMessagesViaExecutor(ctx context.Context, executor *RuntimeExecutor, inputPeer tg.InputPeerClass, req telegramclient.GetRecentMessagesRequest) (telegramclient.MessagesPage, error) {
+	var messages []telegramclient.Message
+	err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+			Peer:  inputPeer,
+			Limit: req.Limit,
+		})
+		if err != nil {
+			return err
+		}
+		messages = mapMessages(result)
+		return nil
+	})
+	if err != nil {
+		return telegramclient.MessagesPage{}, classifyError(err)
+	}
+
+	page := telegramclient.MessagesPage{
+		Source:   telegramclient.DataSourceTelegram,
+		Stale:    false,
+		Messages: messages,
+	}
+	if len(messages) > 0 {
+		page.OldestMessageID = int64(messages[0].TelegramMessageID)
+		page.NewestMessageID = int64(messages[len(messages)-1].TelegramMessageID)
+		page.HasOlder = len(messages) >= req.Limit
+	}
+	return page, nil
+}
+
+func (a *Adapter) getRecentMessagesFallback(ctx context.Context, inputPeer tg.InputPeerClass, req telegramclient.GetRecentMessagesRequest) (telegramclient.MessagesPage, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	a.logger.Debug("使用临时 client fallback", "operation", "get_recent_messages", "account_id", req.AccountID)
 
 	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
 	if a.dialFunc != nil {
@@ -149,14 +256,58 @@ func (a *Adapter) GetRecentMessages(ctx context.Context, req telegramclient.GetR
 }
 
 // LoadOlderMessages 加载更早的消息。
+// 优先通过 runtime execution queue 执行，fallback 到临时 client。
 func (a *Adapter) LoadOlderMessages(ctx context.Context, req telegramclient.LoadOlderMessagesRequest) (telegramclient.MessagesPage, error) {
-	unlock := a.acquireGate(req.AccountID)
-	defer unlock()
-
 	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
 	if inputPeer == nil {
 		return telegramclient.MessagesPage{}, telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
 	}
+
+	// 尝试通过 runtime executor 执行
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		return a.loadOlderMessagesViaExecutor(ctx, executor, inputPeer, req)
+	}
+
+	// Fallback: 临时 client + AccountGate
+	return a.loadOlderMessagesFallback(ctx, inputPeer, req)
+}
+
+func (a *Adapter) loadOlderMessagesViaExecutor(ctx context.Context, executor *RuntimeExecutor, inputPeer tg.InputPeerClass, req telegramclient.LoadOlderMessagesRequest) (telegramclient.MessagesPage, error) {
+	var messages []telegramclient.Message
+	err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+			Peer:     inputPeer,
+			OffsetID: int(req.BeforeMessageID),
+			Limit:    req.Limit,
+		})
+		if err != nil {
+			return err
+		}
+		messages = mapMessages(result)
+		return nil
+	})
+	if err != nil {
+		return telegramclient.MessagesPage{}, classifyError(err)
+	}
+
+	page := telegramclient.MessagesPage{
+		Source:   telegramclient.DataSourceTelegram,
+		Stale:    false,
+		Messages: messages,
+	}
+	if len(messages) > 0 {
+		page.OldestMessageID = int64(messages[0].TelegramMessageID)
+		page.NewestMessageID = int64(messages[len(messages)-1].TelegramMessageID)
+		page.HasOlder = len(messages) >= req.Limit
+	}
+	return page, nil
+}
+
+func (a *Adapter) loadOlderMessagesFallback(ctx context.Context, inputPeer tg.InputPeerClass, req telegramclient.LoadOlderMessagesRequest) (telegramclient.MessagesPage, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	a.logger.Debug("使用临时 client fallback", "operation", "load_older_messages", "account_id", req.AccountID)
 
 	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
 	if a.dialFunc != nil {
@@ -194,14 +345,68 @@ func (a *Adapter) LoadOlderMessages(ctx context.Context, req telegramclient.Load
 }
 
 // SendText 发送文本消息。
+// 优先通过 runtime execution queue 执行，fallback 到临时 client。
 func (a *Adapter) SendText(ctx context.Context, req telegramclient.SendTextRequest) (telegramclient.SendResult, error) {
-	unlock := a.acquireGate(req.AccountID)
-	defer unlock()
-
 	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
 	if inputPeer == nil {
 		return telegramclient.SendResult{}, telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
 	}
+
+	// 尝试通过 runtime executor 执行
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		return a.sendTextViaExecutor(ctx, executor, inputPeer, req)
+	}
+
+	// Fallback: 临时 client + AccountGate
+	return a.sendTextFallback(ctx, inputPeer, req)
+}
+
+func (a *Adapter) sendTextViaExecutor(ctx context.Context, executor *RuntimeExecutor, inputPeer tg.InputPeerClass, req telegramclient.SendTextRequest) (telegramclient.SendResult, error) {
+	var result telegramclient.SendResult
+	err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+		apiResult, err := api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
+			Peer:     inputPeer,
+			Message:  req.Text,
+			RandomID: req.ClientRandomID,
+		})
+		if err != nil {
+			return err
+		}
+
+		msgID := 0
+		switch r := apiResult.(type) {
+		case *tg.Updates:
+			for _, update := range r.Updates {
+				if u, ok := update.(*tg.UpdateNewMessage); ok {
+					if m, ok := u.Message.(*tg.Message); ok {
+						msgID = m.ID
+					}
+				}
+			}
+		case *tg.UpdateShortSentMessage:
+			msgID = r.ID
+		}
+
+		result = telegramclient.SendResult{
+			MessageID: msgID,
+			SentAt:    time.Now(),
+			Status:    "sent",
+			Direction: "out",
+			Text:      req.Text,
+		}
+		return nil
+	})
+	if err != nil {
+		return telegramclient.SendResult{}, classifyError(err)
+	}
+	return result, nil
+}
+
+func (a *Adapter) sendTextFallback(ctx context.Context, inputPeer tg.InputPeerClass, req telegramclient.SendTextRequest) (telegramclient.SendResult, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	a.logger.Debug("使用临时 client fallback", "operation", "send_text", "account_id", req.AccountID)
 
 	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
 	if a.dialFunc != nil {
@@ -245,7 +450,6 @@ func (a *Adapter) SendText(ctx context.Context, req telegramclient.SendTextReque
 	if err != nil {
 		return telegramclient.SendResult{}, classifyError(err)
 	}
-
 	return result, nil
 }
 

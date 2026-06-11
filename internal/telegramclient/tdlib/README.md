@@ -99,3 +99,13 @@ TDLib runtime 也需要使用 `AccountGate` 防止 REST 和 Runtime 并发：
 - TDLib runtime 启动时持有 gate lock
 - REST adapter 执行前获取 gate lock
 - 可以直接复用现有 `AccountGate` 实现
+
+### Runtime Execution Queue
+
+TDLib runtime 也需要提供 execution queue：
+- TDLib adapter 的 `ListDialogs`/`GetRecentMessages`/`SendText` 应通过 runtime executor 执行
+- executor 串行执行 API 调用，避免 TDLib API 并发不确定性
+- runtime stopped 时 fallback 到临时 client + AccountGate
+- `RuntimeExecutor` 的设计可以复用，但 `ExecuteFunc` 签名需要适配 TDLib API 类型
+- gotd 的 `ExecuteFunc` 使用 `*tg.Client`，TDLib 的应使用 TDLib 对应的 client 类型
+- 所有 `ExecuteFunc` 签名只在各自包内可见，不暴露到 `telegramclient` 中立包
