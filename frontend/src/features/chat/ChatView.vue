@@ -16,14 +16,21 @@ const chat = useChatStore()
 const account = useAccountStore()
 
 const { data: dialogsData, isLoading, error, refetch } = useQuery({
-  queryKey: ['dialogs'],
+  queryKey: computed(() => ['dialogs', account.currentAccountId]),
   queryFn: () => fetchDialogs(30),
+  enabled: computed(() => !!account.currentAccountId),
   retry: 1,
   staleTime: 30_000,
 })
 
 // Use computed to reactively derive dialogs from query data
 const dialogs = computed(() => dialogsData.value?.dialogs || [])
+
+// Find the currently selected dialog for title display
+const selectedDialog = computed(() => {
+  if (!chat.selectedPeerRef) return null
+  return dialogs.value.find(d => d.peer_ref === chat.selectedPeerRef) || null
+})
 
 // Sync selectedPeerRef from route params
 const routePeerRef = computed(() => route.params.peerRef as string | undefined)
@@ -75,7 +82,13 @@ const noAccount = computed(() => !account.currentAccountId)
     </div>
 
     <div class="chat-main" :class="{ 'mobile-hidden': !chat.selectedPeerRef }">
-      <MessagePanel v-if="chat.selectedPeerRef" :peer-ref="chat.selectedPeerRef" :key="chat.selectedPeerRef" />
+      <MessagePanel
+        v-if="chat.selectedPeerRef && account.currentAccountId"
+        :peer-ref="chat.selectedPeerRef"
+        :account-id="account.currentAccountId"
+        :dialog-title="selectedDialog?.title || ''"
+        :key="chat.selectedPeerRef"
+      />
       <div v-else class="chat-main-empty">
         <EmptyState
           icon="💬"

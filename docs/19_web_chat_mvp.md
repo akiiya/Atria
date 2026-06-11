@@ -52,6 +52,44 @@ proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 - 不记录 proxy_password
 - 不记录 session path
 
+## 缓存策略
+
+### 两层缓存架构
+
+1. **后端 SQLite 缓存**：持久化保存最近会话和消息，重启后仍能秒开
+2. **前端 TanStack Query 缓存**：页面内切换会话更流畅，避免重复请求
+
+### ChatPeerCache（会话缓存）
+
+- 存储 peer 信息（peer_ref、peer_type、peer_id、加密 access_hash、title、username）
+- 存储会话元信息（last_message_preview、last_message_at、unread_count、is_pinned、is_muted）
+- 按 account_id 隔离，不返回其它账号缓存
+- access_hash 使用 AES-256-GCM 加密，不返回前端明文
+
+### ChatMessageCache（消息缓存）
+
+- 按 `account_id + peer_ref + telegram_message_id` 唯一索引
+- 消息正文（text、caption）使用 AES-256-GCM 加密存储
+- 每个 peer 最多缓存 100 条最近消息
+- 不做全量历史扫描
+- 不做自动后台同步
+- 不做浏览器长期正文缓存（IndexedDB/localStorage）
+
+### Cache-first 加载流程
+
+1. 用户进入聊天页，前端请求 `/api/chats/dialogs`
+2. 后端先读 `chat_peer_cache` 表，立即返回缓存（source=cache, stale=true）
+3. 后台异步刷新 Telegram，成功后更新缓存
+4. Telegram 刷新失败时保留缓存数据，返回 stale=true
+5. 前端 TanStack Query staleTime=30s，避免重复请求
+
+### 消息缓存加密
+
+- 存储时：`crypto.EncryptString(key, text, "atria:msg:v1")`
+- 读取时：`crypto.DecryptString(key, encrypted, "atria:msg:v1")`
+- 密钥来自 secret.key，与 api_hash 加密共用同一密钥
+- 不在日志中记录完整消息正文
+
 ## 路由
 
 | 路由 | 方法 | 说明 |

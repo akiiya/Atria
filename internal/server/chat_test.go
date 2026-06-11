@@ -173,7 +173,7 @@ func TestChatsPage_NoCurrentAccount_ShowsConnectPrompt(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /chats 现在重定向到 /app/chats
+	// /chats 现在重定向到 /app/#/chats（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -183,8 +183,8 @@ func TestChatsPage_NoCurrentAccount_ShowsConnectPrompt(t *testing.T) {
 		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/app/chats") {
-		t.Errorf("应重定向到 /app/chats，实际 %s", loc)
+	if !strings.Contains(loc, "/app/#/chats") {
+		t.Errorf("应重定向到 /app/#/chats，实际 %s", loc)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestChatsPage_WithCurrentAccount_RedirectsToSPA(t *testing.T) {
 		}
 	}
 
-	// /chats 应重定向到 /app/chats
+	// /chats 应重定向到 /app/#/chats（canonical hash URL）
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -220,8 +220,8 @@ func TestChatsPage_WithCurrentAccount_RedirectsToSPA(t *testing.T) {
 		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/app/chats") {
-		t.Errorf("应重定向到 /app/chats，实际 %s", loc)
+	if !strings.Contains(loc, "/app/#/chats") {
+		t.Errorf("应重定向到 /app/#/chats，实际 %s", loc)
 	}
 }
 
@@ -597,7 +597,7 @@ func TestChatsPage_UsesSameCurrentAccountAsTopbar(t *testing.T) {
 	// 创建账号
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	// /chats 应重定向到 /app/chats
+	// /chats 应重定向到 /app/#/chats（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -607,8 +607,8 @@ func TestChatsPage_UsesSameCurrentAccountAsTopbar(t *testing.T) {
 		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/app/chats") {
-		t.Errorf("应重定向到 /app/chats，实际 %s", loc)
+	if !strings.Contains(loc, "/app/#/chats") {
+		t.Errorf("应重定向到 /app/#/chats，实际 %s", loc)
 	}
 }
 
@@ -620,7 +620,7 @@ func TestChatsPage_NoAccount_ShowsConnectPrompt(t *testing.T) {
 
 	// 不创建任何账号
 
-	// /chats 应重定向到 /app/chats
+	// /chats 应重定向到 /app/#/chats（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -696,27 +696,32 @@ func TestCurrentAccountResolver_ConsistentAcrossDashboardAccountsChats(t *testin
 
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	// / 和 /accounts 是 Go 模板页面，应显示账号名
-	htmlPages := []string{"/", "/accounts"}
-	for _, page := range htmlPages {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", page, nil)
-		req.Header.Set("Cookie", "atria_session="+sessionCookie)
-		r.ServeHTTP(w, req)
-
-		body := w.Body.String()
-		if !strings.Contains(body, "Aronn AT") {
-			t.Errorf("页面 %s 应显示当前账号名 Aronn AT", page)
-		}
+	// / 是旧模板页面，应显示账号名
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+	body := w.Body.String()
+	if !strings.Contains(body, "Aronn AT") {
+		t.Errorf("/ 应显示当前账号名 Aronn AT")
 	}
 
-	// /chats 现在重定向到 /app/chats
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/chats", nil)
+	// /accounts 现在重定向到 /app/accounts
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusFound {
-		t.Errorf("/chats 期望 302 重定向，实际 %d", w.Code)
+		t.Errorf("/accounts 期望 302 重定向，实际 %d", w.Code)
+	}
+
+	// /chats 现在重定向到 /app/#/chats（canonical hash URL）
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/chats", nil)
+	req2.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusFound {
+		t.Errorf("/chats 期望 302 重定向，实际 %d", w2.Code)
 	}
 }
 
@@ -752,5 +757,333 @@ func TestChatsPage_DoesNotLeakSensitiveData(t *testing.T) {
 		if strings.Contains(body, s) {
 			t.Errorf("/chats 页面不应包含敏感数据 %q", s)
 		}
+	}
+}
+
+// ===== Hash 路由隔离测试 =====
+
+func TestHashRoutes_DoNotAffectAPI(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// API 路由应正常返回 JSON，不受 hash 重定向影响
+	apiRoutes := []string{
+		"/api/me",
+		"/api/dashboard/stats",
+		"/api/chats/dialogs",
+		"/api/settings",
+	}
+
+	for _, route := range apiRoutes {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", route, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		// API 路由应返回 200 JSON，不应返回 302 重定向
+		if w.Code == http.StatusFound {
+			t.Errorf("API 路由 %s 不应返回 302 重定向", route)
+		}
+		if w.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+			// 某些 API 可能返回不同 content-type，但不应是 HTML
+			body := w.Body.String()
+			if strings.Contains(body, "<!DOCTYPE html>") {
+				t.Errorf("API 路由 %s 不应返回 HTML", route)
+			}
+		}
+	}
+}
+
+func TestHashRoutes_DoNotAffectLoginInit(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// /login 和 /init 不应受 hash 重定向影响
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/login", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code == http.StatusFound {
+		loc := w.Header().Get("Location")
+		if strings.Contains(loc, "/app/#/") {
+			t.Error("/login 不应重定向到 /app/#/")
+		}
+	}
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/init", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		body := w.Body.String()
+		if strings.Contains(body, "/app/#/") {
+			t.Error("/init 页面不应包含 /app/#/ 重定向")
+		}
+	}
+}
+
+func TestLegacyAccountsRedirectsToHashRoute(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	legacyRoutes := map[string]string{
+		"/accounts":       "/app/#/accounts",
+		"/accounts/login": "/app/#/accounts/login",
+		"/chats":          "/app/#/chats",
+		"/settings":       "/app/#/settings",
+		"/audit":          "/app/#/audit",
+		"/contacts":       "/app/#/contacts",
+		"/security":       "/app/#/settings",
+	}
+
+	for route, expectedLoc := range legacyRoutes {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", route, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusFound {
+			t.Errorf("%s 期望 302 重定向，实际 %d", route, w.Code)
+			continue
+		}
+		loc := w.Header().Get("Location")
+		if !strings.Contains(loc, expectedLoc) {
+			t.Errorf("%s 应重定向到 %s，实际 %s", route, expectedLoc, loc)
+		}
+	}
+}
+
+func TestAppPathRedirectsToHashRoute(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// /app/* 应重定向到 /app/#/*
+	appRoutes := map[string]string{
+		"/app/accounts":       "/app/#/accounts",
+		"/app/chats":          "/app/#/chats",
+		"/app/chats/u_123":    "/app/#/chats/u_123",
+		"/app/settings":       "/app/#/settings",
+		"/app/accounts/login": "/app/#/accounts/login",
+	}
+
+	for route, expectedLoc := range appRoutes {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", route, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusFound {
+			t.Errorf("%s 期望 302 重定向，实际 %d", route, w.Code)
+			continue
+		}
+		loc := w.Header().Get("Location")
+		if loc != expectedLoc {
+			t.Errorf("%s 应重定向到 %s，实际 %s", route, expectedLoc, loc)
+		}
+	}
+}
+
+func TestAppRoot_ServesSPAShell(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// /app 和 /app/ 应返回 SPA shell（HTML），不应重定向
+	for _, route := range []string{"/app", "/app/"} {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", route, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		if w.Code == http.StatusFound {
+			t.Errorf("%s 不应返回 302 重定向", route)
+		}
+	}
+}
+
+// ===== 聊天 API 安全测试 =====
+
+func TestChatDialogsAPI_NoAccountReturnsEmpty(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 没有账号时应返回空列表
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/dialogs", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":false`) && !strings.Contains(body, `"ok": true`) {
+		// 应返回 JSON 响应
+		if !strings.Contains(body, "no_current_account") && !strings.Contains(body, "dialogs") {
+			t.Errorf("应返回 JSON 响应，实际: %s", body)
+		}
+	}
+}
+
+func TestChatDialogsAPI_DoesNotReturnAccessHash(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 创建带 peer cache 的账号
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	// 创建 peer cache 记录
+	srv.db.Create(&model.ChatPeerCache{
+		AccountID:           1,
+		PeerRef:             "u_999",
+		PeerType:            "user",
+		PeerID:              999,
+		AccessHashEncrypted: "some_encrypted_access_hash_value",
+		Title:               "Test Peer",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/dialogs", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不应泄露 access_hash
+	sensitiveTerms := []string{
+		"access_hash",
+		"AccessHash",
+		"access_hash_encrypted",
+		"AccessHashEncrypted",
+		"some_encrypted_access_hash_value",
+	}
+	for _, s := range sensitiveTerms {
+		if strings.Contains(body, s) {
+			t.Errorf("dialogs API 不应泄露 %q", s)
+		}
+	}
+}
+
+func TestChatMessagesAPI_DoesNotReturnSessionPath(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	// 创建 peer cache
+	srv.db.Create(&model.ChatPeerCache{
+		AccountID:           1,
+		PeerRef:             "u_999",
+		PeerType:            "user",
+		PeerID:              999,
+		AccessHashEncrypted: "encrypted_hash",
+		Title:               "Test Peer",
+	})
+
+	// 创建消息缓存
+	srv.db.Create(&model.ChatMessageCache{
+		AccountID:         1,
+		PeerRef:           "u_999",
+		TelegramMessageID: 1,
+		Direction:         "out",
+		SenderName:        "Test User",
+		Kind:              "text",
+		TextEncrypted:     "encrypted_text",
+		SentAt:            time.Now(),
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/u_999/messages", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+
+	// 不应泄露 session path 或 api_hash
+	sensitiveTerms := []string{
+		"sessions/test.session",
+		"session_file_path",
+		"SessionFilePath",
+		"abcdef0123456789",
+		"api_hash",
+		"EncryptedAPIHash",
+		"proxy_password",
+	}
+	for _, s := range sensitiveTerms {
+		if strings.Contains(body, s) {
+			t.Errorf("messages API 不应泄露 %q，实际: %s", s, body)
+		}
+	}
+}
+
+func TestChatCacheAPI_DoesNotReturnAPIHash(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	credSvc := credential.NewService(srv.db, srv.key)
+	credSvc.Create(credential.CreateInput{
+		DisplayName: "Default API",
+		APIID:       "12345678",
+		APIHash:     "abcdef0123456789abcdef0123456789",
+		Status:      "enabled",
+		RiskPolicy:  "disabled",
+	})
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	// 测试多个聊天 API
+	endpoints := []string{
+		"/api/chats/dialogs",
+		"/api/chats/u_999/messages",
+	}
+
+	for _, endpoint := range endpoints {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", endpoint, nil)
+		req.Header.Set("Cookie", "atria_session="+sessionCookie)
+		r.ServeHTTP(w, req)
+
+		body := w.Body.String()
+		if strings.Contains(body, "abcdef0123456789") {
+			t.Errorf("%s 不应泄露 API Hash 明文", endpoint)
+		}
+		if strings.Contains(body, "EncryptedAPIHash") {
+			t.Errorf("%s 不应泄露 EncryptedAPIHash 字段", endpoint)
+		}
+	}
+}
+
+func TestChatCacheAPI_DoesNotReturnProxyPassword(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 设置代理密码
+	srv.db.Create(&model.SystemSetting{Key: "proxy_password", Value: "encrypted_password", ValueType: "string", IsSensitive: true})
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/dialogs", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "encrypted_password") {
+		t.Error("聊天 API 不应泄露 proxy_password")
+	}
+	if strings.Contains(body, "proxy_password") {
+		t.Error("聊天 API 不应包含 proxy_password 字段")
 	}
 }

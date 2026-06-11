@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
@@ -32,5 +33,10 @@ export default defineConfig({
       '/logout': 'http://127.0.0.1:8080',
       '/healthz': 'http://127.0.0.1:8080',
     },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{js,ts}'],
   },
 })

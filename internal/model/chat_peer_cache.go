@@ -16,6 +16,8 @@ type ChatPeerCache struct {
 	LastMessagePreview  string     `gorm:"size:256" json:"last_message_preview"`
 	LastMessageAt       *time.Time `json:"last_message_at"`
 	UnreadCount         int        `gorm:"not null;default:0" json:"unread_count"`
+	IsPinned            bool       `gorm:"not null;default:false" json:"is_pinned,omitempty"`
+	IsMuted             bool       `gorm:"not null;default:false" json:"is_muted,omitempty"`
 	CreatedAt           time.Time  `gorm:"not null" json:"created_at"`
 	UpdatedAt           time.Time  `gorm:"not null" json:"updated_at"`
 }

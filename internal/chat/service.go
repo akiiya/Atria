@@ -396,6 +396,8 @@ func (s *ChatService) listDialogsFromCache(accountID uint, limit int) []Dialog {
 			AvatarPlaceholder:  getInitial(p.Title),
 			LastMessagePreview: p.LastMessagePreview,
 			UnreadCount:        p.UnreadCount,
+			IsPinned:           p.IsPinned,
+			IsMuted:            p.IsMuted,
 		}
 		if p.LastMessageAt != nil {
 			dlg.LastMessageAt = *p.LastMessageAt
@@ -758,8 +760,8 @@ func (s *ChatService) convertAndCacheDialog(accountID uint, dialog tg.DialogClas
 		}
 	}
 
-	// 缓存 peer 信息
-	s.upsertPeerCache(accountID, peerRef, peerType, peerID, accessHash, dlg.Title, dlg.Username)
+	// 缓存 peer 信息（Muted 状态需要从 NotifySettings 获取，此处暂不处理）
+	s.upsertPeerCache(accountID, peerRef, peerType, peerID, accessHash, dlg.Title, dlg.Username, d.Pinned, false)
 
 	for _, msg := range messages {
 		if m, ok := msg.(*tg.Message); ok && m.ID == d.TopMessage {
@@ -778,7 +780,7 @@ func (s *ChatService) convertAndCacheDialog(accountID uint, dialog tg.DialogClas
 }
 
 // upsertPeerCache 创建或更新 peer 缓存。
-func (s *ChatService) upsertPeerCache(accountID uint, peerRef string, peerType PeerType, peerID int64, accessHash int64, title, username string) {
+func (s *ChatService) upsertPeerCache(accountID uint, peerRef string, peerType PeerType, peerID int64, accessHash int64, title, username string, isPinned bool, muted bool) {
 	// chat 类型不需要 access_hash
 	var encryptedHash string
 	if peerType == PeerTypeUser || peerType == PeerTypeChannel {
@@ -802,6 +804,8 @@ func (s *ChatService) upsertPeerCache(accountID uint, peerRef string, peerType P
 		AccessHashEncrypted: encryptedHash,
 		Title:               title,
 		Username:            username,
+		IsPinned:            isPinned,
+		IsMuted:             muted,
 	}
 
 	// Upsert: 先尝试更新，不存在则创建
@@ -814,6 +818,8 @@ func (s *ChatService) upsertPeerCache(accountID uint, peerRef string, peerType P
 			"access_hash_encrypted": encryptedHash,
 			"title":                 title,
 			"username":              username,
+			"is_pinned":             isPinned,
+			"is_muted":              muted,
 		})
 	}
 }

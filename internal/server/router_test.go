@@ -415,8 +415,8 @@ func TestRouter_LoggedIn_GetSettings_Returns200(t *testing.T) {
 		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/app/settings" {
-		t.Errorf("期望重定向到 /app/settings，实际=%s", loc)
+	if loc != "/app/#/settings" {
+		t.Errorf("期望重定向到 /app/#/settings，实际=%s", loc)
 	}
 }
 
@@ -1364,7 +1364,7 @@ func TestRouter_AccountLogin_WithDefaultCredential_ShowsPhoneInput(t *testing.T)
 		RiskPolicy:  "disabled",
 	})
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -1374,8 +1374,8 @@ func TestRouter_AccountLogin_WithDefaultCredential_ShowsPhoneInput(t *testing.T)
 		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/app/accounts/login" {
-		t.Errorf("期望重定向到 /app/accounts/login，实际=%s", loc)
+	if loc != "/app/#/accounts/login" {
+		t.Errorf("期望重定向到 /app/#/accounts/login，实际=%s", loc)
 	}
 }
 
@@ -1385,7 +1385,7 @@ func TestRouter_AccountLogin_WithoutDefaultCredential_ShowsConfigGuide(t *testin
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -1628,7 +1628,7 @@ func TestSettings_SaveSystemAPIKey_ThenAccountLoginShowsPhoneForm(t *testing.T) 
 	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -1638,8 +1638,8 @@ func TestSettings_SaveSystemAPIKey_ThenAccountLoginShowsPhoneForm(t *testing.T) 
 		t.Errorf("期望 302 重定向，实际=%d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/app/accounts/login" {
-		t.Errorf("期望重定向到 /app/accounts/login，实际=%s", loc)
+	if loc != "/app/#/accounts/login" {
+		t.Errorf("期望重定向到 /app/#/accounts/login，实际=%s", loc)
 	}
 
 	// API Key 测试：检查数据库中已保存
@@ -1669,7 +1669,7 @@ func TestAccountLoginPage_HasCSRFMetaForAsyncRequests(t *testing.T) {
 		RiskPolicy:  "disabled",
 	})
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -1686,7 +1686,7 @@ func TestAccountLoginPage_StartButtonUsesAsync(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -1934,7 +1934,7 @@ func TestLoginButtonsHaveLoadingText(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -1951,7 +1951,7 @@ func TestLoginJSRegistered(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -2225,7 +2225,7 @@ func TestCodeStep_HasFlowIDHolder(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -2242,7 +2242,7 @@ func TestLoginJS_CodeSubmitHasLoadingText(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -2259,7 +2259,7 @@ func TestLoginJS_NoFullPageFormPostForCode(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// /accounts/login 现在重定向到 /app/accounts/login
+	// /accounts/login 现在重定向到 /app/#/accounts/login（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/accounts/login", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)

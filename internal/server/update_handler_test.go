@@ -245,7 +245,7 @@ func TestUpdateHandler_PostApply_WithConfirm_CallsService(t *testing.T) {
 func TestUpdateHandler_GetSettings_DisplaysUpdateStatus(t *testing.T) {
 	_, r, sessionCookie, _ := setupLoggedInServer(t)
 
-	// /settings 现在重定向到 /app/settings
+	// /settings 现在重定向到 /app/#/settings（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
@@ -255,8 +255,8 @@ func TestUpdateHandler_GetSettings_DisplaysUpdateStatus(t *testing.T) {
 		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/app/settings" {
-		t.Errorf("期望重定向到 /app/settings，实际=%s", loc)
+	if loc != "/app/#/settings" {
+		t.Errorf("期望重定向到 /app/#/settings，实际=%s", loc)
 	}
 }
 
