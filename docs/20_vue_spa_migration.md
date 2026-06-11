@@ -11,33 +11,62 @@
 
 ## 路由映射
 
-| 旧路由 | 新路由 | 状态 |
-|--------|--------|------|
+### Canonical URL 规则
+
+所有 SPA 页面 URL 统一为 `/app/#/...` 格式（hash router）：
+
+| 页面 | Canonical URL |
+|------|---------------|
+| Dashboard | `/app/#/dashboard` |
+| 账号列表 | `/app/#/accounts` |
+| 账号接入 | `/app/#/accounts/login` |
+| 账号详情 | `/app/#/accounts/:id` |
+| 聊天 | `/app/#/chats` |
+| 聊天详情 | `/app/#/chats/:peerRef` |
+| 联系人 | `/app/#/contacts` |
+| 审计日志 | `/app/#/audit` |
+| 系统设置 | `/app/#/settings` |
+
+**禁止出现**：`/app/accounts#/dashboard`、`/app/chats#/chats`、`/app/app/...`
+
+### 旧路由重定向表
+
+| 旧路由 | 重定向目标 | 说明 |
+|--------|------------|------|
 | `/` | 无变化 | 保留旧仪表盘（Go Template） |
-| `/accounts` | `/app/accounts` | 重定向到 SPA |
-| `/accounts/login` | `/app/accounts/login` | 重定向到 SPA |
-| `/accounts/:id` | `/app/accounts/:id` | 重定向到 SPA |
-| `/chats` | `/app/chats` | 重定向到 SPA |
-| `/chats/:peer_ref` | `/app/chats/:peerRef` | 重定向到 SPA |
-| `/contacts` | `/app/contacts` | 重定向到 SPA |
-| `/audit` | `/app/audit` | 重定向到 SPA |
-| `/settings` | `/app/settings` | 重定向到 SPA |
-| `/security` | `/app/settings` | 重定向到 SPA |
+| `/accounts` | `/app/#/accounts` | 302 重定向 |
+| `/accounts/login` | `/app/#/accounts/login` | 302 重定向 |
+| `/accounts/:id` | `/app/#/accounts/:id` | 302 重定向 |
+| `/chats` | `/app/#/chats` | 302 重定向 |
+| `/chats/:peer_ref` | `/app/#/chats/:peerRef` | 302 重定向 |
+| `/contacts` | `/app/#/contacts` | 302 重定向 |
+| `/audit` | `/app/#/audit` | 302 重定向 |
+| `/settings` | `/app/#/settings` | 302 重定向 |
+| `/security` | `/app/#/settings` | 302 重定向 |
+| `/app/*` | `/app/#/*` | Go 后端重定向到 canonical hash URL |
+| `/app` | SPA shell | 返回 index.html |
+| `/app/` | SPA shell | 返回 index.html |
 | `/login` | 无变化 | 保留 Go Template |
 | `/init` | 无变化 | 保留 Go Template |
 
-**注意**：`/` 保留旧仪表盘是为了兼容现有测试和用户习惯。如需切换到 SPA，将 `/` 重定向到 `/app/dashboard`。
+### 为什么使用 /app/#/...
 
-## 已迁移页面
+1. Go 后端只需服务 `/app` 和 `/app/` 返回 SPA shell
+2. `/app/*` 的其他路径全部 302 重定向到 `/app/#/*`
+3. 浏览器不发送 hash 部分给后端，所以后端不会误处理 hash 路由
+4. 前端 `main.ts` 有 canonicalization 兜底，防止 history-style URL 直接加载
+5. 所有 Sidebar/Topbar 导航只产生 `/app/#/...` 格式
 
-1. **Dashboard** — `/app/dashboard` — 统计卡片、安全提示、快速开始、系统信息
-2. **Accounts** — `/app/accounts` — 账号列表、Session 状态
-3. **Account Detail** — `/app/accounts/:id` — 账号信息、Session 信息
-4. **Account Login** — `/app/accounts/login` — 手机号→OTP→2FA 全异步流程
-5. **Chats** — `/app/chats` — 会话列表、消息历史、发送消息
-6. **Contacts** — `/app/contacts` — 开发中占位
-7. **Audit** — `/app/audit` — 审计日志列表
-8. **Settings** — `/app/settings` — 管理员安全、API Key、代理、系统信息
+### 已迁移页面
+
+1. **Dashboard** — `/app/#/dashboard` — 统计卡片、安全提示、快速开始、系统信息
+2. **Accounts** — `/app/#/accounts` — 账号列表、Session 状态
+3. **Account Detail** — `/app/#/accounts/:id` — 账号信息、Session 信息
+4. **Account Login** — `/app/#/accounts/login` — 手机号→OTP→2FA 全异步流程
+5. **Chats** — `/app/#/chats` — 会话列表、消息历史、发送消息
+6. **Contacts** — `/app/#/contacts` — 开发中占位
+7. **Audit** — `/app/#/audit` — 审计日志列表
+8. **Settings** — `/app/#/settings` — 管理员安全、API Key、代理、系统信息
 
 ## 样式保持原则
 
@@ -123,7 +152,41 @@ npm run build
 - 使用 `createWebHashHistory('/app/')` 替代 `createWebHistory('/app/')`
 - 最终 URL 格式：`/app/#/dashboard`、`/app/#/chats/u_123`
 - 优势：降低 Go 后端 fallback 复杂度，避免刷新/复制链接/旧路由跳转问题
-- 旧 history URL（如 `/app/chats/u_123`）通过 Go 后端 SPA handler 兼容
+- 旧 history URL（如 `/app/chats/u_123`）通过 Go 后端 302 重定向到 `/app/#/chats/u_123`
+
+## Query Key 规则
+
+### dialogs query key
+
+```
+['dialogs', accountId]
+```
+
+必须包含 `accountId`，确保切换账号时缓存隔离。
+
+### messages query key
+
+```
+['messages', accountId, peerRef]
+```
+
+必须包含 `accountId` 和 `peerRef`，确保：
+- 不同账号的同一 peerRef 不共享缓存
+- 不同 peer 的消息不串数据
+
+### 切换账号处理
+
+- 切换账号时清空 `selectedPeerRef`
+- 跳回 `/app/#/chats`
+- 清理或 scope query cache
+- 不显示旧账号消息
+
+### 直接访问 peer URL
+
+- 从 route.params.peerRef 初始化 selectedPeerRef
+- 加载 dialogs（含 accountId）
+- 加载 messages（含 accountId + peerRef）
+- 失败时显示明确错误，不空白
 
 ## 聊天缓存策略
 

@@ -7,12 +7,12 @@ import MessageList from './MessageList.vue'
 import MessageComposer from './MessageComposer.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 
-const props = defineProps<{ peerRef: string }>()
+const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string }>()
 
 const { data, isLoading, error, refetch } = useQuery({
-  queryKey: computed(() => ['messages', props.peerRef]),
+  queryKey: computed(() => ['messages', props.accountId, props.peerRef]),
   queryFn: () => fetchMessages(props.peerRef, 50),
-  enabled: computed(() => !!props.peerRef),
+  enabled: computed(() => !!props.peerRef && !!props.accountId),
   retry: 1,
   staleTime: 30_000,
 })
@@ -23,7 +23,7 @@ const isStale = computed(() => data.value?.stale || false)
 
 <template>
   <div class="message-panel">
-    <MessageHeader :peer-ref="peerRef" @refresh="refetch()" />
+    <MessageHeader :peer-ref="peerRef" :title="dialogTitle || ''" @refresh="refetch()" />
 
     <div v-if="isLoading && messages.length === 0" class="message-body">
       <div class="message-loading">
@@ -46,7 +46,7 @@ const isStale = computed(() => data.value?.stale || false)
       <MessageList :messages="messages" />
     </div>
 
-    <MessageComposer :peer-ref="peerRef" @sent="refetch()" />
+    <MessageComposer :peer-ref="peerRef" :account-id="accountId" @sent="refetch()" />
   </div>
 </template>
 

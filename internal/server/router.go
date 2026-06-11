@@ -100,7 +100,7 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 
 	// 系统设置 - 重定向到 Vue SPA
 	r.GET("/settings", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/settings")
+		c.Redirect(http.StatusFound, "/app/#/settings")
 	})
 
 	// 修改密码
@@ -205,14 +205,14 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 
 	// ===== 账号路由 =====
 
-	// 账号列表 - 重定向到 Vue SPA
+	// 账号列表 - 重定向到 Vue SPA hash URL
 	r.GET("/accounts", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/accounts")
+		c.Redirect(http.StatusFound, "/app/#/accounts")
 	})
 
-	// 账号登录向导 - 重定向到 Vue SPA
+	// 账号登录向导 - 重定向到 Vue SPA hash URL
 	r.GET("/accounts/login", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/accounts/login")
+		c.Redirect(http.StatusFound, "/app/#/accounts/login")
 	})
 
 	// GET /accounts/login/start 不应返回 CSRF 403，重定向回登录页
@@ -245,10 +245,10 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostAccountLoginPassword(c)
 	})
 
-	// 账号详情 - 重定向到 Vue SPA
+	// 账号详情 - 重定向到 Vue SPA hash URL
 	r.GET("/accounts/:id", authMiddleware, func(c *gin.Context) {
 		id := c.Param("id")
-		c.Redirect(http.StatusFound, "/app/accounts/"+id)
+		c.Redirect(http.StatusFound, "/app/#/accounts/"+id)
 	})
 
 	// 远端 Logout
@@ -295,15 +295,15 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 
 	// ===== 聊天路由（重定向到 Vue SPA） =====
 
-	// 会话列表 - 重定向到 Vue SPA
+	// 会话列表 - 重定向到 Vue SPA hash URL
 	r.GET("/chats", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/chats")
+		c.Redirect(http.StatusFound, "/app/#/chats")
 	})
 
-	// 消息历史 - 重定向到 Vue SPA
+	// 消息历史 - 重定向到 Vue SPA hash URL
 	r.GET("/chats/:peer_ref", authMiddleware, func(c *gin.Context) {
 		peerRef := c.Param("peer_ref")
-		c.Redirect(http.StatusFound, "/app/chats/"+peerRef)
+		c.Redirect(http.StatusFound, "/app/#/chats/"+peerRef)
 	})
 
 	// 发送消息
@@ -396,24 +396,39 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusOK, html)
 	}
+	// /app 本身返回 SPA shell（hash router base）
 	r.GET("/app", authMiddleware, spaHandler)
-	r.GET("/app/*path", authMiddleware, spaHandler)
 
-	// ===== 旧路由重定向到 Vue SPA =====
+	// /app/*path 重定向到 /app/#/path（canonical hash URL）
+	// 例如 /app/accounts -> /app/#/accounts
+	// 例如 /app/chats/u_123 -> /app/#/chats/u_123
+	r.GET("/app/*path", authMiddleware, func(c *gin.Context) {
+		path := c.Param("path")
+		if path == "" || path == "/" {
+			// /app/ 同 /app，返回 SPA shell
+			spaHandler(c)
+			return
+		}
+		// 去掉开头的 /
+		hashPath := strings.TrimPrefix(path, "/")
+		c.Redirect(http.StatusFound, "/app/#/"+hashPath)
+	})
+
+	// ===== 旧路由重定向到 Vue SPA hash URL =====
 
 	// 审计日志 - 重定向到 Vue SPA
 	r.GET("/audit", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/audit")
+		c.Redirect(http.StatusFound, "/app/#/audit")
 	})
 
 	// 联系人 - 重定向到 Vue SPA
 	r.GET("/contacts", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/contacts")
+		c.Redirect(http.StatusFound, "/app/#/contacts")
 	})
 
 	// 安全 - 重定向到 Vue SPA
 	r.GET("/security", authMiddleware, func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/app/settings")
+		c.Redirect(http.StatusFound, "/app/#/settings")
 	})
 
 	// 404 处理

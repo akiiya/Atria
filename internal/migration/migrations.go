@@ -45,6 +45,13 @@ func init() {
 		Description: "创建聊天消息缓存表，用于 cache-first 聊天加载",
 		Run:         migration005CreateChatMessageCache,
 	})
+
+	Register(Migration{
+		Version:     6,
+		Name:        "add_chat_peer_cache_pin_mute",
+		Description: "为 chat_peer_cache 添加 is_pinned 和 is_muted 字段",
+		Run:         migration006AddChatPeerCachePinMute,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -283,5 +290,16 @@ func migration005CreateChatMessageCache(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("创建 chat_message_cache 表失败: %w", err)
 	}
 	slog.Info("迁移 5: chat_message_cache 表创建/更新完成")
+	return nil
+}
+
+// migration006AddChatPeerCachePinMute 为 chat_peer_cache 表添加 is_pinned 和 is_muted 字段。
+// 用于会话列表排序和静音状态显示。
+// 幂等：AutoMigrate 会跳过已存在的列。
+func migration006AddChatPeerCachePinMute(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.ChatPeerCache{}); err != nil {
+		return fmt.Errorf("更新 chat_peer_cache 表失败: %w", err)
+	}
+	slog.Info("迁移 6: chat_peer_cache 表 is_pinned/is_muted 字段添加完成")
 	return nil
 }

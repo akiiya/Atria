@@ -19,5 +19,12 @@ export const useChatStore = defineStore('chat', () => {
     return draftByPeerRef.value[peerRef] || ''
   }
 
-  return { selectedPeerRef, draftByPeerRef, userScrolledUp, selectPeer, saveDraft, getDraft }
+  /** 切换账号时清理聊天状态，防止显示旧账号数据 */
+  function clearForAccountSwitch() {
+    selectedPeerRef.value = null
+    draftByPeerRef.value = {}
+    userScrolledUp.value = false
+  }
+
+  return { selectedPeerRef, draftByPeerRef, userScrolledUp, selectPeer, saveDraft, getDraft, clearForAccountSwitch }
 })

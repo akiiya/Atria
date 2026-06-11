@@ -43,17 +43,18 @@ func TestAppShell_FallbackRoute_Dashboard(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app/dashboard 应重定向到 /app/#/dashboard（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/app/dashboard", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, `id="app"`) {
-		t.Error("/app/dashboard 应返回 Vue shell")
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/dashboard" {
+		t.Errorf("应重定向到 /app/#/dashboard，实际 %s", loc)
 	}
 }
 
@@ -62,17 +63,18 @@ func TestAppShell_FallbackRoute_Chats(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app/chats 应重定向到 /app/#/chats（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/app/chats", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, `id="app"`) {
-		t.Error("/app/chats 应返回 Vue shell")
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/chats" {
+		t.Errorf("应重定向到 /app/#/chats，实际 %s", loc)
 	}
 }
 
@@ -81,17 +83,18 @@ func TestAppShell_FallbackRoute_ChatDetail(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app/chats/test_peer 应重定向到 /app/#/chats/test_peer（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/app/chats/test_peer", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, `id="app"`) {
-		t.Error("/app/chats/test_peer 应返回 Vue shell，不 404")
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/chats/test_peer" {
+		t.Errorf("应重定向到 /app/#/chats/test_peer，实际 %s", loc)
 	}
 }
 
@@ -100,13 +103,18 @@ func TestAppShell_FallbackRoute_Accounts(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app/accounts 应重定向到 /app/#/accounts（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/app/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/accounts" {
+		t.Errorf("应重定向到 /app/#/accounts，实际 %s", loc)
 	}
 }
 
@@ -115,17 +123,18 @@ func TestAppShell_FallbackRoute_AccountDetail(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app/accounts/1 应重定向到 /app/#/accounts/1（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/app/accounts/1", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, `id="app"`) {
-		t.Error("/app/accounts/1 应返回 Vue shell，不 404")
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/accounts/1" {
+		t.Errorf("应重定向到 /app/#/accounts/1，实际 %s", loc)
 	}
 }
 
@@ -134,13 +143,18 @@ func TestAppShell_FallbackRoute_Settings(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app/settings 应重定向到 /app/#/settings（canonical hash URL）
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/app/settings", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际 %d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302 重定向，实际 %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/settings" {
+		t.Errorf("应重定向到 /app/#/settings，实际 %s", loc)
 	}
 }
 
@@ -191,14 +205,14 @@ func TestLegacyRoutesRedirectToApp(t *testing.T) {
 		path     string
 		expected string
 	}{
-		{"/chats", "/app/chats"},
-		{"/chats/test_peer", "/app/chats/test_peer"},
-		{"/accounts", "/app/accounts"},
-		{"/accounts/1", "/app/accounts/1"},
-		{"/accounts/login", "/app/accounts/login"},
-		{"/settings", "/app/settings"},
-		{"/audit", "/app/audit"},
-		{"/contacts", "/app/contacts"},
+		{"/chats", "/app/#/chats"},
+		{"/chats/test_peer", "/app/#/chats/test_peer"},
+		{"/accounts", "/app/#/accounts"},
+		{"/accounts/1", "/app/#/accounts/1"},
+		{"/accounts/login", "/app/#/accounts/login"},
+		{"/settings", "/app/#/settings"},
+		{"/audit", "/app/#/audit"},
+		{"/contacts", "/app/#/contacts"},
 	}
 
 	for _, tt := range tests {

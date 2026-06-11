@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { sendMessage } from '@/api/chat'
 
-const props = defineProps<{ peerRef: string }>()
+const props = defineProps<{ peerRef: string; accountId: number }>()
 const emit = defineEmits<{ sent: [] }>()
 
 const text = ref('')
@@ -16,8 +16,8 @@ const sendMutation = useMutation({
     if (data.ok) {
       text.value = ''
       error.value = ''
-      queryClient.invalidateQueries({ queryKey: ['messages', props.peerRef] })
-      queryClient.invalidateQueries({ queryKey: ['dialogs'] })
+      queryClient.invalidateQueries({ queryKey: ['messages', props.accountId, props.peerRef] })
+      queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
       emit('sent')
     } else {
       error.value = data.error || (typeof data.message === 'string' ? data.message : '') || '发送失败'

@@ -56,14 +56,25 @@
 /* Message panel */
 .message-panel { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .message-header {
-  padding: 12px 16px; border-bottom: 1px solid var(--color-border);
-  display: flex; align-items: center; gap: 12px;
-  background: var(--color-surface); flex-shrink: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-primary);
+  flex-shrink: 0;
+  min-height: 52px;
 }
-.message-header-info { flex: 1; }
-.message-header-title { font-weight: 600; font-size: 15px; }
+.message-header-info { flex: 1; min-width: 0; }
+.message-header-title { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .message-body { flex: 1 1 auto; overflow: hidden; min-height: 0; }
-.message-main-empty { display: flex; align-items: center; justify-content: center; height: 100%; }
+.message-main-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+}
 
 /* Message list */
 .message-scroll-container { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; }
@@ -73,22 +84,28 @@
 
 /* Message bubble */
 .message-bubble {
-  max-width: min(720px, 72%);
-  margin-bottom: 8px;
-  padding: 10px 14px;
-  border-radius: 16px;
+  max-width: min(680px, 72%);
+  margin-bottom: 6px;
+  padding: 8px 12px;
+  border-radius: 18px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.5;
+  font-size: 14px;
+  position: relative;
 }
 .message-bubble.outgoing {
-  margin-left: auto; background: var(--color-primary); color: #fff;
-  border-bottom-right-radius: 4px;
+  margin-left: auto;
+  background: var(--accent-color);
+  color: #fff;
+  border-bottom-right-radius: 6px;
 }
 .message-bubble.incoming {
-  margin-right: auto; background: var(--color-surface); border: 1px solid var(--color-border);
-  border-bottom-left-radius: 4px;
+  margin-right: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-bottom-left-radius: 6px;
 }
 .message-sender { font-size: 12px; font-weight: 600; color: var(--color-primary); margin-bottom: 4px; }
 .message-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
@@ -134,19 +151,43 @@
 
 /* Composer */
 .message-composer {
-  border-top: 1px solid var(--color-border); padding: 12px 16px;
-  background: var(--color-surface); flex-shrink: 0;
+  border-top: 1px solid var(--border-color);
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  flex-shrink: 0;
 }
-.composer-error { color: var(--color-error); font-size: 13px; margin-bottom: 8px; }
-.composer-row { display: flex; gap: 8px; align-items: flex-end; }
+.composer-error {
+  color: var(--color-danger);
+  font-size: 13px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: var(--color-danger-light);
+  border-radius: 6px;
+}
+.composer-row { display: flex; gap: 10px; align-items: flex-end; }
 .composer-input {
-  flex: 1; padding: 10px 14px; border: 1px solid var(--color-border);
-  border-radius: 8px; background: var(--color-bg); color: var(--color-text);
-  font-size: 14px; font-family: var(--font-sans); resize: none;
-  outline: none; min-height: 40px; max-height: 120px;
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  resize: none;
+  outline: none;
+  min-height: 42px;
+  max-height: 120px;
+  line-height: 1.4;
+  transition: border-color 0.15s;
 }
-.composer-input:focus { border-color: var(--color-primary); }
-.composer-send { flex-shrink: 0; min-width: 80px; }
+.composer-input:focus { border-color: var(--accent-color); }
+.composer-send {
+  flex-shrink: 0;
+  min-width: 70px;
+  height: 42px;
+  border-radius: 21px;
+}
 
 /* Mobile */
 @media (max-width: 768px) {

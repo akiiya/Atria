@@ -2,7 +2,7 @@
 import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 
-defineProps<{ peerRef: string }>()
+defineProps<{ peerRef: string; title?: string }>()
 defineEmits<{ refresh: [] }>()
 
 const router = useRouter()
@@ -18,7 +18,7 @@ function goBack() {
   <div class="message-header">
     <button class="btn-back mobile-only" @click="goBack">←</button>
     <div class="message-header-info">
-      <span class="message-header-title">{{ peerRef }}</span>
+      <span class="message-header-title">{{ title || peerRef }}</span>
     </div>
     <button class="btn-icon" @click="$emit('refresh')" title="刷新">↻</button>
   </div>
