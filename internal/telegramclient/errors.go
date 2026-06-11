@@ -23,6 +23,12 @@ const (
 	ErrorCodeNetworkError       ErrorCode = "network_error"
 	ErrorCodeTextEmpty          ErrorCode = "text_empty"
 	ErrorCodeTextTooLong        ErrorCode = "text_too_long"
+
+	// Runtime execution queue 错误码
+	ErrorCodeRuntimeNotReady       ErrorCode = "runtime_not_ready"
+	ErrorCodeRuntimeStopped        ErrorCode = "runtime_stopped"
+	ErrorCodeRuntimeQueueFull      ErrorCode = "runtime_queue_full"
+	ErrorCodeRuntimeExecuteTimeout ErrorCode = "runtime_execute_timeout"
 )
 
 // Error 是中立的 Telegram 客户端错误。

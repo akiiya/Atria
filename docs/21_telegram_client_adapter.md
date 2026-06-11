@@ -149,15 +149,24 @@ ChatService 从数据库获取账号凭据和 peer 缓存，然后通过 adapter
 
 ## REST / Runtime Execution Boundary
 
-REST API 使用临时 gotd adapter（per-request）。Runtime 使用 long-lived gotd client。
+REST API 优先通过 Runtime Execution Queue 执行，使用 runtime 的 long-lived gotd client。
 
-通过 `AccountGate`（per-account sync.Mutex）防止同一 account 的 REST 和 Runtime 并发运行 gotd client。
+```
+REST request → gotd Adapter → runtime executor → runtime client → Telegram
+                                      ↓ (fallback)
+                               temporary client + AccountGate → Telegram
+```
 
-- Runtime 启动时持有 gate lock
-- REST adapter 执行前获取 gate lock
-- 同一 account 不会同时运行多个 gotd client
+- **Runtime live 时**：REST 通过 `RuntimeExecutor.Execute()` 使用 runtime client
+- **Runtime stopped 时**：fallback 到临时 client + `AccountGate` 保护
+- **Queue 串行执行**：避免 gotd API 并发不确定性
+- **Queue 有 buffer**：64 请求，满时返回 `runtime_queue_full`
+- **支持 context cancellation**：超时或取消时返回错误
+- **Panic recover**：executor 捕获 panic 并返回错误
 
-这是过渡方案。后续应改为 runtime execution queue，REST 请求通过 runtime 的 long-lived client 执行。
+`AccountGate` 现在只用于 fallback 场景，不再作为 runtime live 时阻塞 REST 的主方案。
+
+详见 `docs/22_account_runtime_updates.md`。
 
 ## RuntimeManager 作为中立接口
 

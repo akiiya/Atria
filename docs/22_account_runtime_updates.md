@@ -138,10 +138,70 @@ unlock := a.acquireGate(req.AccountID)
 defer unlock()
 ```
 
-**这是过渡方案**。后续应改为 runtime execution queue：
-- REST 请求通过 runtime 的 long-lived client 执行
-- 避免创建临时 client
-- 为 WebSocket 做准备
+**这是过渡方案**。已升级为 Runtime Execution Queue（见下文）。
+
+## Runtime Execution Queue
+
+### 设计
+
+每个 `AccountRuntime` 持有一个 `RuntimeExecutor`，提供串行 execution queue：
+
+```go
+type RuntimeExecutor struct {
+    requestCh chan executeRequest  // buffer 64
+    doneCh    chan struct{}        // 关闭信号
+}
+
+type ExecuteFunc func(ctx context.Context, api *tg.Client) error
+```
+
+### 行为
+
+1. **串行执行**：queue 中的请求按顺序执行，避免 gotd API 并发不确定性
+2. **context cancellation**：支持 context 取消和超时
+3. **timeout**：默认 30s，可通过 context deadline 覆盖
+4. **queue full**：buffer 满时返回 `ErrorCodeRuntimeQueueFull`
+5. **panic recover**：executor 捕获 panic 并返回错误
+6. **stop drain**：runtime 停止时，等待中的请求全部返回 `ErrorCodeRuntimeStopped`
+
+### REST 请求路由
+
+```
+REST request
+→ ChatService
+→ telegramclient.ClientAdapter
+→ gotd Adapter
+→ 检查 runtime executor 是否可用
+  → 可用：通过 executor.Execute() 使用 runtime client
+  → 不可用：fallback 到临时 client + AccountGate
+```
+
+### 状态与 Execute 关系
+
+| Runtime 状态 | Execute 行为 |
+|-------------|-------------|
+| `live` | 通过 executor 执行 |
+| `syncing` | 通过 executor 执行（client API 已 ready） |
+| `connecting` | 通过 executor 执行（等待 ready） |
+| `stopped` | 返回 `runtime_stopped`，adapter fallback |
+| `degraded` | 返回错误，adapter fallback |
+| `offline` | 返回错误，adapter fallback |
+
+### AccountGate 角色调整
+
+- **不再**作为 runtime live 时阻塞 REST 的主方案
+- **只用于** temporary client fallback
+- Runtime executor 自行保证串行
+- Fallback 时仍通过 AccountGate 防止并发
+
+### 新增错误码
+
+| 错误码 | 说明 |
+|--------|------|
+| `runtime_not_ready` | Runtime 未就绪 |
+| `runtime_stopped` | Runtime 已停止 |
+| `runtime_queue_full` | 请求队列已满 |
+| `runtime_execute_timeout` | 执行超时 |
 
 ## Channel Update State 持久化
 
@@ -301,6 +361,25 @@ ChatView 在加载时：
 13. 断网/代理失败时，确认 state 进入 `degraded`/`offline`，且不泄露敏感日志
 
 **注意**：本轮没有 WebSocket，所以"不刷新页面自动出现消息"不要求。但 cache 和 runtime status 必须能证明后端 updates 已工作。
+
+## Runtime Execution Queue 手动验证
+
+1. 启动 `bin/atria.exe serve`
+2. 打开 `/app/#/chats`
+3. 确认 runtime status 进入 `connecting` → `syncing` → `live`
+4. 点击会话，确认 dialogs/messages 正常
+5. 查看日志，确认 REST 请求**不**出现 "使用临时 client fallback"（说明走了 executor）
+6. 发送一条文本消息，确认成功
+7. 向上加载 older，确认成功
+8. 停止 runtime（通过 API 或重启服务）
+9. 再请求 messages，确认出现 "使用临时 client fallback"（说明 fallback 正常）
+10. 重启 runtime，确认 REST 又走 executor
+11. 用官方 Telegram 给该账号发消息，确认 runtime updates 仍能写 cache
+12. 全程不应出现 session 冲突、死锁、长期 pending
+
+**日志关键词**：
+- `runtime_queue`：通过 executor 执行（正常路径）
+- `使用临时 client fallback`：fallback 到临时 client（runtime 不可用时）
 
 ## WebSocket 下一轮
 
