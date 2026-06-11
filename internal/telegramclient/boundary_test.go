@@ -1,0 +1,252 @@
+package telegramclient_test
+
+import (
+	"bufio"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+// projectRoot 返回项目根目录。
+func projectRoot() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "..", "..")
+}
+
+// goFilesInDir 返回目录下的所有 .go 文件路径。
+func goFilesInDir(dir string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
+// fileContainsImport 检查文件是否包含指定的 import 路径。
+func fileContainsImport(filePath, importPath string) (bool, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	inImportBlock := false
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if line == "import (" {
+			inImportBlock = true
+			continue
+		}
+		if inImportBlock && line == ")" {
+			inImportBlock = false
+			continue
+		}
+
+		if inImportBlock && strings.Contains(line, importPath) {
+			return true, nil
+		}
+
+		// 单行 import
+		if strings.HasPrefix(line, "import ") && strings.Contains(line, importPath) {
+			return true, nil
+		}
+	}
+	return false, scanner.Err()
+}
+
+// TestNoGotdImportsInInternalChat 验证 internal/chat 不直接依赖 gotd。
+func TestNoGotdImportsInInternalChat(t *testing.T) {
+	root := projectRoot()
+	chatDir := filepath.Join(root, "internal", "chat")
+
+	files, err := goFilesInDir(chatDir)
+	if err != nil {
+		t.Fatalf("扫描目录失败: %s", err)
+	}
+
+	gotdPackages := []string{
+		"github.com/gotd/td/tg",
+		"github.com/gotd/td/telegram",
+		"github.com/gotd/td/tgerr",
+		"github.com/gotd/td/session",
+		"github.com/gotd/td/telegram/auth",
+		"github.com/gotd/td/telegram/updates",
+	}
+
+	for _, file := range files {
+		for _, pkg := range gotdPackages {
+			found, err := fileContainsImport(file, pkg)
+			if err != nil {
+				t.Errorf("读取文件 %s 失败: %s", file, err)
+				continue
+			}
+			if found {
+				t.Errorf("internal/chat 文件 %s 不应依赖 %s", filepath.Base(file), pkg)
+			}
+		}
+	}
+}
+
+// TestNoGotdImportsInInternalServerChatHandlers 验证 server chat handler 不直接依赖 gotd tg/tgerr。
+func TestNoGotdImportsInInternalServerChatHandlers(t *testing.T) {
+	root := projectRoot()
+	serverDir := filepath.Join(root, "internal", "server")
+
+	chatFiles := []string{
+		filepath.Join(serverDir, "chat_handler.go"),
+		filepath.Join(serverDir, "api_handler.go"),
+	}
+
+	gotdPackages := []string{
+		"github.com/gotd/td/tg",
+		"github.com/gotd/td/tgerr",
+	}
+
+	for _, file := range chatFiles {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			continue
+		}
+		for _, pkg := range gotdPackages {
+			found, err := fileContainsImport(file, pkg)
+			if err != nil {
+				t.Errorf("读取文件 %s 失败: %s", file, err)
+				continue
+			}
+			if found {
+				t.Errorf("server chat handler %s 不应依赖 %s", filepath.Base(file), pkg)
+			}
+		}
+	}
+}
+
+// TestNoGotdTypesInTelegramClientTypes 验证 telegramclient types.go 不包含 gotd 类型引用。
+func TestNoGotdTypesInTelegramClientTypes(t *testing.T) {
+	root := projectRoot()
+	typesFile := filepath.Join(root, "internal", "telegramclient", "types.go")
+
+	content, err := os.ReadFile(typesFile)
+	if err != nil {
+		t.Fatalf("读取 types.go 失败: %s", err)
+	}
+
+	s := string(content)
+	// 检查是否包含 gotd 类型引用（import 或类型使用），注释中的文档引用除外
+	gotdTypeMarkers := []string{
+		"github.com/gotd",
+		"tg.",
+		"telegram.Client",
+	}
+	for _, marker := range gotdTypeMarkers {
+		if strings.Contains(s, marker) {
+			t.Errorf("telegramclient/types.go 不应包含 gotd 类型引用 %q", marker)
+		}
+	}
+}
+
+// TestGotdImportsOnlyInAllowedPackages 验证 gotd import 只在允许的包中出现。
+func TestGotdImportsOnlyInAllowedPackages(t *testing.T) {
+	root := projectRoot()
+
+	// 允许 gotd import 的目录
+	allowedDirs := map[string]bool{
+		filepath.Join(root, "internal", "telegramclient", "gotd"): true,
+		filepath.Join(root, "internal", "mtproto"):                true,
+		filepath.Join(root, "internal", "server"):                 true, // proxy_helper.go 使用 dcs.DialFunc
+	}
+
+	gotdPackages := []string{
+		"github.com/gotd/td/tg",
+		"github.com/gotd/td/telegram",
+		"github.com/gotd/td/tgerr",
+		"github.com/gotd/td/session",
+		"github.com/gotd/td/telegram/auth",
+		"github.com/gotd/td/telegram/updates",
+		"github.com/gotd/td/telegram/dcs",
+	}
+
+	// 扫描所有 internal 目录下的 .go 文件
+	internalDir := filepath.Join(root, "internal")
+	err := filepath.Walk(internalDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		// 检查是否在允许的目录中
+		dir := filepath.Dir(path)
+		if allowedDirs[dir] {
+			return nil
+		}
+
+		for _, pkg := range gotdPackages {
+			found, err := fileContainsImport(path, pkg)
+			if err != nil {
+				return nil
+			}
+			if found {
+				t.Errorf("不允许的文件 %s 包含 gotd import %s", path, pkg)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("扫描目录失败: %s", err)
+	}
+}
+
+// TestChatServiceDependsOnClientAdapter 验证 ChatService 依赖 ClientAdapter 接口。
+func TestChatServiceDependsOnClientAdapter(t *testing.T) {
+	root := projectRoot()
+	serviceFile := filepath.Join(root, "internal", "chat", "service.go")
+
+	content, err := os.ReadFile(serviceFile)
+	if err != nil {
+		t.Fatalf("读取 service.go 失败: %s", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, "telegramclient.ClientAdapter") {
+		t.Error("ChatService 应依赖 telegramclient.ClientAdapter")
+	}
+	if strings.Contains(s, "gotd/td/tg") {
+		t.Error("ChatService 不应直接依赖 gotd/td/tg")
+	}
+}
+
+// TestChatServiceDoesNotConstructTGRequests 验证 ChatService 不直接构造 gotd 请求。
+func TestChatServiceDoesNotConstructTGRequests(t *testing.T) {
+	root := projectRoot()
+	serviceFile := filepath.Join(root, "internal", "chat", "service.go")
+
+	content, err := os.ReadFile(serviceFile)
+	if err != nil {
+		t.Fatalf("读取 service.go 失败: %s", err)
+	}
+
+	s := string(content)
+	gotdConstructs := []string{
+		"MessagesGetHistoryRequest",
+		"MessagesSendMessageRequest",
+		"MessagesGetDialogsRequest",
+		"InputPeerUser{",
+		"InputPeerChannel{",
+		"InputPeerChat{",
+	}
+	for _, c := range gotdConstructs {
+		if strings.Contains(s, c) {
+			t.Errorf("ChatService 不应包含 gotd 构造 %q", c)
+		}
+	}
+}
