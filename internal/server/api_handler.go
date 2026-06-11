@@ -149,6 +149,7 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 }
 
 // handleAPIMessages 返回消息历史 JSON。
+// 支持 before_id 参数用于分页加载更早消息。
 func (s *Server) handleAPIMessages(c *gin.Context) {
 	peerRef := c.Param("peer_ref")
 	if peerRef == "" {
@@ -164,8 +165,16 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 
 	limit := 50
 	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
 			limit = parsed
+		}
+	}
+
+	// 解析 before_id 参数
+	beforeID := 0
+	if b := c.Query("before_id"); b != "" {
+		if parsed, err := strconv.Atoi(b); err == nil && parsed > 0 {
+			beforeID = parsed
 		}
 	}
 
@@ -175,7 +184,17 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 	}
 	chatSvc := chat.NewChatService(s.db, s.key, adapter, slog.Default())
 
-	result, err := chatSvc.GetMessages(selectedID, peerRef, limit)
+	var result *chat.MessagesResult
+	var err error
+
+	if beforeID > 0 {
+		// 加载更早消息
+		result, err = chatSvc.LoadOlderMessages(selectedID, peerRef, beforeID, limit)
+	} else {
+		// 加载最近消息
+		result, err = chatSvc.GetMessages(selectedID, peerRef, limit)
+	}
+
 	if err != nil {
 		errMsg := s.classifyChatError(err)
 		errCode := "telegram_error"
@@ -192,10 +211,13 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":       true,
-		"messages": result.Messages,
-		"source":   result.Source,
-		"stale":    result.Stale,
+		"ok":                true,
+		"messages":          result.Messages,
+		"source":            result.Source,
+		"stale":             result.Stale,
+		"has_older":         result.HasOlder,
+		"oldest_message_id": result.OldestMessageID,
+		"newest_message_id": result.NewestMessageID,
 	})
 }
 

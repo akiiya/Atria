@@ -72,11 +72,14 @@ type DialogsResult struct {
 	Stale   bool     `json:"stale"`  // true 表示数据可能过期
 }
 
-// MessagesResult 消息历史结果（含缓存元数据）。
+// MessagesResult 消息历史结果（含缓存元数据和分页信息）。
 type MessagesResult struct {
-	Messages []Message `json:"messages"`
-	Source   string    `json:"source"` // cache, telegram, mixed
-	Stale    bool      `json:"stale"`  // true 表示数据可能过期
+	Messages        []Message `json:"messages"`
+	Source          string    `json:"source"`                      // cache, telegram, mixed
+	Stale           bool      `json:"stale"`                       // true 表示数据可能过期
+	HasOlder        bool      `json:"has_older"`                   // true 表示可能还有更早消息
+	OldestMessageID int       `json:"oldest_message_id,omitempty"` // 当前最早消息的 telegram_message_id
+	NewestMessageID int       `json:"newest_message_id,omitempty"` // 当前最新消息的 telegram_message_id
 }
 
 // Service 定义聊天服务接口。
@@ -84,8 +87,11 @@ type Service interface {
 	// ListDialogs 获取最近会话列表。
 	ListDialogs(accountID uint, limit int) (*DialogsResult, error)
 
-	// GetMessages 获取指定会话的最近消息。
+	// GetMessages 获取指定会话的最近消息（首屏）。
 	GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error)
+
+	// LoadOlderMessages 加载指定会话更早的消息（分页）。
+	LoadOlderMessages(accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error)
 
 	// SendText 向指定会话发送文本消息。
 	SendText(accountID uint, peerRef string, text string) (*SendResult, error)

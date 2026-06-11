@@ -58,8 +58,11 @@ export interface DialogsResponse {
 export interface MessagesResponse {
   ok: boolean
   messages: ChatMessage[]
-  source?: string  // cache, telegram, mixed
-  stale?: boolean   // true 表示数据可能过期
+  source?: string
+  stale?: boolean
+  has_older?: boolean
+  oldest_message_id?: number
+  newest_message_id?: number
   error?: string
 }
 

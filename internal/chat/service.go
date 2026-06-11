@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sort"
 	"strings"
 
 	"github.com/user/atria/internal/crypto"
@@ -183,6 +184,9 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) (*M
 		messages = append(messages, mapNeutralMessageToChatMessage(m))
 	}
 
+	// 按 sent_at 正序排列
+	sortMessagesByTime(messages)
+
 	// 缓存消息
 	s.cacheMessages(accountID, peerRef, messages)
 
@@ -190,7 +194,120 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) (*M
 	if cached != nil {
 		source = "mixed"
 	}
-	return &MessagesResult{Messages: messages, Source: source, Stale: false}, nil
+	result := &MessagesResult{
+		Messages: messages,
+		Source:   source,
+		Stale:    false,
+		HasOlder: page.HasOlder,
+	}
+	if len(messages) > 0 {
+		result.OldestMessageID = messages[0].MessageID
+		result.NewestMessageID = messages[len(messages)-1].MessageID
+	}
+	return result, nil
+}
+
+// LoadOlderMessages 加载指定会话更早的消息（cache-first + adapter fallback）。
+func (s *ChatService) LoadOlderMessages(accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if peerRef == "" {
+		return nil, &ChatError{Code: "peer_invalid", Message: "会话引用不能为空"}
+	}
+	if beforeMessageID <= 0 {
+		return nil, &ChatError{Code: "peer_invalid", Message: "before_message_id 无效"}
+	}
+
+	// 先从缓存读取 before_id 之前的消息
+	cached := s.getMessagesBeforeFromCache(accountID, peerRef, beforeMessageID, limit)
+
+	account, cred, err := s.getAccountAndCredential(accountID)
+	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+		}
+		return nil, err
+	}
+
+	cache, err := s.getPeerCache(accountID, peerRef)
+	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+		}
+		return nil, err
+	}
+
+	// 解密 access_hash
+	var accessHash int64
+	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel {
+		if cache.AccessHashEncrypted == "" {
+			if cached != nil {
+				return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+			}
+			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
+		}
+		accessHash, err = s.decryptAccessHash(cache.AccessHashEncrypted)
+		if err != nil {
+			if cached != nil {
+				return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+			}
+			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败，请刷新会话列表"}
+		}
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		if cached != nil {
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+		}
+		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
+	}
+
+	// 通过 adapter 加载更早消息
+	page, err := s.adapter.LoadOlderMessages(context.Background(), telegramclient.LoadOlderMessagesRequest{
+		AccountID:       accountID,
+		PeerRef:         peerRef,
+		BeforeMessageID: int64(beforeMessageID),
+		Limit:           limit,
+		APIID:           int(cred.APIID),
+		APIHash:         apiHash,
+		SessionFilePath: account.Session.SessionFilePath,
+		PeerID:          cache.PeerID,
+		PeerType:        telegramclient.PeerType(cache.PeerType),
+		AccessHash:      accessHash,
+	})
+	if err != nil {
+		if cached != nil {
+			s.logger.Warn("Telegram 加载更早消息失败，返回缓存", "error", err, "peer_ref", peerRef)
+			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+		}
+		return nil, s.classifyError(err)
+	}
+
+	// 转换为内部 Message 类型
+	messages := make([]Message, 0, len(page.Messages))
+	for _, m := range page.Messages {
+		messages = append(messages, mapNeutralMessageToChatMessage(m))
+	}
+
+	// 按 sent_at 正序排列
+	sortMessagesByTime(messages)
+
+	// 缓存消息
+	s.cacheMessages(accountID, peerRef, messages)
+
+	result := &MessagesResult{
+		Messages: messages,
+		Source:   string(telegramclient.DataSourceTelegram),
+		Stale:    false,
+		HasOlder: page.HasOlder,
+	}
+	if len(messages) > 0 {
+		result.OldestMessageID = messages[0].MessageID
+		result.NewestMessageID = messages[len(messages)-1].MessageID
+	}
+	return result, nil
 }
 
 // SendText 发送文本消息。
@@ -324,17 +441,36 @@ func (s *ChatService) listDialogsFromCache(accountID uint, limit int) []Dialog {
 	return dialogs
 }
 
-// getMessagesFromCache 从消息缓存读取消息。
+// getMessagesFromCache 从消息缓存读取最近消息。
 func (s *ChatService) getMessagesFromCache(accountID uint, peerRef string, limit int) []Message {
 	var cached []model.ChatMessageCache
 	if err := s.db.Where("account_id = ? AND peer_ref = ?", accountID, peerRef).
-		Order("sent_at DESC").Limit(limit).Find(&cached).Error; err != nil {
+		Order("telegram_message_id DESC").Limit(limit).Find(&cached).Error; err != nil {
 		return nil
 	}
 	if len(cached) == 0 {
 		return nil
 	}
 
+	return s.decryptCachedMessages(cached)
+}
+
+// getMessagesBeforeFromCache 从消息缓存读取 before_id 之前的消息。
+func (s *ChatService) getMessagesBeforeFromCache(accountID uint, peerRef string, beforeMessageID int, limit int) []Message {
+	var cached []model.ChatMessageCache
+	if err := s.db.Where("account_id = ? AND peer_ref = ? AND telegram_message_id < ?", accountID, peerRef, beforeMessageID).
+		Order("telegram_message_id DESC").Limit(limit).Find(&cached).Error; err != nil {
+		return nil
+	}
+	if len(cached) == 0 {
+		return nil
+	}
+
+	return s.decryptCachedMessages(cached)
+}
+
+// decryptCachedMessages 解密缓存消息并按时间正序返回。
+func (s *ChatService) decryptCachedMessages(cached []model.ChatMessageCache) []Message {
 	messages := make([]Message, 0, len(cached))
 	for i := len(cached) - 1; i >= 0; i-- {
 		c := cached[i]
@@ -366,8 +502,8 @@ func (s *ChatService) cacheMessages(accountID uint, peerRef string, messages []M
 		return
 	}
 
-	// 限制每个 peer 最多缓存 100 条
-	const maxCachePerPeer = 100
+	// 限制每个 peer 最多缓存 500 条
+	const maxCachePerPeer = 500
 
 	for _, msg := range messages {
 		// 加密消息正文
@@ -665,6 +801,13 @@ func getInitial(name string) string {
 	}
 	r := []rune(name)
 	return strings.ToUpper(string(r[0]))
+}
+
+// sortMessagesByTime 按 sent_at 正序排列消息。
+func sortMessagesByTime(msgs []Message) {
+	sort.Slice(msgs, func(i, j int) bool {
+		return msgs[i].SentAt.Before(msgs[j].SentAt)
+	})
 }
 
 // truncateText 截断文本。

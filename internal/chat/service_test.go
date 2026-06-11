@@ -401,7 +401,7 @@ func TestChatService_CacheMessages_LimitRecentOnly(t *testing.T) {
 	svc := NewChatService(db, testKey, nil, slog.Default())
 
 	var messages []Message
-	for i := 1; i <= 105; i++ {
+	for i := 1; i <= 510; i++ {
 		messages = append(messages, Message{
 			MessageID:   i,
 			PeerRef:     "u_999",
@@ -420,8 +420,8 @@ func TestChatService_CacheMessages_LimitRecentOnly(t *testing.T) {
 		Where("account_id = ? AND peer_ref = ?", account.ID, "u_999").
 		Count(&count)
 
-	if count > 100 {
-		t.Errorf("缓存应限制到 100 条，实际 %d", count)
+	if count > 500 {
+		t.Errorf("缓存应限制到 500 条，实际 %d", count)
 	}
 }
 
@@ -622,4 +622,295 @@ func TestChatService_DoesNotLogMessageBody(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewChatService(db, testKey, nil, slog.Default())
 	_ = svc
+}
+
+// ===== 分页测试 =====
+
+func TestChatMessages_DefaultLimitRecent50(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	fake := &FakeAdapter{HasOlder: true}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.GetMessages(account.ID, "u_999", 0)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	if result == nil {
+		t.Fatal("期望非 nil 结果")
+	}
+}
+
+func TestChatMessages_LimitMax100(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	fake := &FakeAdapter{}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	// limit 超过 200 应被截断到 50
+	result, err := svc.GetMessages(account.ID, "u_999", 999)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	if result == nil {
+		t.Fatal("期望非 nil 结果")
+	}
+}
+
+func TestChatMessages_BeforeIDLoadsOlder(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	fake := &FakeAdapter{
+		Messages: []telegramclient.Message{
+			{ID: "50", TelegramMessageID: 50, PeerRef: "u_999", Direction: telegramclient.MessageDirectionIn, Text: "old", Kind: telegramclient.MessageKindText, SentAt: time.Now().Add(-2 * time.Hour)},
+		},
+		HasOlder: true,
+	}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.LoadOlderMessages(account.ID, "u_999", 100, 50)
+	if err != nil {
+		t.Fatalf("LoadOlderMessages 失败: %s", err)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("期望 1 条消息，实际 %d", len(result.Messages))
+	}
+	if result.Messages[0].MessageID != 50 {
+		t.Errorf("期望消息 ID 50，实际 %d", result.Messages[0].MessageID)
+	}
+}
+
+func TestChatMessages_ReturnsChronologicalOrder(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	now := time.Now()
+	fake := &FakeAdapter{
+		Messages: []telegramclient.Message{
+			{ID: "3", TelegramMessageID: 3, PeerRef: "u_999", Direction: telegramclient.MessageDirectionIn, Text: "third", Kind: telegramclient.MessageKindText, SentAt: now.Add(2 * time.Minute)},
+			{ID: "1", TelegramMessageID: 1, PeerRef: "u_999", Direction: telegramclient.MessageDirectionIn, Text: "first", Kind: telegramclient.MessageKindText, SentAt: now},
+			{ID: "2", TelegramMessageID: 2, PeerRef: "u_999", Direction: telegramclient.MessageDirectionIn, Text: "second", Kind: telegramclient.MessageKindText, SentAt: now.Add(1 * time.Minute)},
+		},
+	}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	// 消息应按 sent_at 正序
+	if len(result.Messages) != 3 {
+		t.Fatalf("期望 3 条消息，实际 %d", len(result.Messages))
+	}
+	if result.Messages[0].Text != "first" {
+		t.Errorf("第一条应为 first，实际 %s", result.Messages[0].Text)
+	}
+	if result.Messages[2].Text != "third" {
+		t.Errorf("第三条应为 third，实际 %s", result.Messages[2].Text)
+	}
+}
+
+func TestChatMessages_HasOlderTrueWhenMoreExists(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	fake := &FakeAdapter{HasOlder: true}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	if !result.HasOlder {
+		t.Error("期望 HasOlder=true")
+	}
+}
+
+func TestChatMessages_HasOlderFalseAtBeginning(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	fake := &FakeAdapter{HasOlder: false}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	if result.HasOlder {
+		t.Error("期望 HasOlder=false")
+	}
+}
+
+func TestChatMessages_DeduplicatesByTelegramMessageID(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	svc := NewChatService(db, testKey, nil, slog.Default())
+
+	// 缓存两条相同 telegram_message_id 的消息
+	messages := []Message{
+		{MessageID: 1, PeerRef: "u_999", Direction: MessageDirectionIn, SenderName: "A", Text: "original", SentAt: time.Now(), MessageType: "text"},
+		{MessageID: 1, PeerRef: "u_999", Direction: MessageDirectionIn, SenderName: "A", Text: "updated", SentAt: time.Now().Add(time.Second), MessageType: "text"},
+	}
+	svc.cacheMessages(account.ID, "u_999", messages)
+
+	var count int64
+	db.Model(&model.ChatMessageCache{}).
+		Where("account_id = ? AND peer_ref = ? AND telegram_message_id = 1", account.ID, "u_999").
+		Count(&count)
+	if count != 1 {
+		t.Errorf("应只有 1 条记录，实际 %d", count)
+	}
+}
+
+func TestChatMessages_NoFullHistoryScan(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	// 缓存 10 条消息
+	svc := NewChatService(db, testKey, &FakeAdapter{}, slog.Default())
+	var msgs []Message
+	for i := 1; i <= 10; i++ {
+		msgs = append(msgs, Message{
+			MessageID: i, PeerRef: "u_999", Direction: MessageDirectionIn,
+			SenderName: "Test", Text: fmt.Sprintf("msg %d", i),
+			SentAt: time.Now().Add(time.Duration(i) * time.Second), MessageType: "text",
+		})
+	}
+	svc.cacheMessages(account.ID, "u_999", msgs)
+
+	// GetMessages 应只返回请求的数量，不扫描全部
+	result, err := svc.GetMessages(account.ID, "u_999", 3)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	if len(result.Messages) > 3 {
+		t.Errorf("请求 limit=3 但返回 %d 条", len(result.Messages))
+	}
+}
+
+func TestChatMessages_OldestNewestMessageID(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	encryptedHash, err := encryptTestAccessHash(12345)
+	if err != nil {
+		t.Fatalf("加密 access_hash 失败: %s", err)
+	}
+	cache := &model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_999", PeerType: "user", PeerID: 999,
+		AccessHashEncrypted: encryptedHash, Title: "Test",
+	}
+	db.Create(cache)
+
+	now := time.Now()
+	fake := &FakeAdapter{
+		Messages: []telegramclient.Message{
+			{ID: "10", TelegramMessageID: 10, PeerRef: "u_999", Direction: telegramclient.MessageDirectionIn, Text: "a", Kind: telegramclient.MessageKindText, SentAt: now},
+			{ID: "20", TelegramMessageID: 20, PeerRef: "u_999", Direction: telegramclient.MessageDirectionIn, Text: "b", Kind: telegramclient.MessageKindText, SentAt: now.Add(time.Minute)},
+		},
+	}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	if err != nil {
+		t.Fatalf("GetMessages 失败: %s", err)
+	}
+	if result.OldestMessageID != 10 {
+		t.Errorf("期望 OldestMessageID=10，实际 %d", result.OldestMessageID)
+	}
+	if result.NewestMessageID != 20 {
+		t.Errorf("期望 NewestMessageID=20，实际 %d", result.NewestMessageID)
+	}
+}
+
+func TestChatMessages_LoadOlderBeforeIDInvalid(t *testing.T) {
+	db := setupTestDB(t)
+	svc := NewChatService(db, testKey, nil, slog.Default())
+
+	_, err := svc.LoadOlderMessages(1, "u_1", 0, 50)
+	if err == nil {
+		t.Fatal("before_message_id=0 应返回错误")
+	}
+	chatErr, ok := err.(*ChatError)
+	if !ok {
+		t.Fatalf("期望 ChatError，实际 %T", err)
+	}
+	if chatErr.Code != "peer_invalid" {
+		t.Errorf("期望 peer_invalid，实际 %s", chatErr.Code)
+	}
 }
