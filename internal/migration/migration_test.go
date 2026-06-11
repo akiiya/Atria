@@ -813,3 +813,176 @@ func TestNoSQLFilesForUpdateStateMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigration_TelegramChannelUpdateStateCreated(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramChannelUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	Register(Migration{
+		Version: 8,
+		Name:    "create_telegram_channel_update_state",
+		Run:     migration008CreateTelegramChannelUpdateState,
+	})
+
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 验证表存在并可写入
+	state := model.TelegramChannelUpdateState{
+		AccountID: 1,
+		ChannelID: 12345,
+		Pts:       500,
+	}
+	if err := db.Create(&state).Error; err != nil {
+		t.Fatalf("写入 channel state 失败: %s", err)
+	}
+
+	// 验证可读取
+	var saved model.TelegramChannelUpdateState
+	if err := db.Where("account_id = ? AND channel_id = ?", 1, 12345).First(&saved).Error; err != nil {
+		t.Fatalf("读取 channel state 失败: %s", err)
+	}
+	if saved.Pts != 500 {
+		t.Errorf("期望 Pts=500，实际 %d", saved.Pts)
+	}
+}
+
+func TestMigration_TelegramChannelUpdateStateIdempotent(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramChannelUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	// 第一次执行
+	Register(Migration{
+		Version: 8,
+		Name:    "create_telegram_channel_update_state",
+		Run:     migration008CreateTelegramChannelUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("第一次迁移失败: %s", err)
+	}
+
+	// 第二次执行（幂等）
+	Reset()
+	Register(Migration{
+		Version: 8,
+		Name:    "create_telegram_channel_update_state",
+		Run:     migration008CreateTelegramChannelUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("第二次迁移失败: %s", err)
+	}
+}
+
+func TestChannelUpdateState_StoresByAccountAndChannel(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramChannelUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	Register(Migration{
+		Version: 8,
+		Name:    "create_telegram_channel_update_state",
+		Run:     migration008CreateTelegramChannelUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 为不同 account + channel 创建 state
+	db.Create(&model.TelegramChannelUpdateState{AccountID: 1, ChannelID: 100, Pts: 100})
+	db.Create(&model.TelegramChannelUpdateState{AccountID: 1, ChannelID: 200, Pts: 200})
+	db.Create(&model.TelegramChannelUpdateState{AccountID: 2, ChannelID: 100, Pts: 300})
+
+	// 验证按 account + channel 隔离
+	var state1 model.TelegramChannelUpdateState
+	db.Where("account_id = ? AND channel_id = ?", 1, 100).First(&state1)
+	if state1.Pts != 100 {
+		t.Errorf("account=1 channel=100 期望 Pts=100，实际 %d", state1.Pts)
+	}
+
+	var state2 model.TelegramChannelUpdateState
+	db.Where("account_id = ? AND channel_id = ?", 1, 200).First(&state2)
+	if state2.Pts != 200 {
+		t.Errorf("account=1 channel=200 期望 Pts=200，实际 %d", state2.Pts)
+	}
+
+	var state3 model.TelegramChannelUpdateState
+	db.Where("account_id = ? AND channel_id = ?", 2, 100).First(&state3)
+	if state3.Pts != 300 {
+		t.Errorf("account=2 channel=100 期望 Pts=300，实际 %d", state3.Pts)
+	}
+}
+
+func TestChannelUpdateState_DoesNotStoreSensitiveFields(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramChannelUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	Register(Migration{
+		Version: 8,
+		Name:    "create_telegram_channel_update_state",
+		Run:     migration008CreateTelegramChannelUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 检查表结构不包含敏感字段
+	columns, err := db.Migrator().ColumnTypes(&model.TelegramChannelUpdateState{})
+	if err != nil {
+		t.Fatalf("获取列信息失败: %s", err)
+	}
+
+	sensitiveFields := []string{"access_hash", "api_hash", "session_path", "proxy_password", "phone", "message_body"}
+	for _, col := range columns {
+		name := col.Name()
+		for _, sensitive := range sensitiveFields {
+			if name == sensitive {
+				t.Errorf("telegram_channel_update_state 表不应包含敏感字段 %q", sensitive)
+			}
+		}
+	}
+}
+
+func TestNoSQLFilesForChannelUpdateStateMigration(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	Register(Migration{
+		Version: 8,
+		Name:    "create_telegram_channel_update_state",
+		Run:     migration008CreateTelegramChannelUpdateState,
+	})
+
+	for _, m := range registry {
+		if m.Run == nil {
+			t.Errorf("迁移 %d (%s) 缺少 Run 函数", m.Version, m.Name)
+		}
+	}
+}

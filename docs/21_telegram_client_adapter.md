@@ -147,6 +147,28 @@ func NewChatService(db *gorm.DB, key []byte, adapter telegramclient.ClientAdapte
 
 ChatService 从数据库获取账号凭据和 peer 缓存，然后通过 adapter 调用 Telegram。
 
+## REST / Runtime Execution Boundary
+
+REST API 使用临时 gotd adapter（per-request）。Runtime 使用 long-lived gotd client。
+
+通过 `AccountGate`（per-account sync.Mutex）防止同一 account 的 REST 和 Runtime 并发运行 gotd client。
+
+- Runtime 启动时持有 gate lock
+- REST adapter 执行前获取 gate lock
+- 同一 account 不会同时运行多个 gotd client
+
+这是过渡方案。后续应改为 runtime execution queue，REST 请求通过 runtime 的 long-lived client 执行。
+
+## RuntimeManager 作为中立接口
+
+`RuntimeManager` 定义在 `telegramclient/runtime.go`，是中立接口：
+- `StartAccount` / `StopAccount` / `Status` / `Subscribe`
+- gotd 实现在 `gotd/runtime.go`
+- 未来 TDLib 实现在 `tdlib/runtime.go`
+- 上层代码不需要知道底层实现
+
+详见 `docs/22_account_runtime_updates.md`。
+
 ## 切换 TDLib 时预期修改的文件
 
 - `internal/telegramclient/tdlib/` — 新增 adapter 实现

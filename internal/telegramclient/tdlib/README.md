@@ -84,3 +84,18 @@ TDLib 的 update 类型（td_api::UpdateNewMessage 等）需要映射为：
 所有映射在 `internal/telegramclient/tdlib/` 内部完成，不泄漏 TDLib 类型。
 
 所有请求和返回类型定义在 `internal/telegramclient/types.go`。
+
+### Channel Update State
+
+TDLib runtime 需要实现 channel pts 持久化：
+- `TelegramChannelUpdateState` 模型可以复用
+- `GetChannelPts` / `SetChannelPts` 接口一致
+- TDLib 内部的 channel state 需要映射到同一存储
+
+### Execution Gate
+
+TDLib runtime 也需要使用 `AccountGate` 防止 REST 和 Runtime 并发：
+- `AccountGate` 是中立的 per-account mutex
+- TDLib runtime 启动时持有 gate lock
+- REST adapter 执行前获取 gate lock
+- 可以直接复用现有 `AccountGate` 实现

@@ -21,6 +21,7 @@ type Adapter struct {
 	flowStore  mtproto.FlowStore
 	logger     *slog.Logger
 	dialFunc   dcs.DialFunc
+	gate       *AccountGate // per-account 执行锁，可选
 }
 
 // NewAdapter 创建 gotd adapter。
@@ -38,8 +39,27 @@ func (a *Adapter) SetDialer(fn dcs.DialFunc) {
 	a.dialFunc = fn
 }
 
+// SetGate 设置 per-account 执行锁。
+// 设置后，所有 API 调用会先获取对应 account 的锁，防止与 runtime 并发。
+func (a *Adapter) SetGate(gate *AccountGate) {
+	a.gate = gate
+}
+
+// acquireGate 获取指定 account 的执行锁。
+// 如果 gate 未设置，返回空操作的 unlock 函数。
+func (a *Adapter) acquireGate(accountID uint) func() {
+	if a.gate == nil {
+		return func() {}
+	}
+	a.gate.Lock(accountID, "rest")
+	return func() { a.gate.Unlock(accountID) }
+}
+
 // ListDialogs 获取会话列表。
 func (a *Adapter) ListDialogs(ctx context.Context, req telegramclient.ListDialogsRequest) (telegramclient.DialogsPage, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
 	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
 	if a.dialFunc != nil {
 		client.SetDialer(a.dialFunc)
@@ -86,6 +106,9 @@ func (a *Adapter) ListDialogs(ctx context.Context, req telegramclient.ListDialog
 
 // GetRecentMessages 获取最近消息。
 func (a *Adapter) GetRecentMessages(ctx context.Context, req telegramclient.GetRecentMessagesRequest) (telegramclient.MessagesPage, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
 	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
 	if inputPeer == nil {
 		return telegramclient.MessagesPage{}, telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
@@ -127,6 +150,9 @@ func (a *Adapter) GetRecentMessages(ctx context.Context, req telegramclient.GetR
 
 // LoadOlderMessages 加载更早的消息。
 func (a *Adapter) LoadOlderMessages(ctx context.Context, req telegramclient.LoadOlderMessagesRequest) (telegramclient.MessagesPage, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
 	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
 	if inputPeer == nil {
 		return telegramclient.MessagesPage{}, telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
@@ -169,6 +195,9 @@ func (a *Adapter) LoadOlderMessages(ctx context.Context, req telegramclient.Load
 
 // SendText 发送文本消息。
 func (a *Adapter) SendText(ctx context.Context, req telegramclient.SendTextRequest) (telegramclient.SendResult, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
 	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
 	if inputPeer == nil {
 		return telegramclient.SendResult{}, telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")

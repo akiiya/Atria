@@ -3,6 +3,8 @@
 > 聊天底层协议实现已通过 `telegramclient.ClientAdapter` 隔离，当前实现是 gotd，未来可替换 TDLib。详见 `docs/21_telegram_client_adapter.md`。
 >
 > 实时聊天后端基础已进入 AccountRuntime 阶段（`docs/22_account_runtime_updates.md`）。当前仍无 WebSocket，前端实时推送将在下一轮实现。
+>
+> 后端 runtime 已可启动和观测。前端聊天页显示 runtime 状态指示器（connecting/syncing/live/degraded/offline/stopped）。
 
 ## 支持范围
 

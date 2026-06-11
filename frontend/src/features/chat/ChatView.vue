@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { fetchDialogs } from '@/api/chat'
+import { fetchRuntimeStatus, startRuntime } from '@/api/runtime'
 import { useChatStore } from '@/stores/chat'
 import { useAccountStore } from '@/stores/account'
 import DialogList from './DialogList.vue'
 import MessagePanel from './MessagePanel.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
+import type { RuntimeState } from '@/types/runtime'
 
 const route = useRoute()
 const router = useRouter()
 const chat = useChatStore()
 const account = useAccountStore()
+const queryClient = useQueryClient()
 
 const { data: dialogsData, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['dialogs', account.currentAccountId]),
@@ -22,6 +25,37 @@ const { data: dialogsData, isLoading, error, refetch } = useQuery({
   retry: 1,
   staleTime: 30_000,
 })
+
+// Runtime status query
+const { data: runtimeData } = useQuery({
+  queryKey: computed(() => ['runtime-status', account.currentAccountId]),
+  queryFn: fetchRuntimeStatus,
+  enabled: computed(() => !!account.currentAccountId),
+  retry: 1,
+  refetchInterval: 60_000, // 每 60 秒刷新一次
+})
+
+const runtimeState = computed(() => (runtimeData.value?.state || 'stopped') as RuntimeState)
+
+// Auto-start runtime when stopped
+const startMutation = useMutation({
+  mutationFn: startRuntime,
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['runtime-status', account.currentAccountId] })
+  },
+})
+
+// Watch for account changes and check runtime
+watch(() => account.currentAccountId, (id) => {
+  if (id) {
+    // 延迟检查 runtime 状态，等待 status query 完成
+    setTimeout(() => {
+      if (runtimeState.value === 'stopped' && !startMutation.isPending.value) {
+        startMutation.mutate()
+      }
+    }, 500)
+  }
+}, { immediate: true })
 
 // Use computed to reactively derive dialogs from query data
 const dialogs = computed(() => dialogsData.value?.dialogs || [])
@@ -45,6 +79,30 @@ function selectDialog(ref: string) {
 }
 
 const noAccount = computed(() => !account.currentAccountId)
+
+// Runtime state display
+const runtimeLabel = computed(() => {
+  switch (runtimeState.value) {
+    case 'connecting': return '正在连接'
+    case 'syncing': return '正在同步'
+    case 'live': return '实时更新中'
+    case 'degraded': return '同步异常'
+    case 'offline': return '连接断开'
+    case 'stopped': return '未启动'
+    default: return ''
+  }
+})
+
+const runtimeClass = computed(() => {
+  switch (runtimeState.value) {
+    case 'live': return 'runtime-live'
+    case 'connecting':
+    case 'syncing': return 'runtime-connecting'
+    case 'degraded':
+    case 'offline': return 'runtime-error'
+    default: return 'runtime-stopped'
+  }
+})
 </script>
 
 <template>
@@ -52,7 +110,13 @@ const noAccount = computed(() => !account.currentAccountId)
     <div class="chat-sidebar" :class="{ 'mobile-hidden': chat.selectedPeerRef }">
       <div class="chat-sidebar-header">
         <h2 class="chat-sidebar-title">会话</h2>
-        <button class="btn-icon" @click="refetch()" title="刷新">↻</button>
+        <div class="chat-sidebar-actions">
+          <span v-if="account.currentAccountId && runtimeLabel" :class="['runtime-badge', runtimeClass]" :title="runtimeLabel">
+            <span class="runtime-dot"></span>
+            {{ runtimeLabel }}
+          </span>
+          <button class="btn-icon" @click="refetch()" title="刷新">↻</button>
+        </div>
       </div>
 
       <div v-if="noAccount" class="chat-sidebar-body">
@@ -99,3 +163,66 @@ const noAccount = computed(() => !account.currentAccountId)
     </div>
   </div>
 </template>
+
+<style scoped>
+.chat-sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.runtime-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.runtime-live {
+  background: var(--color-success-light, rgba(16, 185, 129, 0.1));
+  color: var(--color-success, #10b981);
+}
+.runtime-live .runtime-dot {
+  background: var(--color-success, #10b981);
+}
+
+.runtime-connecting {
+  background: var(--color-warning-light, rgba(245, 158, 11, 0.1));
+  color: var(--color-warning, #f59e0b);
+}
+.runtime-connecting .runtime-dot {
+  background: var(--color-warning, #f59e0b);
+  animation: pulse 1.5s infinite;
+}
+
+.runtime-error {
+  background: var(--color-danger-light, rgba(239, 68, 68, 0.1));
+  color: var(--color-danger, #ef4444);
+}
+.runtime-error .runtime-dot {
+  background: var(--color-danger, #ef4444);
+}
+
+.runtime-stopped {
+  background: var(--bg-tertiary, rgba(128, 128, 128, 0.1));
+  color: var(--text-secondary, #888);
+}
+.runtime-stopped .runtime-dot {
+  background: var(--text-secondary, #888);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+</style>

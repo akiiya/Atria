@@ -6,6 +6,8 @@ import (
 
 	"github.com/user/atria/internal/config"
 	"github.com/user/atria/internal/mtproto"
+	"github.com/user/atria/internal/telegramclient"
+	gotdadapter "github.com/user/atria/internal/telegramclient/gotd"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -18,16 +20,36 @@ type Server struct {
 	key       []byte // AES-256 加密密钥
 	adminSvc  *AdminService
 	flowStore mtproto.FlowStore // 登录流程存储（请求间共享）
+
+	// Runtime 管理
+	runtimeManager *gotdadapter.RuntimeManagerImpl
+	eventBus       *telegramclient.EventBus
+	accountGate    *gotdadapter.AccountGate
 }
 
 // New 创建新的 Server 实例。
 func New(cfg *config.Config, db *gorm.DB, key []byte) *Server {
+	logger := slog.Default()
+
+	// 创建 EventBus
+	bus := telegramclient.NewEventBus(logger)
+
+	// 创建 AccountGate（per-account 执行锁）
+	gate := gotdadapter.NewAccountGate()
+
+	// 创建 RuntimeManager，共享同一个 gate
+	runtimeMgr := gotdadapter.NewRuntimeManager(db, key, bus, logger)
+	runtimeMgr.SetGate(gate)
+
 	return &Server{
-		cfg:       cfg,
-		db:        db,
-		key:       key,
-		adminSvc:  NewAdminService(db),
-		flowStore: mtproto.NewMemoryFlowStore(),
+		cfg:            cfg,
+		db:             db,
+		key:            key,
+		adminSvc:       NewAdminService(db),
+		flowStore:      mtproto.NewMemoryFlowStore(),
+		runtimeManager: runtimeMgr,
+		eventBus:       bus,
+		accountGate:    gate,
 	}
 }
 
@@ -43,6 +65,14 @@ func (s *Server) Run() error {
 
 	addr := s.cfg.ListenAddr()
 	slog.Info("监听地址", "addr", addr)
+
+	// 服务停止时清理 runtime
+	defer func() {
+		slog.Info("正在停止所有 AccountRuntime...")
+		s.runtimeManager.StopAll()
+		s.eventBus.Close()
+		slog.Info("所有 AccountRuntime 已停止")
+	}()
 
 	return r.Run(addr)
 }

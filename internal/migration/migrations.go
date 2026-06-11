@@ -59,6 +59,13 @@ func init() {
 		Description: "创建 Telegram update state 表，用于 updates 状态持久化和离线恢复",
 		Run:         migration007CreateTelegramUpdateState,
 	})
+
+	Register(Migration{
+		Version:     8,
+		Name:        "create_telegram_channel_update_state",
+		Description: "创建 Telegram channel update state 表，用于频道 pts 持久化",
+		Run:         migration008CreateTelegramChannelUpdateState,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -320,5 +327,17 @@ func migration007CreateTelegramUpdateState(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("创建 telegram_update_state 表失败: %w", err)
 	}
 	slog.Info("迁移 7: telegram_update_state 表创建/更新完成")
+	return nil
+}
+
+// migration008CreateTelegramChannelUpdateState 创建 Telegram channel update state 表。
+// 用于频道 pts 持久化，支持频道级别的 getDifference 恢复。
+// 按 account_id + channel_id 唯一，不存储敏感字段。
+// 幂等：AutoMigrate 会跳过已存在的表。
+func migration008CreateTelegramChannelUpdateState(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.TelegramChannelUpdateState{}); err != nil {
+		return fmt.Errorf("创建 telegram_channel_update_state 表失败: %w", err)
+	}
+	slog.Info("迁移 8: telegram_channel_update_state 表创建/更新完成")
 	return nil
 }

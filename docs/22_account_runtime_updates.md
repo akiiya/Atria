@@ -24,6 +24,7 @@ AccountRuntime 为每个 active Telegram account 维护一个长-lived 的 gotd 
 │  │ │  Manager  │ │  │ │  Manager  │ │  └────────────┘ │
 │  │ └──────────┘ │  │ └──────────┘ │                   │
 │  └──────────────┘  └──────────────┘                   │
+│           + AccountGate (per-account mutex)            │
 └─────────────────────────────────────────────────────┘
          │                    │
          ▼                    ▼
@@ -40,8 +41,129 @@ AccountRuntime 为每个 active Telegram account 维护一个长-lived 的 gotd 
   │  ChatMessageCache (encrypted)   │
   │  ChatPeerCache                  │
   │  TelegramUpdateState            │
+  │  TelegramChannelUpdateState     │
   └─────────────────────────────────┘
 ```
+
+## Runtime 启动策略
+
+**不默认启动所有账号 runtime**。原因：
+- 避免离线部署启动时就大量连接 Telegram
+- 避免无意义的连接消耗
+- 用户可能有多个账号但只使用一个
+
+**启动时机**：
+1. 用户进入 `/app/#/chats` 页面时
+2. 前端调用 `GET /api/chats/runtime/status` 查询状态
+3. 如果 state 是 `stopped`，自动调用 `POST /api/chats/runtime/start`
+4. 只启动当前 selected account 的 runtime
+
+**幂等性**：
+- 如果 runtime 已启动（live/connecting/syncing），`StartAccount` 返回 nil
+- 如果 runtime 是 stopped/degraded/offline，清理后重新启动
+
+## Runtime API
+
+### GET /api/chats/runtime/status
+
+返回当前 selected account 的 runtime 状态。
+
+```json
+{
+  "ok": true,
+  "account_id": 1,
+  "state": "live",
+  "last_sync_at": "2026-06-11T16:00:00Z",
+  "last_event_at": "2026-06-11T16:05:00Z",
+  "last_error": "",
+  "active": true
+}
+```
+
+### POST /api/chats/runtime/start
+
+启动当前 selected account 的 runtime。
+
+```json
+{
+  "ok": true,
+  "account_id": 1,
+  "state": "connecting"
+}
+```
+
+### POST /api/chats/runtime/stop
+
+停止当前 selected account 的 runtime。
+
+```json
+{
+  "ok": true,
+  "account_id": 1,
+  "state": "stopped"
+}
+```
+
+**安全约束**：
+- 必须鉴权
+- 必须 CSRF 保护（POST 请求）
+- 使用当前 selected account，不允许操作不可见账号
+- 不返回 api_hash、proxy_password、session path、access_hash
+- last_error 脱敏
+
+## REST 与 Runtime 并发边界
+
+### 问题
+
+同一 account 的 REST 临时 gotd client 和 Runtime long-lived gotd client 可能并发运行。仅靠 `FileBackedSessionStorage` 的文件锁不够：
+- 文件锁只能降低 session 文件损坏风险
+- 不等于协议状态、updates state、连接生命周期完全安全
+
+### 解决方案：Per-Account Execution Gate
+
+采用方案 B（execution gate）作为过渡方案：
+
+1. `AccountGate` 管理 per-account 的 `sync.Mutex`
+2. Runtime 启动时持有该 account 的 gate lock
+3. REST adapter 执行前获取同一 account 的 gate lock
+4. 同一 account 不会同时运行多个 gotd client
+
+```go
+// Runtime 持有锁
+m.gate.Lock(rt.accountID, "runtime")
+defer m.gate.Unlock(rt.accountID)
+
+// REST 获取锁
+unlock := a.acquireGate(req.AccountID)
+defer unlock()
+```
+
+**这是过渡方案**。后续应改为 runtime execution queue：
+- REST 请求通过 runtime 的 long-lived client 执行
+- 避免创建临时 client
+- 为 WebSocket 做准备
+
+## Channel Update State 持久化
+
+### TelegramChannelUpdateState 模型
+
+```go
+type TelegramChannelUpdateState struct {
+    ID         uint
+    AccountID  uint       `gorm:"uniqueIndex:idx_channel_state"`
+    ChannelID  int64      `gorm:"uniqueIndex:idx_channel_state"`
+    Pts        int
+    LastSyncAt *time.Time
+}
+```
+
+### 实现
+
+- `GetChannelPts(accountID, channelID)` → 查询 `TelegramChannelUpdateState`
+- `SetChannelPts(accountID, channelID, pts)` → upsert 到 `TelegramChannelUpdateState`
+- `ForEachChannels(accountID, f)` → 遍历所有频道 state
+
+不再返回空值或跳过操作。
 
 ## 每个 Account 一个 Runtime
 
@@ -111,12 +233,29 @@ AccountRuntime 为每个 active Telegram account 维护一个长-lived 的 gotd 
 | `account.disconnected` | 断开连接 | nil |
 | `sync.done` | 同步完成 | nil |
 
-## REST 与 Runtime 共存
+## Update Handler 硬化
 
-- REST API 继续使用临时 gotd client（不变）
-- Runtime 使用长-lived client
-- 两者可能同时访问同一 session 文件
-- gotd 的 `FileBackedSessionStorage` 使用文件级锁，安全
+### new message
+- 写入 `ChatMessageCache`（AES-256-GCM 加密）
+- 更新 `ChatPeerCache` preview 和 last_message_at
+- 发布 `EventMessageNew`
+- 更新 runtime `lastEvent` 时间
+
+### new channel message
+- 同 new message，但 peer_ref 格式为 `ch_<id>`
+
+### edit message
+- 更新 `ChatMessageCache` text/sender_name/kind
+- 发布 `EventMessageEdited`
+
+### delete message
+- 从 `ChatMessageCache` 删除
+- 发布 `EventMessageDeleted`
+
+### unsupported update
+- 安全忽略
+- debug 日志只记录 update type
+- 不记录 body
 
 ## 安全策略
 
@@ -125,6 +264,43 @@ AccountRuntime 为每个 active Telegram account 维护一个长-lived 的 gotd 
 - UpdateEvent 日志只记录 event type、account_id、peer_ref、message_id
 - ChatMessageCache 使用 AES-256-GCM 加密正文
 - TelegramUpdateState 不存储敏感字段
+- TelegramChannelUpdateState 不存储敏感字段
+- Runtime status API 不返回敏感信息
+
+## 前端状态接入
+
+ChatView 在加载时：
+1. 查询 `GET /api/chats/runtime/status`
+2. 如果 state 是 `stopped`，自动调用 `POST /api/chats/runtime/start`
+3. 在 sidebar header 显示轻量状态指示器
+4. 每 60 秒低频刷新 status
+5. 不影响现有消息加载
+
+状态显示：
+- `connecting`：正在连接
+- `syncing`：正在同步
+- `live`：实时更新中
+- `degraded`：同步异常
+- `offline`：连接断开
+- `stopped`：未启动
+
+## 真实 Updates 手动验证步骤
+
+1. 启动 `bin/atria.exe serve`
+2. 登录 Atria
+3. 选择已登录 Telegram 账号
+4. 打开 `/app/#/chats`
+5. 确认 runtime status 从 `stopped` → `connecting` → `syncing` → `live`
+6. 用手机 Telegram 或官方客户端给该账号发送一条消息
+7. 不刷新页面
+8. 检查 `GET /api/chats/runtime/status` 的 `last_event_at` 是否更新
+9. 检查 `ChatMessageCache` 是否新增消息（通过再次加载 chats 页面验证）
+10. 检查 `ChatPeerCache` preview 是否更新
+11. 再刷新 chats 页面，确认新消息来自 cache
+12. 停止 runtime，再启动，确认 state 不丢（检查 `TelegramUpdateState` 表）
+13. 断网/代理失败时，确认 state 进入 `degraded`/`offline`，且不泄露敏感日志
+
+**注意**：本轮没有 WebSocket，所以"不刷新页面自动出现消息"不要求。但 cache 和 runtime status 必须能证明后端 updates 已工作。
 
 ## WebSocket 下一轮
 
@@ -141,19 +317,16 @@ AccountRuntime 为每个 active Telegram account 维护一个长-lived 的 gotd 
 - TDLib 的 update handler 映射为同样的 `UpdateEvent`
 - 上层代码（chat service、server handler）不需要修改
 - EventBus、StateStore 接口可以复用
+- AccountGate 可以复用
 
 ## 离线恢复 getDifference
 
 当 runtime 重启时：
 1. 从 `TelegramUpdateState` 读取上次的 pts/qts/date/seq
-2. `updates.Manager.Run()` 自动调用 `updates.getDifference`
-3. 恢复期间状态为 `syncing`
-4. 恢复完成后状态变为 `live`
-
-当前限制：
-- Channel state 持久化尚未完整实现（`GetChannelPts`/`SetChannelPts` 为空操作）
-- 当 channel gap 太长时，`updates.Manager` 无法自动恢复
-- 后续可在 `ChatPeerCache` 中添加 `channel_pts` 字段
+2. 从 `TelegramChannelUpdateState` 读取频道 pts
+3. `updates.Manager.Run()` 自动调用 `updates.getDifference`
+4. 恢复期间状态为 `syncing`
+5. 恢复完成后状态变为 `live`
 
 ## 为什么本轮不做 WebSocket
 

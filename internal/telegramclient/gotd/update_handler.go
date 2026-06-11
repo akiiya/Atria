@@ -22,16 +22,18 @@ type UpdateHandler struct {
 	key       []byte
 	bus       *telegramclient.EventBus
 	logger    *slog.Logger
+	onEvent   func() // 每次处理 update 时调用，用于更新 runtime lastEvent
 }
 
 // NewUpdateHandler 创建 UpdateHandler。
-func NewUpdateHandler(accountID uint, db *gorm.DB, key []byte, bus *telegramclient.EventBus, logger *slog.Logger) *UpdateHandler {
+func NewUpdateHandler(accountID uint, db *gorm.DB, key []byte, bus *telegramclient.EventBus, logger *slog.Logger, onEvent func()) *UpdateHandler {
 	return &UpdateHandler{
 		accountID: accountID,
 		db:        db,
 		key:       key,
 		bus:       bus,
 		logger:    logger,
+		onEvent:   onEvent,
 	}
 }
 
@@ -53,6 +55,11 @@ func (h *UpdateHandler) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			)
 			// 不中断处理其他 updates
 		}
+	}
+
+	// 更新 runtime 的 lastEvent 时间
+	if h.onEvent != nil {
+		h.onEvent()
 	}
 
 	return nil
