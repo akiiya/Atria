@@ -250,3 +250,48 @@ func TestChatServiceDoesNotConstructTGRequests(t *testing.T) {
 		}
 	}
 }
+
+// TestRuntimeTypesDoNotImportGotd 验证 telegramclient/runtime.go 不包含 gotd 引用。
+func TestRuntimeTypesDoNotImportGotd(t *testing.T) {
+	root := projectRoot()
+	runtimeFile := filepath.Join(root, "internal", "telegramclient", "runtime.go")
+
+	content, err := os.ReadFile(runtimeFile)
+	if err != nil {
+		t.Fatalf("读取 runtime.go 失败: %s", err)
+	}
+
+	s := string(content)
+	gotdMarkers := []string{
+		"github.com/gotd",
+		"tg.",
+		"telegram.",
+	}
+	for _, marker := range gotdMarkers {
+		if strings.Contains(s, marker) {
+			t.Errorf("telegramclient/runtime.go 不应包含 gotd 引用 %q", marker)
+		}
+	}
+}
+
+// TestEventBusTypesDoNotImportGotd 验证 telegramclient/event_bus.go 不包含 gotd 引用。
+func TestEventBusTypesDoNotImportGotd(t *testing.T) {
+	root := projectRoot()
+	busFile := filepath.Join(root, "internal", "telegramclient", "event_bus.go")
+
+	content, err := os.ReadFile(busFile)
+	if err != nil {
+		t.Fatalf("读取 event_bus.go 失败: %s", err)
+	}
+
+	s := string(content)
+	gotdMarkers := []string{
+		"github.com/gotd",
+		"tg.",
+	}
+	for _, marker := range gotdMarkers {
+		if strings.Contains(s, marker) {
+			t.Errorf("telegramclient/event_bus.go 不应包含 gotd 引用 %q", marker)
+		}
+	}
+}

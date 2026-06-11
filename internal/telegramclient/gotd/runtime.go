@@ -1,0 +1,307 @@
+package gotd
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/dcs"
+	"github.com/gotd/td/telegram/updates"
+	"github.com/user/atria/internal/model"
+	"github.com/user/atria/internal/mtproto"
+	"github.com/user/atria/internal/security"
+	"github.com/user/atria/internal/telegramclient"
+
+	"gorm.io/gorm"
+)
+
+// AccountRuntime 管理单个 Telegram 账号的运行时生命周期。
+// 持有一个长-lived telegram.Client 和 updates.Manager。
+type AccountRuntime struct {
+	accountID uint
+	state     telegramclient.RuntimeState
+	cancel    context.CancelFunc
+	logger    *slog.Logger
+
+	mu        sync.Mutex
+	lastSync  *time.Time
+	lastEvent *time.Time
+	lastError string
+}
+
+// GetState 返回当前状态。
+func (r *AccountRuntime) GetState() telegramclient.RuntimeStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return telegramclient.RuntimeStatus{
+		AccountID:   r.accountID,
+		State:       r.state,
+		LastSyncAt:  r.lastSync,
+		LastEventAt: r.lastEvent,
+		LastError:   r.lastError,
+	}
+}
+
+// setState 更新状态。
+func (r *AccountRuntime) setState(state telegramclient.RuntimeState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state = state
+}
+
+// setSynced 更新最后同步时间。
+func (r *AccountRuntime) setSynced() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	r.lastSync = &now
+}
+
+// setError 更新最后错误。
+func (r *AccountRuntime) setError(err string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastError = err
+}
+
+// clearError 清除错误。
+func (r *AccountRuntime) clearError() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastError = ""
+}
+
+// RuntimeManagerImpl 实现 telegramclient.RuntimeManager 接口。
+// 管理多个 AccountRuntime，每个 active Telegram account 一个。
+type RuntimeManagerImpl struct {
+	runtimes map[uint]*AccountRuntime
+	mu       sync.RWMutex
+	db       *gorm.DB
+	key      []byte
+	bus      *telegramclient.EventBus
+	logger   *slog.Logger
+
+	// dialFunc 用于代理
+	dialFunc dcs.DialFunc
+}
+
+// NewRuntimeManager 创建 RuntimeManagerImpl。
+func NewRuntimeManager(db *gorm.DB, key []byte, bus *telegramclient.EventBus, logger *slog.Logger) *RuntimeManagerImpl {
+	return &RuntimeManagerImpl{
+		runtimes: make(map[uint]*AccountRuntime),
+		db:       db,
+		key:      key,
+		bus:      bus,
+		logger:   logger,
+	}
+}
+
+// SetDialer 设置代理拨号函数。
+func (m *RuntimeManagerImpl) SetDialer(fn dcs.DialFunc) {
+	m.dialFunc = fn
+}
+
+// StartAccount 启动指定账号的运行时连接。
+// 如果已启动，返回 nil（幂等）。
+func (m *RuntimeManagerImpl) StartAccount(accountID uint) error {
+	m.mu.Lock()
+	if rt, ok := m.runtimes[accountID]; ok {
+		state := rt.GetState().State
+		if state == telegramclient.RuntimeStateLive ||
+			state == telegramclient.RuntimeStateConnecting ||
+			state == telegramclient.RuntimeStateSyncing {
+			m.mu.Unlock()
+			return nil // 已启动
+		}
+		// 如果是 stopped/degraded/offline，清理后重新启动
+		rt.cancel()
+		delete(m.runtimes, accountID)
+	}
+	m.mu.Unlock()
+
+	// 查询账号信息
+	var account model.TelegramAccount
+	err := m.db.Preload("Session").Where("id = ? AND status = ?", accountID, model.TelegramAccountStatusActive).
+		First(&account).Error
+	if err != nil {
+		return fmt.Errorf("查询账号失败: %w", err)
+	}
+	if account.Session == nil {
+		return fmt.Errorf("账号 %d 没有 session", accountID)
+	}
+
+	// 查询 API 凭据
+	var cred model.APICredential
+	if err := m.db.First(&cred, account.APICredentialID).Error; err != nil {
+		return fmt.Errorf("查询 API 凭据失败: %w", err)
+	}
+
+	apiHash, err := security.DecryptAPIHash(m.key, cred.EncryptedAPIHash)
+	if err != nil {
+		return fmt.Errorf("解密 API Hash 失败: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rt := &AccountRuntime{
+		accountID: accountID,
+		state:     telegramclient.RuntimeStateConnecting,
+		cancel:    cancel,
+		logger:    m.logger,
+	}
+
+	m.mu.Lock()
+	m.runtimes[accountID] = rt
+	m.mu.Unlock()
+
+	// 启动 runtime goroutine
+	go m.runAccount(ctx, rt, int(cred.APIID), apiHash, account.Session.SessionFilePath, account.UserID)
+
+	m.logger.Info("AccountRuntime 启动", "account_id", accountID)
+	return nil
+}
+
+// runAccount 运行单个账号的 gotd client + updates.Manager。
+// 此函数阻塞直到 context 取消或发生致命错误。
+func (m *RuntimeManagerImpl) runAccount(ctx context.Context, rt *AccountRuntime, apiID int, apiHash string, sessionFilePath string, userID int64) {
+	defer func() {
+		rt.setState(telegramclient.RuntimeStateStopped)
+		m.logger.Info("AccountRuntime 停止", "account_id", rt.accountID)
+	}()
+
+	// 创建 updates handler
+	handler := NewUpdateHandler(rt.accountID, m.db, m.key, m.bus, m.logger)
+
+	// 创建 updates.Manager
+	updatesMgr := updates.New(updates.Config{
+		Handler:      handler,
+		Storage:      NewStateStore(m.db, m.logger),
+		AccessHasher: NewHashStore(m.db, m.key, m.logger),
+		Logger:       nil, // gotd 使用 zap，我们传 nil 使用默认 nop
+	})
+
+	// 创建 session storage
+	storage := mtproto.NewFileBackedSessionStorage(m.key, sessionFilePath)
+
+	// 创建 telegram.Client，设置 UpdateHandler
+	opts := telegram.Options{
+		SessionStorage: storage,
+		UpdateHandler:  updatesMgr,
+	}
+	if m.dialFunc != nil {
+		opts.Resolver = dcs.Plain(dcs.PlainOptions{
+			Dial: m.dialFunc,
+		})
+	}
+
+	client := telegram.NewClient(apiID, apiHash, opts)
+
+	// 运行 client
+	rt.setState(telegramclient.RuntimeStateConnecting)
+	rt.clearError()
+
+	err := client.Run(ctx, func(runCtx context.Context) error {
+		// 连接成功
+		rt.setState(telegramclient.RuntimeStateSyncing)
+		m.bus.Publish(rt.accountID, telegramclient.UpdateEvent{
+			EventID:   fmt.Sprintf("conn_%d_%d", rt.accountID, time.Now().UnixNano()),
+			AccountID: rt.accountID,
+			Type:      telegramclient.EventAccountConnected,
+			CreatedAt: time.Now(),
+		})
+
+		// 启动 updates.Manager
+		// 这会阻塞，处理 state sync 和 getDifference
+		rt.setState(telegramclient.RuntimeStateLive)
+		rt.setSynced()
+		m.bus.Publish(rt.accountID, telegramclient.UpdateEvent{
+			EventID:   fmt.Sprintf("sync_%d_%d", rt.accountID, time.Now().UnixNano()),
+			AccountID: rt.accountID,
+			Type:      telegramclient.EventSyncDone,
+			CreatedAt: time.Now(),
+		})
+
+		return updatesMgr.Run(runCtx, client.API(), userID, updates.AuthOptions{
+			Forget: false,
+			OnStart: func(startCtx context.Context) {
+				m.logger.Info("updates.Manager 启动完成", "account_id", rt.accountID)
+			},
+		})
+	})
+
+	if err != nil {
+		if ctx.Err() != nil {
+			// 正常关闭
+			return
+		}
+		rt.setState(telegramclient.RuntimeStateDegraded)
+		rt.setError(err.Error())
+		m.logger.Error("AccountRuntime 运行失败",
+			"account_id", rt.accountID,
+			"error", err,
+		)
+		m.bus.Publish(rt.accountID, telegramclient.UpdateEvent{
+			EventID:   fmt.Sprintf("err_%d_%d", rt.accountID, time.Now().UnixNano()),
+			AccountID: rt.accountID,
+			Type:      telegramclient.EventAccountDisconnected,
+			CreatedAt: time.Now(),
+		})
+	}
+}
+
+// StopAccount 停止指定账号的运行时连接。
+func (m *RuntimeManagerImpl) StopAccount(accountID uint) error {
+	m.mu.Lock()
+	rt, ok := m.runtimes[accountID]
+	if !ok {
+		m.mu.Unlock()
+		return nil // 未启动
+	}
+	delete(m.runtimes, accountID)
+	m.mu.Unlock()
+
+	rt.cancel()
+	m.logger.Info("AccountRuntime 停止请求", "account_id", accountID)
+	return nil
+}
+
+// Status 获取指定账号的运行时状态。
+func (m *RuntimeManagerImpl) Status(accountID uint) telegramclient.RuntimeStatus {
+	m.mu.RLock()
+	rt, ok := m.runtimes[accountID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return telegramclient.RuntimeStatus{
+			AccountID: accountID,
+			State:     telegramclient.RuntimeStateStopped,
+		}
+	}
+	return rt.GetState()
+}
+
+// Subscribe 订阅指定账号的更新事件。
+func (m *RuntimeManagerImpl) Subscribe(accountID uint, sink telegramclient.UpdateSink) (telegramclient.Subscription, error) {
+	return m.bus.Subscribe(accountID, sink)
+}
+
+// StopAll 停止所有运行时。
+func (m *RuntimeManagerImpl) StopAll() {
+	m.mu.Lock()
+	runtimes := make(map[uint]*AccountRuntime)
+	for k, v := range m.runtimes {
+		runtimes[k] = v
+	}
+	m.runtimes = make(map[uint]*AccountRuntime)
+	m.mu.Unlock()
+
+	for _, rt := range runtimes {
+		rt.cancel()
+	}
+	m.logger.Info("所有 AccountRuntime 已停止")
+}
+
+// 确保 RuntimeManagerImpl 实现 telegramclient.RuntimeManager。
+var _ telegramclient.RuntimeManager = (*RuntimeManagerImpl)(nil)

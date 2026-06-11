@@ -24,12 +24,20 @@ internal/telegramclient/
 ├── adapter.go          # ClientAdapter 接口定义
 ├── types.go            # 中立 DTO（Dialog, Message, Media 等）
 ├── errors.go           # 中立错误码（ErrorCode, Error）
-├── runtime.go          # RuntimeManager 预留接口
+├── runtime.go          # RuntimeManager 接口 + UpdateEvent DTO
+├── event_bus.go        # EventBus 内部事件总线
 ├── boundary_test.go    # 架构边界测试
+├── event_bus_test.go   # EventBus 测试
 ├── gotd/
 │   ├── adapter.go      # gotd 实现的 ClientAdapter
 │   ├── mapper.go       # gotd 类型到中立 DTO 的映射
-│   └── mapper_test.go  # mapper 单元测试
+│   ├── mapper_test.go  # mapper 单元测试
+│   ├── runtime.go      # gotd RuntimeManager 实现
+│   ├── runtime_test.go # runtime 测试
+│   ├── state_store.go  # updates.StateStorage 实现（SQLite）
+│   ├── hash_store.go   # updates.ChannelAccessHasher 实现
+│   ├── update_handler.go # telegram.UpdateHandler 实现
+│   └── update_mapper_test.go # update mapper 测试
 └── tdlib/
     └── README.md       # 未来 TDLib adapter 设计说明
 ```
@@ -70,14 +78,32 @@ type ClientAdapter interface {
 
 上层业务只判断 `telegramclient.ErrorCode`，不解析 gotd tgerr。
 
-## RuntimeManager 预留接口
+## RuntimeManager 接口
 
-定义在 `runtime.go`，用于未来长连接和实时更新：
-- `StartAccount` / `StopAccount` — 管理账号连接
-- `Status` — 获取连接状态
-- `Subscribe` — 订阅更新事件
+定义在 `runtime.go`：
 
-本轮只定义接口，不要求完整实现。
+```go
+type RuntimeManager interface {
+    StartAccount(accountID uint) error
+    StopAccount(accountID uint) error
+    Status(accountID uint) RuntimeStatus
+    Subscribe(accountID uint, sink UpdateSink) (Subscription, error)
+}
+```
+
+gotd 实现在 `gotd/runtime.go`（`RuntimeManagerImpl`）。
+
+每个 active Telegram account 有一个 `AccountRuntime`，持有长-lived 的 `telegram.Client` + `updates.Manager`。详见 `docs/22_account_runtime_updates.md`。
+
+## 内部 EventBus
+
+定义在 `event_bus.go`：
+
+- `Subscribe(accountID, sink)` → 返回 Subscription
+- `Publish(accountID, event)` → 非阻塞
+- 每个 subscriber 有独立 buffered channel
+- 慢 subscriber 不阻塞 runtime
+- 下一轮 WebSocket 会接这个 EventBus
 
 ## gotd adapter 职责
 

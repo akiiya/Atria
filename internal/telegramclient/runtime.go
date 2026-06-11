@@ -21,10 +21,11 @@ type RuntimeManager interface {
 
 // RuntimeStatus 表示运行时状态。
 type RuntimeStatus struct {
-	AccountID  uint         `json:"account_id"`
-	State      RuntimeState `json:"state"`
-	LastSyncAt *time.Time   `json:"last_sync_at,omitempty"`
-	LastError  string       `json:"last_error,omitempty"`
+	AccountID   uint         `json:"account_id"`
+	State       RuntimeState `json:"state"`
+	LastSyncAt  *time.Time   `json:"last_sync_at,omitempty"`
+	LastEventAt *time.Time   `json:"last_event_at,omitempty"`
+	LastError   string       `json:"last_error,omitempty"`
 }
 
 // RuntimeState 表示运行时连接状态。
