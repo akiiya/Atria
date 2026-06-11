@@ -74,6 +74,14 @@ func (r *AccountRuntime) clearError() {
 	r.lastError = ""
 }
 
+// setEvent 更新最后事件时间。
+func (r *AccountRuntime) setEvent() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	r.lastEvent = &now
+}
+
 // RuntimeManagerImpl 实现 telegramclient.RuntimeManager 接口。
 // 管理多个 AccountRuntime，每个 active Telegram account 一个。
 type RuntimeManagerImpl struct {
@@ -83,6 +91,7 @@ type RuntimeManagerImpl struct {
 	key      []byte
 	bus      *telegramclient.EventBus
 	logger   *slog.Logger
+	gate     *AccountGate // per-account 执行锁
 
 	// dialFunc 用于代理
 	dialFunc dcs.DialFunc
@@ -96,12 +105,19 @@ func NewRuntimeManager(db *gorm.DB, key []byte, bus *telegramclient.EventBus, lo
 		key:      key,
 		bus:      bus,
 		logger:   logger,
+		gate:     NewAccountGate(),
 	}
 }
 
 // SetDialer 设置代理拨号函数。
 func (m *RuntimeManagerImpl) SetDialer(fn dcs.DialFunc) {
 	m.dialFunc = fn
+}
+
+// SetGate 设置 per-account 执行锁。
+// 必须在 StartAccount 之前调用，且应与 Adapter 共享同一个 gate。
+func (m *RuntimeManagerImpl) SetGate(gate *AccountGate) {
+	m.gate = gate
 }
 
 // StartAccount 启动指定账号的运行时连接。
@@ -165,14 +181,19 @@ func (m *RuntimeManagerImpl) StartAccount(accountID uint) error {
 
 // runAccount 运行单个账号的 gotd client + updates.Manager。
 // 此函数阻塞直到 context 取消或发生致命错误。
+// 持有 per-account execution gate 锁，防止 REST 临时 client 并发。
 func (m *RuntimeManagerImpl) runAccount(ctx context.Context, rt *AccountRuntime, apiID int, apiHash string, sessionFilePath string, userID int64) {
+	// 获取 per-account 执行锁，runtime 持有期间 REST 无法并发使用同一 account
+	m.gate.Lock(rt.accountID, "runtime")
+	defer m.gate.Unlock(rt.accountID)
+
 	defer func() {
 		rt.setState(telegramclient.RuntimeStateStopped)
 		m.logger.Info("AccountRuntime 停止", "account_id", rt.accountID)
 	}()
 
-	// 创建 updates handler
-	handler := NewUpdateHandler(rt.accountID, m.db, m.key, m.bus, m.logger)
+	// 创建 updates handler，每次处理 update 时更新 runtime 的 lastEvent
+	handler := NewUpdateHandler(rt.accountID, m.db, m.key, m.bus, m.logger, rt.setEvent)
 
 	// 创建 updates.Manager
 	updatesMgr := updates.New(updates.Config{

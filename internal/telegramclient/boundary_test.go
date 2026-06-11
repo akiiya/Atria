@@ -295,3 +295,59 @@ func TestEventBusTypesDoNotImportGotd(t *testing.T) {
 		}
 	}
 }
+
+// TestGotdRuntimeImportsOnlyInAllowedPackages 验证 gotd runtime 相关 import 只在允许的包中。
+func TestGotdRuntimeImportsOnlyInAllowedPackages(t *testing.T) {
+	root := projectRoot()
+
+	// 允许 gotd/telegram/updates import 的目录
+	allowedDirs := map[string]bool{
+		filepath.Join(root, "internal", "telegramclient", "gotd"): true,
+		filepath.Join(root, "internal", "mtproto"):                true,
+	}
+
+	updatesImport := "github.com/gotd/td/telegram/updates"
+
+	internalDir := filepath.Join(root, "internal")
+	err := filepath.Walk(internalDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		dir := filepath.Dir(path)
+		if allowedDirs[dir] {
+			return nil
+		}
+
+		found, err := fileContainsImport(path, updatesImport)
+		if err != nil {
+			return nil
+		}
+		if found {
+			t.Errorf("不允许的文件 %s 包含 gotd/telegram/updates import", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("扫描目录失败: %s", err)
+	}
+}
+
+// TestTDLibReadmeMentionsRuntimeReplacement 验证 TDLib README 提及 runtime 替换。
+func TestTDLibReadmeMentionsRuntimeReplacement(t *testing.T) {
+	root := projectRoot()
+	readmePath := filepath.Join(root, "internal", "telegramclient", "tdlib", "README.md")
+
+	content, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("读取 README.md 失败: %s", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, "RuntimeManager") {
+		t.Error("TDLib README 应提及 RuntimeManager")
+	}
+}

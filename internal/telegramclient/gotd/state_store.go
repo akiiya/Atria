@@ -106,26 +106,57 @@ func (s *StateStore) SetDateSeq(ctx context.Context, userID int64, date, seq int
 }
 
 // GetChannelPts 获取频道的 pts。
-// 从 ChatPeerCache 中读取（如果存在 channel_pts 字段）。
-// 当前实现：返回 not found，让 updates.Manager 使用 getDifference 恢复。
+// 从 TelegramChannelUpdateState 表读取。
 func (s *StateStore) GetChannelPts(ctx context.Context, userID, channelID int64) (int, bool, error) {
-	// 当前 ChatPeerCache 不存储 channel_pts。
-	// 返回 not found，updates.Manager 会通过 getDifference 恢复。
-	return 0, false, nil
+	var state model.TelegramChannelUpdateState
+	err := s.db.Where("account_id = ? AND channel_id = ?", uint(userID), channelID).First(&state).Error
+	if err == gorm.ErrRecordNotFound {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("查询 channel pts 失败: %w", err)
+	}
+	return state.Pts, true, nil
 }
 
 // SetChannelPts 设置频道的 pts。
-// 当前实现：记录到 ChatPeerCache 的扩展字段（如有）。
-// 暂时为空操作，后续可在 ChatPeerCache 中添加 channel_pts 字段。
+// 持久化到 TelegramChannelUpdateState 表。
 func (s *StateStore) SetChannelPts(ctx context.Context, userID, channelID int64, pts int) error {
-	// TODO: 当需要完整 channel state 持久化时，扩展 ChatPeerCache 或新建 channel_state 表
-	return nil
+	now := time.Now()
+
+	var existing model.TelegramChannelUpdateState
+	err := s.db.Where("account_id = ? AND channel_id = ?", uint(userID), channelID).First(&existing).Error
+	if err == gorm.ErrRecordNotFound {
+		record := model.TelegramChannelUpdateState{
+			AccountID:  uint(userID),
+			ChannelID:  channelID,
+			Pts:        pts,
+			LastSyncAt: &now,
+		}
+		return s.db.Create(&record).Error
+	}
+	if err != nil {
+		return fmt.Errorf("查询 channel state 失败: %w", err)
+	}
+
+	return s.db.Model(&existing).Updates(map[string]any{
+		"pts":          pts,
+		"last_sync_at": &now,
+	}).Error
 }
 
 // ForEachChannels 遍历所有频道的 pts。
-// 当前实现：空遍历（无频道 pts 数据）。
 func (s *StateStore) ForEachChannels(ctx context.Context, userID int64, f func(ctx context.Context, channelID int64, pts int) error) error {
-	// TODO: 当 SetChannelPts 实现后，从数据库遍历频道状态
+	var states []model.TelegramChannelUpdateState
+	if err := s.db.Where("account_id = ?", uint(userID)).Find(&states).Error; err != nil {
+		return fmt.Errorf("遍历 channel states 失败: %w", err)
+	}
+
+	for _, state := range states {
+		if err := f(ctx, state.ChannelID, state.Pts); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

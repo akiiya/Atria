@@ -333,6 +333,17 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPIMessages(c)
 	})
 
+	// Runtime 管理 API
+	r.GET("/api/chats/runtime/status", authMiddleware, func(c *gin.Context) {
+		s.handleAPIRuntimeStatus(c)
+	})
+	r.POST("/api/chats/runtime/start", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPIRuntimeStart(c)
+	})
+	r.POST("/api/chats/runtime/stop", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPIRuntimeStop(c)
+	})
+
 	// 账号列表 JSON
 	r.GET("/api/accounts", authMiddleware, func(c *gin.Context) {
 		s.handleAPIAccounts(c)

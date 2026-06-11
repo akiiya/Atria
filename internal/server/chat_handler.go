@@ -29,6 +29,7 @@ func (s *Server) handleGetChats(c *gin.Context) {
 
 	// 获取会话列表
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter.SetGate(s.accountGate)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}
@@ -72,6 +73,7 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 
 	// 获取消息历史
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter.SetGate(s.accountGate)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}
@@ -142,6 +144,7 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 	}
 
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter.SetGate(s.accountGate)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}

@@ -123,6 +123,7 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 	}
 
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter.SetGate(s.accountGate)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}
@@ -179,6 +180,7 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 	}
 
 	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter.SetGate(s.accountGate)
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
 		adapter.SetDialer(dialer)
 	}
@@ -528,4 +530,97 @@ func (s *Server) handleAPISaveAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "API Key 已保存"})
+}
+
+// handleAPIRuntimeStatus 返回当前 selected account 的 runtime 状态。
+func (s *Server) handleAPIRuntimeStatus(c *gin.Context) {
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "no_current_account",
+			"message": "请先接入 Telegram 账号",
+		})
+		return
+	}
+
+	status := s.runtimeManager.Status(selectedID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":            true,
+		"account_id":    status.AccountID,
+		"state":         string(status.State),
+		"last_sync_at":  formatTimePtr(status.LastSyncAt),
+		"last_event_at": formatTimePtr(status.LastEventAt),
+		"last_error":    status.LastError,
+		"active":        status.State != "stopped",
+	})
+}
+
+// handleAPIRuntimeStart 启动当前 selected account 的 runtime。
+func (s *Server) handleAPIRuntimeStart(c *gin.Context) {
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "no_current_account",
+			"message": "请先接入 Telegram 账号",
+		})
+		return
+	}
+
+	err := s.runtimeManager.StartAccount(selectedID)
+	if err != nil {
+		slog.Error("启动 runtime 失败", "account_id", selectedID, "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "runtime_start_failed",
+			"message": "启动运行时失败: " + err.Error(),
+		})
+		return
+	}
+
+	status := s.runtimeManager.Status(selectedID)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":         true,
+		"account_id": selectedID,
+		"state":      string(status.State),
+	})
+}
+
+// handleAPIRuntimeStop 停止当前 selected account 的 runtime。
+func (s *Server) handleAPIRuntimeStop(c *gin.Context) {
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "no_current_account",
+			"message": "请先接入 Telegram 账号",
+		})
+		return
+	}
+
+	err := s.runtimeManager.StopAccount(selectedID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      false,
+			"code":    "runtime_stop_failed",
+			"message": "停止运行时失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":         true,
+		"account_id": selectedID,
+		"state":      "stopped",
+	})
+}
+
+// formatTimePtr 格式化时间指针为 ISO 字符串。
+func formatTimePtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
