@@ -12,6 +12,7 @@ import (
 	"github.com/user/atria/internal/credential"
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
+	gotdadapter "github.com/user/atria/internal/telegramclient/gotd"
 	"github.com/user/atria/internal/version"
 
 	"github.com/gin-gonic/gin"
@@ -121,10 +122,11 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 		}
 	}
 
-	chatSvc := chat.NewChatService(s.db, s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
-		chatSvc.SetProxyDialer(dialer)
+		adapter.SetDialer(dialer)
 	}
+	chatSvc := chat.NewChatService(s.db, s.key, adapter, slog.Default())
 
 	result, err := chatSvc.ListDialogs(selectedID, limit)
 	if err != nil {
@@ -167,10 +169,11 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 		}
 	}
 
-	chatSvc := chat.NewChatService(s.db, s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
+	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
 	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
-		chatSvc.SetProxyDialer(dialer)
+		adapter.SetDialer(dialer)
 	}
+	chatSvc := chat.NewChatService(s.db, s.key, adapter, slog.Default())
 
 	result, err := chatSvc.GetMessages(selectedID, peerRef, limit)
 	if err != nil {

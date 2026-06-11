@@ -1,5 +1,7 @@
 # Web 聊天 MVP
 
+> 聊天底层协议实现已通过 `telegramclient.ClientAdapter` 隔离，当前实现是 gotd，未来可替换 TDLib。详见 `docs/21_telegram_client_adapter.md`。
+
 ## 支持范围
 
 - 会话列表：查看当前 Telegram 账号的最近会话

@@ -1,5 +1,7 @@
 # Vue SPA 迁移文档
 
+> 聊天底层协议实现已通过 `telegramclient.ClientAdapter` 隔离，当前实现是 gotd，未来可替换 TDLib。详见 `docs/21_telegram_client_adapter.md`。
+
 ## 迁移目标
 
 将 Atria 登录后的所有页面从 Go Template 迁移为 Vue SPA 架构，同时完整保留现有 UI 风格。
