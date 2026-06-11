@@ -73,6 +73,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.SystemSetting{},
 		&model.ChatPeerCache{},
 		&model.ChatMessageCache{},
+		&model.TelegramUpdateState{},
 	)
 	if err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)

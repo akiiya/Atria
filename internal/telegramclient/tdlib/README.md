@@ -45,6 +45,8 @@ TDLib 是 Telegram 官方推荐的客户端库，功能完整，但：
 
 ## 接口参考
 
+### ClientAdapter
+
 TDLib adapter 需要实现：
 
 ```go
@@ -55,5 +57,30 @@ type ClientAdapter interface {
     SendText(ctx context.Context, req SendTextRequest) (SendResult, error)
 }
 ```
+
+### RuntimeManager
+
+TDLib runtime 需要实现：
+
+```go
+type RuntimeManager interface {
+    StartAccount(accountID uint) error
+    StopAccount(accountID uint) error
+    Status(accountID uint) RuntimeStatus
+    Subscribe(accountID uint, sink UpdateSink) (Subscription, error)
+}
+```
+
+TDLib 的 update handler 需要将 TDLib 原始 update 映射为 `telegramclient.UpdateEvent`，与 gotd runtime 使用相同的事件类型。
+
+### UpdateEvent 映射
+
+TDLib 的 update 类型（td_api::UpdateNewMessage 等）需要映射为：
+- `EventMessageNew` → `telegramclient.Message`
+- `EventMessageEdited` → `telegramclient.Message`
+- `EventMessageDeleted` → message IDs
+- `EventDialogUpserted` → `telegramclient.Dialog`
+
+所有映射在 `internal/telegramclient/tdlib/` 内部完成，不泄漏 TDLib 类型。
 
 所有请求和返回类型定义在 `internal/telegramclient/types.go`。

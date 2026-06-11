@@ -633,3 +633,183 @@ func TestMigration_BackfillLegacyAccountSessions_Idempotent(t *testing.T) {
 		t.Errorf("应只有一条 session 记录，实际 %d", count)
 	}
 }
+
+func TestMigration_TelegramUpdateStateCreated(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	// 需要先注册 AutoMigrate 的模型
+	if err := db.AutoMigrate(&model.TelegramUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	Register(Migration{
+		Version: 7,
+		Name:    "create_telegram_update_state",
+		Run:     migration007CreateTelegramUpdateState,
+	})
+
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 验证表存在并可写入
+	state := model.TelegramUpdateState{
+		AccountID: 1,
+		Pts:       100,
+		Qts:       50,
+		Date:      1700000000,
+		Seq:       10,
+	}
+	if err := db.Create(&state).Error; err != nil {
+		t.Fatalf("写入 update state 失败: %s", err)
+	}
+
+	// 验证可读取
+	var saved model.TelegramUpdateState
+	if err := db.Where("account_id = ?", 1).First(&saved).Error; err != nil {
+		t.Fatalf("读取 update state 失败: %s", err)
+	}
+	if saved.Pts != 100 {
+		t.Errorf("期望 Pts=100，实际 %d", saved.Pts)
+	}
+	if saved.Qts != 50 {
+		t.Errorf("期望 Qts=50，实际 %d", saved.Qts)
+	}
+}
+
+func TestMigration_TelegramUpdateStateIdempotent(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	// 第一次执行
+	Register(Migration{
+		Version: 7,
+		Name:    "create_telegram_update_state",
+		Run:     migration007CreateTelegramUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("第一次迁移失败: %s", err)
+	}
+
+	// 第二次执行（幂等）
+	Reset()
+	Register(Migration{
+		Version: 7,
+		Name:    "create_telegram_update_state",
+		Run:     migration007CreateTelegramUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("第二次迁移失败: %s", err)
+	}
+}
+
+func TestUpdateState_StoresByAccount(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	Register(Migration{
+		Version: 7,
+		Name:    "create_telegram_update_state",
+		Run:     migration007CreateTelegramUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 为两个不同账号创建 state
+	db.Create(&model.TelegramUpdateState{AccountID: 1, Pts: 100})
+	db.Create(&model.TelegramUpdateState{AccountID: 2, Pts: 200})
+
+	// 验证按账号隔离
+	var state1 model.TelegramUpdateState
+	db.Where("account_id = ?", 1).First(&state1)
+	if state1.Pts != 100 {
+		t.Errorf("账号 1 期望 Pts=100，实际 %d", state1.Pts)
+	}
+
+	var state2 model.TelegramUpdateState
+	db.Where("account_id = ?", 2).First(&state2)
+	if state2.Pts != 200 {
+		t.Errorf("账号 2 期望 Pts=200，实际 %d", state2.Pts)
+	}
+}
+
+func TestUpdateState_DoesNotStoreSensitiveFields(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	key := make([]byte, 32)
+
+	if err := db.AutoMigrate(&model.TelegramUpdateState{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	Register(Migration{
+		Version: 7,
+		Name:    "create_telegram_update_state",
+		Run:     migration007CreateTelegramUpdateState,
+	})
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移失败: %s", err)
+	}
+
+	// 创建 state
+	db.Create(&model.TelegramUpdateState{AccountID: 1, Pts: 100})
+
+	// 验证不包含敏感字段
+	var state model.TelegramUpdateState
+	db.Where("account_id = ?", 1).First(&state)
+
+	// 检查表结构不包含敏感字段
+	columns, err := db.Migrator().ColumnTypes(&model.TelegramUpdateState{})
+	if err != nil {
+		t.Fatalf("获取列信息失败: %s", err)
+	}
+
+	sensitiveFields := []string{"access_hash", "api_hash", "session_path", "proxy_password", "phone"}
+	for _, col := range columns {
+		name := col.Name()
+		for _, sensitive := range sensitiveFields {
+			if name == sensitive {
+				t.Errorf("telegram_update_state 表不应包含敏感字段 %q", sensitive)
+			}
+		}
+	}
+}
+
+func TestNoSQLFilesForUpdateStateMigration(t *testing.T) {
+	// 验证迁移 7 使用 Go 函数，不依赖 SQL 文件
+	Reset()
+	defer Reset()
+
+	Register(Migration{
+		Version: 7,
+		Name:    "create_telegram_update_state",
+		Run:     migration007CreateTelegramUpdateState,
+	})
+
+	for _, m := range registry {
+		if m.Run == nil {
+			t.Errorf("迁移 %d (%s) 缺少 Run 函数", m.Version, m.Name)
+		}
+	}
+}

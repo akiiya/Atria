@@ -52,6 +52,13 @@ func init() {
 		Description: "为 chat_peer_cache 添加 is_pinned 和 is_muted 字段",
 		Run:         migration006AddChatPeerCachePinMute,
 	})
+
+	Register(Migration{
+		Version:     7,
+		Name:        "create_telegram_update_state",
+		Description: "创建 Telegram update state 表，用于 updates 状态持久化和离线恢复",
+		Run:         migration007CreateTelegramUpdateState,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -301,5 +308,17 @@ func migration006AddChatPeerCachePinMute(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("更新 chat_peer_cache 表失败: %w", err)
 	}
 	slog.Info("迁移 6: chat_peer_cache 表 is_pinned/is_muted 字段添加完成")
+	return nil
+}
+
+// migration007CreateTelegramUpdateState 创建 Telegram update state 表。
+// 用于 gotd updates.Manager 的 StateStorage 实现，支持离线恢复 getDifference。
+// 按 account_id 唯一，不存储敏感字段（不存 access_hash、api_hash、session path 等）。
+// 幂等：AutoMigrate 会跳过已存在的表。
+func migration007CreateTelegramUpdateState(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.TelegramUpdateState{}); err != nil {
+		return fmt.Errorf("创建 telegram_update_state 表失败: %w", err)
+	}
+	slog.Info("迁移 7: telegram_update_state 表创建/更新完成")
 	return nil
 }

@@ -1,6 +1,8 @@
 # Web 聊天 MVP
 
 > 聊天底层协议实现已通过 `telegramclient.ClientAdapter` 隔离，当前实现是 gotd，未来可替换 TDLib。详见 `docs/21_telegram_client_adapter.md`。
+>
+> 实时聊天后端基础已进入 AccountRuntime 阶段（`docs/22_account_runtime_updates.md`）。当前仍无 WebSocket，前端实时推送将在下一轮实现。
 
 ## 支持范围
 
