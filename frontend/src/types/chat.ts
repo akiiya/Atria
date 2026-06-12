@@ -25,8 +25,19 @@ export interface MediaInfo {
   duration?: number
 }
 
+/**
+ * 聊天消息类型。
+ *
+ * id: 后端返回的 telegram_message_id（REST API 中的 id 字段）
+ * telegram_message_id: 跨 REST / WebSocket / optimistic 去重的主键
+ * local_id: 前端 optimistic message 的临时标识，发送前生成
+ * pending: 是否为 optimistic message（尚未收到服务端确认）
+ */
 export interface ChatMessage {
   id: number
+  telegram_message_id?: number
+  local_id?: string
+  pending?: boolean
   peer_ref: string
   direction: 'in' | 'out'
   sender_name: string

@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/model"
@@ -71,31 +70,9 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostLogout(c)
 	})
 
-	// 仪表盘（旧模板，保留兼容）
+	// 已登录用户访问 / 时重定向到 Vue SPA dashboard
 	r.GET("/", authMiddleware, func(c *gin.Context) {
-		data := s.newAuthViewData(c, "dashboard")
-
-		// 统计数据
-		var apiKeyCount int64
-		s.db.Model(&model.APICredential{}).Where("status = ? AND deleted_at IS NULL", model.APICredentialStatusEnabled).Count(&apiKeyCount)
-		data["StatsAPIKeyCount"] = apiKeyCount
-
-		var accountCount int64
-		s.db.Model(&model.TelegramAccount{}).Where("status = ?", model.TelegramAccountStatusActive).Count(&accountCount)
-		data["StatsAccountCount"] = accountCount
-
-		var sessionCount int64
-		s.db.Model(&model.AccountSession{}).Where("status = ?", "active").Count(&sessionCount)
-		data["StatsSessionCount"] = sessionCount
-
-		// 今日审计事件（本地时区）
-		now := time.Now()
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		var auditTodayCount int64
-		s.db.Model(&model.AuditLog{}).Where("created_at >= ?", todayStart).Count(&auditTodayCount)
-		data["StatsAuditToday"] = auditTodayCount
-
-		c.HTML(http.StatusOK, "index.html", data)
+		c.Redirect(http.StatusFound, "/app/#/dashboard")
 	})
 
 	// 系统设置 - 重定向到 Vue SPA
@@ -349,7 +326,7 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleRealtimeWS(c)
 	})
 	// Dev/Test 事件注入（默认关闭，ATRIA_DEV_REALTIME_TEST=1 时启用）
-	// 注意：此端点仅用于测试，不走 CSRF（因为是 dev-only 且已通过 env var 保护）
+	// 此端点仅用于测试，通过 env var + auth 双重保护
 	r.POST("/api/realtime/dev/publish", devRealtimeMiddleware(), authMiddleware, func(c *gin.Context) {
 		s.handleRealtimeDevPublish(c)
 	})

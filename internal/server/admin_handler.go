@@ -151,7 +151,7 @@ func (s *Server) handlePostInit(c *gin.Context) {
 
 	// 自动登录
 	s.setSessionCookie(c, admin.ID, admin.Username)
-	c.Redirect(http.StatusFound, "/")
+	c.Redirect(http.StatusFound, "/app/#/dashboard")
 }
 
 // GetLogin 处理 GET /login。
@@ -162,7 +162,7 @@ func (s *Server) handleGetLogin(c *gin.Context) {
 	}
 
 	if s.isLoggedIn(c) {
-		c.Redirect(http.StatusFound, "/")
+		c.Redirect(http.StatusFound, "/app/#/dashboard")
 		return
 	}
 
@@ -224,7 +224,7 @@ func (s *Server) handlePostLogin(c *gin.Context) {
 	})
 
 	s.setSessionCookie(c, admin.ID, admin.Username)
-	c.Redirect(http.StatusFound, "/")
+	c.Redirect(http.StatusFound, "/app/#/dashboard")
 }
 
 // PostLogout 处理 POST /logout。

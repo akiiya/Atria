@@ -183,7 +183,7 @@ describe('handleRealtimeEvent', () => {
   })
 
   describe('message.deleted', () => {
-    it('removes message from cache', () => {
+    it('removes message by telegram_message_ids', () => {
       queryClient._cache.set(
         JSON.stringify(['messages', 1, 'u_456']),
         { ok: true, messages: [makeMessage({ id: 123 }), makeMessage({ id: 456 })] }
@@ -195,7 +195,7 @@ describe('handleRealtimeEvent', () => {
         account_id: 1,
         peer_ref: 'u_456',
         created_at: '2026-01-01T12:03:00Z',
-        payload: { message_ids: [123] },
+        payload: { telegram_message_ids: [123] },
       }
 
       handleRealtimeEvent(event, queryClient as never, 1, 'u_456')
@@ -203,6 +203,27 @@ describe('handleRealtimeEvent', () => {
       const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
       expect(cached.messages).toHaveLength(1)
       expect(cached.messages[0].id).toBe(456)
+    })
+
+    it('ignores different account', () => {
+      queryClient._cache.set(
+        JSON.stringify(['messages', 1, 'u_456']),
+        { ok: true, messages: [makeMessage({ id: 123 })] }
+      )
+
+      const event: RealtimeEvent = {
+        type: 'message.deleted',
+        event_id: 'evt_8',
+        account_id: 999,
+        peer_ref: 'u_456',
+        created_at: '2026-01-01T12:03:00Z',
+        payload: { telegram_message_ids: [123] },
+      }
+
+      handleRealtimeEvent(event, queryClient as never, 1, 'u_456')
+
+      const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+      expect(cached.messages).toHaveLength(1)
     })
   })
 

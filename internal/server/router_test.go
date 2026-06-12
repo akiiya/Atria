@@ -146,9 +146,9 @@ func loginAdmin(t *testing.T, r *gin.Engine) (string, string) {
 // refreshCSRF 获取最新的 CSRF token（用于后续 POST 请求）。
 func refreshCSRF(t *testing.T, r *gin.Engine, sessionCookie string) string {
 	t.Helper()
-	// 使用 / 获取新的 CSRF token（旧仪表盘页面仍可用）
+	// 使用 /app 获取新的 CSRF token（SPA shell 会设置 CSRF cookie）
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/app", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 	for _, cookie := range w.Result().Cookies() {
@@ -380,21 +380,25 @@ func TestRouter_PostLogin_Success_SetsCookie(t *testing.T) {
 	}
 }
 
-func TestRouter_LoggedIn_GetRoot_Returns200(t *testing.T) {
+func TestRouter_LoggedIn_GetRoot_RedirectsToAppDashboard(t *testing.T) {
 	r, _ := setupTestRouter(t)
 
 	// 初始化并登录
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
-	// 访问 /
+	// 访问 / 应重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("期望 200，实际=%d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/dashboard" {
+		t.Errorf("期望重定向到 /app/#/dashboard，实际=%s", loc)
 	}
 }
 
@@ -773,8 +777,9 @@ func TestRouter_LoggedIn_Dashboard_HasSidebar(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app 返回 Vue SPA shell
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/app", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
@@ -784,15 +789,9 @@ func TestRouter_LoggedIn_Dashboard_HasSidebar(t *testing.T) {
 
 	body := w.Body.String()
 
-	// 已登录后台必须包含 sidebar 导航
-	mustContain := []string{
-		`href="/"`,
-		`href="/accounts"`,
-	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("后台页面缺少导航 %q", s)
-		}
+	// SPA shell 必须包含 Vue app 根元素
+	if !strings.Contains(body, `id="app"`) {
+		t.Error("SPA shell 缺少 Vue app 根元素")
 	}
 }
 
@@ -804,8 +803,9 @@ func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app 返回 Vue SPA shell
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/app", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
@@ -815,23 +815,12 @@ func TestRouter_LoggedIn_Dashboard_HasAppLayoutStructure(t *testing.T) {
 
 	body := w.Body.String()
 
-	// 必须包含 app layout 关键结构
-	mustContain := []string{
-		"app-layout",
-		"app-main",
-		"topbar",
-		"topbar-right",
-		"sidebar-brand",
-		"brand-name",
-		"page-header",
-		"page-heading",
-		"app-content",
-		"sidebar",
+	// SPA shell 必须包含 Vue app 根元素和 CSRF token
+	if !strings.Contains(body, `id="app"`) {
+		t.Error("SPA shell 缺少 Vue app 根元素")
 	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("后台页面缺少结构 %q", s)
-		}
+	if !strings.Contains(body, "csrf-token") {
+		t.Error("SPA shell 缺少 CSRF token")
 	}
 }
 
@@ -846,11 +835,9 @@ func TestRouter_LoggedIn_Dashboard_NoCredentialSwitcher(t *testing.T) {
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	// 仪表盘页面不应包含 credential-switcher
-	if strings.Contains(body, "credential-switcher") {
-		t.Error("仪表盘页面不应包含 credential-switcher")
+	// / 现在重定向到 /app/#/dashboard
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -890,14 +877,14 @@ func TestRouter_LoggedIn_Dashboard_NoSensitiveData(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// / 现在重定向，不应泄露敏感数据
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
+	// 重定向响应不应包含敏感数据
 	body := w.Body.String()
-
-	// 不得包含敏感数据
 	sensitiveTerms := []string{
 		"api_hash",
 		"api_id",
@@ -906,7 +893,7 @@ func TestRouter_LoggedIn_Dashboard_NoSensitiveData(t *testing.T) {
 	}
 	for _, s := range sensitiveTerms {
 		if strings.Contains(body, s) {
-			t.Errorf("页面不应包含敏感数据 %q", s)
+			t.Errorf("响应不应包含敏感数据 %q", s)
 		}
 	}
 }
@@ -934,29 +921,18 @@ func TestRouter_LoggedIn_Dashboard_HasStatCards(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("期望 200，实际=%d", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
-
-	body := w.Body.String()
-
-	// 必须包含 stat card 结构
-	mustContain := []string{
-		"stat-card",
-		"stat-icon",
-		"stat-content",
-		"stat-value",
-		"stat-label",
-	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("仪表盘页面缺少结构 %q", s)
-		}
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/dashboard" {
+		t.Errorf("期望重定向到 /app/#/dashboard，实际=%s", loc)
 	}
 }
 
@@ -966,22 +942,19 @@ func TestRouter_LoggedIn_Dashboard_HasBrand(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// /app 返回 Vue SPA shell
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/app", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	// 必须包含 brand
-	mustContain := []string{
-		"sidebar-brand",
-		"brand-name",
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际=%d", w.Code)
 	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("仪表盘页面缺少结构 %q", s)
-		}
+
+	body := w.Body.String()
+	if !strings.Contains(body, `id="app"`) {
+		t.Error("SPA shell 缺少 Vue app 根元素")
 	}
 }
 
@@ -1280,21 +1253,14 @@ func TestRouter_LoggedIn_Dashboard_HasSettingsDropdown(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	mustContain := []string{
-		"settings-dropdown",
-		"topbar-settings",
-	}
-	for _, s := range mustContain {
-		if !strings.Contains(body, s) {
-			t.Errorf("仪表盘页面缺少设置菜单 %q", s)
-		}
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -1304,15 +1270,18 @@ func TestRouter_LoggedIn_Dashboard_SettingsMenuHasSettingsLink(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "/settings") {
-		t.Error("设置菜单应包含系统设置入口")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/dashboard" {
+		t.Errorf("期望重定向到 /app/#/dashboard，实际=%s", loc)
 	}
 }
 
@@ -2358,18 +2327,18 @@ func TestTopbar_CurrentAccount_ShownOnDashboard(t *testing.T) {
 	// 创建一个有效账号
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-
-	if !strings.Contains(body, "Aronn AT") {
-		t.Error("仪表盘顶部应显示账号名 'Aronn AT'")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
-	if strings.Contains(body, "未接入账号") {
-		t.Error("有有效账号时不应显示'未接入账号'")
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/dashboard" {
+		t.Errorf("期望重定向到 /app/#/dashboard，实际=%s", loc)
 	}
 }
 
@@ -2402,14 +2371,13 @@ func TestTopbar_CurrentAccount_ConsistentAcrossPages(t *testing.T) {
 	// 创建一个有效账号
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	// / 是旧模板页面，应显示账号名
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
-	body := w.Body.String()
-	if !strings.Contains(body, "Aronn AT") {
-		t.Errorf("/ 应显示当前账号名 Aronn AT")
+	if w.Code != http.StatusFound {
+		t.Errorf("/ 期望 302 重定向，实际 %d", w.Code)
 	}
 
 	// /accounts 和 /settings 现在重定向

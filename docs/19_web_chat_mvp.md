@@ -5,6 +5,8 @@
 > 聊天实时推送已通过 WebSocket 接入（`docs/23_websocket_realtime_push.md`）。支持 message.new/edit/delete、dialog upsert、sync status 事件。
 >
 > 后端 runtime 已可启动和观测。前端聊天页显示 runtime 状态指示器（connecting/syncing/live/degraded/offline/stopped）。
+>
+> 当前实时推送是基础版。dev publish 可用于本地验收但生产默认关闭。默认入口已 canonicalize 到 `/app/#/dashboard`。旧 Go Template 不再作为登录后默认 dashboard。真实 Telegram 手动验收仍是进入 main 前必做项。
 
 ## 支持范围
 

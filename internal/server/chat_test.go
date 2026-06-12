@@ -67,14 +67,14 @@ func TestDashboardStats_LoggedInAccounts(t *testing.T) {
 
 	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, ">1<") {
-		t.Error("已登录账号统计应显示 1")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -86,14 +86,14 @@ func TestDashboardStats_ActiveSessions(t *testing.T) {
 
 	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, ">1<") {
-		t.Error("活跃 Session 统计应显示 1")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -119,14 +119,14 @@ func TestDashboardStats_TodayAuditEvents(t *testing.T) {
 		CreatedAt: time.Now().AddDate(0, 0, -1),
 	})
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, ">2<") {
-		t.Error("今日审计事件统计应显示 2")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -359,19 +359,18 @@ func TestSidebar_ChatLinkEnabled(t *testing.T) {
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	// 聊天链接应该是 /chats
-	if !strings.Contains(body, `href="/chats"`) {
-		t.Error("聊天菜单应链接到 /chats")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
-	// 聊天链接不应是 disabled
-	if strings.Contains(body, `href="/chats" class="nav-item disabled"`) {
-		t.Error("聊天菜单不应是 disabled")
+	loc := w.Header().Get("Location")
+	if loc != "/app/#/dashboard" {
+		t.Errorf("期望重定向到 /app/#/dashboard，实际=%s", loc)
 	}
 }
 
@@ -484,28 +483,15 @@ func TestDashboardStats_LoggedOutNotCountedAsLoggedIn(t *testing.T) {
 		t.Errorf("数据库中 active 账号应为 1，实际 %d", activeCount)
 	}
 
-	// 验证页面
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	// 页面应显示 1 个已登录账号
-	if strings.Contains(body, "已登录账号") {
-		// 检查 stat-value 紧跟的内容
-		idx := strings.Index(body, "已登录账号")
-		if idx > 0 {
-			// 往前找 stat-value
-			prev := body[:idx]
-			valueIdx := strings.LastIndex(prev, "stat-value")
-			if valueIdx > 0 {
-				valueSection := prev[valueIdx : valueIdx+50]
-				if !strings.Contains(valueSection, ">1<") {
-					t.Errorf("已登录账号统计应显示 1，实际: %s", valueSection)
-				}
-			}
-		}
+	// / 现在重定向，不应显示旧模板内容
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -517,14 +503,14 @@ func TestDashboardStats_ActiveSessionsExcludeLoggedOut(t *testing.T) {
 
 	createTestAccount(t, srv.db, "Active User", "active_user", model.TelegramAccountStatusActive)
 
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, ">1<") {
-		t.Error("活跃 Session 统计应为 1")
+	if w.Code != http.StatusFound {
+		t.Errorf("期望 302，实际=%d", w.Code)
 	}
 }
 
@@ -696,17 +682,16 @@ func TestCurrentAccountResolver_ConsistentAcrossDashboardAccountsChats(t *testin
 
 	createTestAccount(t, srv.db, "Aronn AT", "aronn_test", model.TelegramAccountStatusActive)
 
-	// / 是旧模板页面，应显示账号名
+	// / 现在重定向到 /app/#/dashboard
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
 	r.ServeHTTP(w, req)
-	body := w.Body.String()
-	if !strings.Contains(body, "Aronn AT") {
-		t.Errorf("/ 应显示当前账号名 Aronn AT")
+	if w.Code != http.StatusFound {
+		t.Errorf("/ 期望 302 重定向，实际 %d", w.Code)
 	}
 
-	// /accounts 现在重定向到 /app/accounts
+	// /accounts 现在重定向到 /app/#/accounts
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/accounts", nil)
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)

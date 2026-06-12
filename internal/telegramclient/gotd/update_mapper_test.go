@@ -98,9 +98,9 @@ func TestGotdUpdateMapper_DeleteMessageToNeutralEvent(t *testing.T) {
 	if !ok {
 		t.Fatal("期望 Payload 是 map")
 	}
-	ids, ok := payload["message_ids"].([]int)
+	ids, ok := payload["telegram_message_ids"].([]int)
 	if !ok {
-		t.Fatal("期望 message_ids 是 []int")
+		t.Fatal("期望 telegram_message_ids 是 []int")
 	}
 	if len(ids) != 3 {
 		t.Errorf("期望 3 个 ID，实际 %d", len(ids))
