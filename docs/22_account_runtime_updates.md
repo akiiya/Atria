@@ -419,3 +419,20 @@ ChatView 在加载时：
 - 可能触发 FLOOD_WAIT
 - Atria 定位是轻量客户端，不是归档工具
 - cache-first + 按需加载更符合使用场景
+
+## EventBus 与 WebSocket
+
+EventBus 现在接入 WebSocket 实时推送：
+
+- WebSocket endpoint: `GET /api/realtime/ws`
+- 只订阅当前 selected account 的 EventBus
+- 推送中立 UpdateEvent（不包含 gotd 类型）
+- 前端收到事件后局部 patch TanStack Query cache
+- 详见 `docs/23_websocket_realtime_push.md`
+
+Runtime Execution Queue 与 WebSocket 的关系：
+- REST 请求通过 runtime executor 执行
+- WebSocket 只消费 EventBus 事件
+- 两者独立，互不阻塞
+
+本轮仍不做全量同步，只做实时事件推送。

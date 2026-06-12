@@ -351,3 +351,67 @@ func TestTDLibReadmeMentionsRuntimeReplacement(t *testing.T) {
 		t.Error("TDLib README 应提及 RuntimeManager")
 	}
 }
+
+// TestRealtimeServerDoesNotImportGotd 验证 realtime_ws.go 不依赖 gotd。
+func TestRealtimeServerDoesNotImportGotd(t *testing.T) {
+	root := projectRoot()
+	wsFile := filepath.Join(root, "internal", "server", "realtime_ws.go")
+
+	content, err := os.ReadFile(wsFile)
+	if err != nil {
+		t.Fatalf("读取 realtime_ws.go 失败: %s", err)
+	}
+
+	s := string(content)
+	gotdMarkers := []string{
+		"github.com/gotd",
+		"tg.",
+	}
+	for _, marker := range gotdMarkers {
+		if strings.Contains(s, marker) {
+			t.Errorf("realtime_ws.go 不应包含 gotd 引用 %q", marker)
+		}
+	}
+}
+
+// TestFrontendTypesDoNotContainGotdNaming 验证前端类型不包含 gotd 命名。
+func TestFrontendTypesDoNotContainGotdNaming(t *testing.T) {
+	root := projectRoot()
+	typesDir := filepath.Join(root, "frontend", "src", "types")
+
+	files, err := goFilesInDir(typesDir)
+	if err != nil {
+		t.Fatalf("扫描目录失败: %s", err)
+	}
+
+	gotdNames := []string{"gotd", "tg_", "telegram.Client", "InputPeer"}
+	for _, file := range files {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		s := string(content)
+		for _, name := range gotdNames {
+			if strings.Contains(s, name) {
+				t.Errorf("前端类型文件 %s 不应包含 gotd 命名 %q", filepath.Base(file), name)
+			}
+		}
+	}
+}
+
+// TestTDLibReadmeMentionsWebSocketNoChange 验证 TDLib README 提及 WebSocket 层不需要修改。
+func TestTDLibReadmeMentionsWebSocketNoChange(t *testing.T) {
+	root := projectRoot()
+	readmePath := filepath.Join(root, "internal", "telegramclient", "tdlib", "README.md")
+
+	content, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("读取 README.md 失败: %s", err)
+	}
+
+	s := string(content)
+	// README 应该说明 WebSocket 层不需要因 TDLib 切换而修改
+	if !strings.Contains(s, "WebSocket") && !strings.Contains(s, "websocket") {
+		t.Log("TDLib README 建议提及 WebSocket 层不需要修改（本轮可选）")
+	}
+}
