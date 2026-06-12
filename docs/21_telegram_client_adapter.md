@@ -166,7 +166,16 @@ REST request → gotd Adapter → runtime executor → runtime client → Telegr
 
 `AccountGate` 现在只用于 fallback 场景，不再作为 runtime live 时阻塞 REST 的主方案。
 
-详见 `docs/22_account_runtime_updates.md`。
+## UpdateEvent 与 WebSocket
+
+`UpdateEvent` 是 gotd/TDLib 共用的中立事件类型：
+- 定义在 `telegramclient/runtime.go`
+- 不包含 gotd 原始类型
+- WebSocket handler 只依赖 `UpdateEvent`，不 import gotd
+- 未来 TDLib runtime 也可以 publish 同样的 `UpdateEvent`
+- 切换 TDLib 时 WebSocket 层不需要修改
+
+详见 `docs/23_websocket_realtime_push.md`。
 
 ## RuntimeManager 作为中立接口
 

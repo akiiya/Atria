@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { fetchDialogs } from '@/api/chat'
 import { fetchRuntimeStatus, startRuntime } from '@/api/runtime'
 import { useChatStore } from '@/stores/chat'
 import { useAccountStore } from '@/stores/account'
+import { RealtimeClient } from '@/realtime/ws'
+import { handleRealtimeEvent } from '@/realtime/handler'
 import DialogList from './DialogList.vue'
 import MessagePanel from './MessagePanel.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import type { RuntimeState } from '@/types/runtime'
+import type { WSState } from '@/realtime/ws'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,6 +82,57 @@ function selectDialog(ref: string) {
 }
 
 const noAccount = computed(() => !account.currentAccountId)
+
+// WebSocket 实时推送
+const wsState = ref<WSState>('disconnected')
+let wsClient: RealtimeClient | null = null
+
+function connectWebSocket() {
+  if (wsClient) wsClient.close()
+
+  wsClient = new RealtimeClient({
+    onEvent: (event) => {
+      handleRealtimeEvent(event, queryClient, account.currentAccountId, chat.selectedPeerRef || null)
+    },
+    onStateChange: (state) => {
+      wsState.value = state
+    },
+  })
+  wsClient.connect()
+}
+
+function disconnectWebSocket() {
+  if (wsClient) {
+    wsClient.close()
+    wsClient = null
+  }
+  wsState.value = 'disconnected'
+}
+
+// 连接 WebSocket：当 account 变为可用时
+watch(() => account.currentAccountId, (id) => {
+  if (id) {
+    connectWebSocket()
+  } else {
+    disconnectWebSocket()
+  }
+}, { immediate: true })
+
+// 断线重连后补状态
+watch(wsState, (state, oldState) => {
+  if (state === 'connected' && oldState === 'reconnecting') {
+    // 重连成功，invalidate 查询以补偿断线期间丢失的事件
+    queryClient.invalidateQueries({ queryKey: ['dialogs', account.currentAccountId] })
+    if (chat.selectedPeerRef) {
+      queryClient.invalidateQueries({ queryKey: ['messages', account.currentAccountId, chat.selectedPeerRef] })
+    }
+    queryClient.invalidateQueries({ queryKey: ['runtime-status', account.currentAccountId] })
+  }
+})
+
+onUnmounted(() => {
+  disconnectWebSocket()
+})
 
 // Runtime state display
 const runtimeLabel = computed(() => {

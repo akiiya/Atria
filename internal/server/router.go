@@ -344,6 +344,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPIRuntimeStop(c)
 	})
 
+	// WebSocket 实时推送
+	r.GET("/api/realtime/ws", func(c *gin.Context) {
+		s.handleRealtimeWS(c)
+	})
+
 	// 账号列表 JSON
 	r.GET("/api/accounts", authMiddleware, func(c *gin.Context) {
 		s.handleAPIAccounts(c)
