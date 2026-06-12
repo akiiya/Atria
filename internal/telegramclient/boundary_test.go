@@ -31,6 +31,28 @@ func goFilesInDir(dir string) ([]string, error) {
 }
 
 // fileContainsImport 检查文件是否包含指定的 import 路径。
+func filesWithExtensionsInDir(dir string, extensions ...string) ([]string, error) {
+	allowed := map[string]bool{}
+	for _, ext := range extensions {
+		allowed[ext] = true
+	}
+
+	var files []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if allowed[filepath.Ext(path)] {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
 func fileContainsImport(filePath, importPath string) (bool, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -108,6 +130,7 @@ func TestNoGotdImportsInInternalServerChatHandlers(t *testing.T) {
 	}
 
 	gotdPackages := []string{
+		"github.com/user/atria/internal/telegramclient/gotd",
 		"github.com/gotd/td/tg",
 		"github.com/gotd/td/tgerr",
 	}
@@ -379,9 +402,12 @@ func TestFrontendTypesDoNotContainGotdNaming(t *testing.T) {
 	root := projectRoot()
 	typesDir := filepath.Join(root, "frontend", "src", "types")
 
-	files, err := goFilesInDir(typesDir)
+	files, err := filesWithExtensionsInDir(typesDir, ".ts", ".tsx", ".vue")
 	if err != nil {
 		t.Fatalf("扫描目录失败: %s", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("frontend/src/types must contain scanned type files")
 	}
 
 	gotdNames := []string{"gotd", "tg_", "telegram.Client", "InputPeer"}
@@ -410,8 +436,10 @@ func TestTDLibReadmeMentionsWebSocketNoChange(t *testing.T) {
 	}
 
 	s := string(content)
-	// README 应该说明 WebSocket 层不需要因 TDLib 切换而修改
 	if !strings.Contains(s, "WebSocket") && !strings.Contains(s, "websocket") {
-		t.Log("TDLib README 建议提及 WebSocket 层不需要修改（本轮可选）")
+		t.Fatal("TDLib README must mention that the WebSocket layer does not change")
+	}
+	if !strings.Contains(s, "UpdateEvent") {
+		t.Fatal("TDLib README must mention publishing the same neutral UpdateEvent")
 	}
 }

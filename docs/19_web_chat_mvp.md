@@ -195,3 +195,12 @@ proxy_password 缺失是正常情况（代理无密码），不会触发 record 
 proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 
 诊断日志记录 rpc_code、rpc_type、error_type、error_summary，不记录敏感信息。
+
+## 2026-06 MVP status addendum
+
+- Basic realtime push is implemented through WebSocket and EventBus for `message.new`, `message.edited`, `message.deleted`, `dialog.upserted`, and sync/status events.
+- The canonical logged-in entry is `/app/#/dashboard`; old Go Template dashboard is no longer the default logged-in landing page.
+- Chat realtime deletion uses `telegram_message_ids` and does not include message body.
+- Optimistic outgoing messages use local ids and are deduplicated against REST success and later WebSocket `message.new`.
+- Dev publish is for local/manual verification only, disabled by default, protected by auth and CSRF, and does not access real Telegram.
+- Before merging to `main`, real Telegram manual acceptance is still required: start `bin/atria.exe serve`, open `/app/#/chats`, confirm runtime live and `/api/realtime/ws` connected, receive a phone-sent message without refresh, verify non-current dialog preview/unread updates, verify outgoing messages do not duplicate, and confirm logs contain no message body or sensitive fields.

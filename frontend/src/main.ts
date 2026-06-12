@@ -16,9 +16,12 @@ const appBase = '/app/'
 if (loc.pathname.startsWith(appBase) && loc.pathname !== appBase && loc.pathname !== appBase.slice(0, -1)) {
   // User is at /app/accounts or /app/chats/u_123 etc.
   // Redirect to /app/#/accounts or /app/#/chats/u_123
-  const subPath = loc.pathname.slice(appBase.length).replace(/\/+$/, '')
+  const subPath = loc.pathname
+    .slice(appBase.length)
+    .replace(/\/+$/, '')
+    .replace(/^app\/+/, '')
   if (subPath) {
-    window.location.replace(appBase + '#/' + subPath + loc.search + loc.hash)
+    window.location.replace(appBase + '#/' + subPath + loc.search)
     // Stop further execution
     throw new Error('Redirecting to canonical hash URL')
   }

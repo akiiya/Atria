@@ -75,6 +75,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		c.Redirect(http.StatusFound, "/app/#/dashboard")
 	})
 
+	// 旧仪表盘入口 - 重定向到 Vue SPA
+	r.GET("/dashboard", authMiddleware, func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/app/#/dashboard")
+	})
+
 	// 系统设置 - 重定向到 Vue SPA
 	r.GET("/settings", authMiddleware, func(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/app/#/settings")
@@ -322,12 +327,12 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	})
 
 	// WebSocket 实时推送
-	r.GET("/api/realtime/ws", func(c *gin.Context) {
+	r.GET("/api/realtime/ws", authMiddleware, func(c *gin.Context) {
 		s.handleRealtimeWS(c)
 	})
 	// Dev/Test 事件注入（默认关闭，ATRIA_DEV_REALTIME_TEST=1 时启用）
-	// 此端点仅用于测试，通过 env var + auth 双重保护
-	r.POST("/api/realtime/dev/publish", devRealtimeMiddleware(), authMiddleware, func(c *gin.Context) {
+	// 此端点仅用于测试，通过 env var + auth + CSRF 保护
+	r.POST("/api/realtime/dev/publish", devRealtimeMiddleware(), authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handleRealtimeDevPublish(c)
 	})
 
@@ -409,6 +414,10 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		}
 		// 去掉开头的 /
 		hashPath := strings.TrimPrefix(path, "/")
+		hashPath = strings.TrimPrefix(hashPath, "app/")
+		if hashPath == "app" || hashPath == "" {
+			hashPath = "dashboard"
+		}
 		c.Redirect(http.StatusFound, "/app/#/"+hashPath)
 	})
 

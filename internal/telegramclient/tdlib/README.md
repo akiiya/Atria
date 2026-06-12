@@ -85,6 +85,13 @@ TDLib 的 update 类型（td_api::UpdateNewMessage 等）需要映射为：
 
 所有请求和返回类型定义在 `internal/telegramclient/types.go`。
 
+### WebSocket boundary
+
+TDLib runtime must publish the same neutral `telegramclient.UpdateEvent` values into EventBus.
+The WebSocket handler only consumes EventBus and serializes neutral payloads, so switching from
+gotd to TDLib must not require changes in the WebSocket layer, `internal/chat`, server chat
+handlers, or frontend API types.
+
 ### Channel Update State
 
 TDLib runtime 需要实现 channel pts 持久化：

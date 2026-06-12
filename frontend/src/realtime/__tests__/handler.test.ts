@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { handleRealtimeEvent } from '../handler'
+import {
+  handleRealtimeEvent,
+  markLocalMessageFailedInMessagesCache,
+  replaceLocalMessageInMessagesCache,
+  upsertMessageInMessagesCache,
+} from '../handler'
 import type { RealtimeEvent } from '../ws'
 import type { ChatMessage, Dialog } from '@/types/chat'
 
@@ -95,7 +100,7 @@ describe('handleRealtimeEvent', () => {
       // Should not add duplicate
       const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
       expect(cached.messages).toHaveLength(1)
-      expect(cached.messages[0].text).toBe('Existing')
+      expect(cached.messages[0].telegram_message_id ?? cached.messages[0].id).toBe(123)
     })
 
     it('does not patch different peer messages', () => {
@@ -266,5 +271,313 @@ describe('handleRealtimeEvent', () => {
         queryKey: ['runtime-status', 1],
       })
     })
+  })
+})
+
+describe('optimistic outgoing cache helpers', () => {
+  let queryClient: ReturnType<typeof createMockQueryClient>
+
+  beforeEach(() => {
+    queryClient = createMockQueryClient()
+    queryClient._cache.set(
+      JSON.stringify(['messages', 1, 'u_456']),
+      { ok: true, messages: [] }
+    )
+  })
+
+  it('TestOutgoingOptimistic_ReplacedByRESTServerMessage', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: -1,
+      telegram_message_id: undefined,
+      local_id: 'local_1',
+      pending: true,
+      status: 'sending',
+      text: 'hello',
+    }))
+
+    replaceLocalMessageInMessagesCache(queryClient as never, 1, 'u_456', 'local_1', makeMessage({
+      id: 777,
+      telegram_message_id: 777,
+      local_id: 'local_1',
+      pending: false,
+      status: 'sent',
+      text: 'hello',
+    }))
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+    expect(cached.messages[0].telegram_message_id).toBe(777)
+    expect(cached.messages[0].pending).toBe(false)
+  })
+
+  it('TestOutgoingOptimistic_DeduplicatesRealtimeByTelegramMessageID', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: 777,
+      telegram_message_id: 777,
+      local_id: 'local_1',
+      text: 'hello',
+    }))
+
+    const event: RealtimeEvent = {
+      type: 'message.new',
+      event_id: 'evt_rt',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:01Z',
+      payload: makeMessage({ id: 777, telegram_message_id: 777, text: 'hello from ws' }),
+    }
+    handleRealtimeEvent(event, queryClient as never, 1, 'u_456')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+    expect(cached.messages[0].text).toBe('hello from ws')
+  })
+
+  it('TestOutgoingOptimistic_DeduplicatesRealtimeByLocalID', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: -1,
+      local_id: 'local_2',
+      pending: true,
+      status: 'sending',
+      text: 'hello',
+    }))
+
+    const event: RealtimeEvent = {
+      type: 'message.new',
+      event_id: 'evt_local',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:01Z',
+      payload: makeMessage({ id: 778, telegram_message_id: 778, local_id: 'local_2', text: 'hello' }),
+    }
+    handleRealtimeEvent(event, queryClient as never, 1, 'u_456')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+    expect(cached.messages[0].telegram_message_id).toBe(778)
+  })
+
+  it('TestOutgoingOptimistic_DoesNotMergeDifferentOutgoingText', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: -1,
+      local_id: 'local_a',
+      pending: true,
+      status: 'sending',
+      text: 'first',
+    }))
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: 2,
+      telegram_message_id: 2,
+      text: 'second',
+    }))
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(2)
+  })
+
+  it('TestOutgoingOptimistic_DoesNotMergeDifferentPeer', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: -1,
+      peer_ref: 'u_456',
+      local_id: 'local_a',
+      pending: true,
+      status: 'sending',
+      text: 'same',
+    }))
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: 2,
+      telegram_message_id: 2,
+      peer_ref: 'u_999',
+      text: 'same',
+    }))
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(2)
+  })
+
+  it('TestOutgoingOptimistic_FailedSendDoesNotDisappearSilently', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: -1,
+      local_id: 'local_fail',
+      pending: true,
+      status: 'sending',
+    }))
+    markLocalMessageFailedInMessagesCache(queryClient as never, 1, 'u_456', 'local_fail', 'failed')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+    expect(cached.messages[0].status).toBe('failed')
+    expect(cached.messages[0].pending).toBe(false)
+  })
+
+  it('TestMessageNew_DeduplicatesByTelegramMessageID', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({ id: 10, telegram_message_id: 10 }))
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({ id: 10, telegram_message_id: 10 }))
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+  })
+
+  it('TestMessageNew_DeduplicatesOptimisticOutgoingMessage', () => {
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: -1,
+      local_id: 'local_dedupe',
+      pending: true,
+      status: 'sending',
+      text: 'same',
+    }))
+    upsertMessageInMessagesCache(queryClient as never, 1, 'u_456', makeMessage({
+      id: 30,
+      telegram_message_id: 30,
+      local_id: 'local_dedupe',
+      text: 'same',
+    }))
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+    expect(cached.messages[0].telegram_message_id).toBe(30)
+  })
+})
+
+describe('query patch compatibility', () => {
+  let queryClient: ReturnType<typeof createMockQueryClient>
+
+  beforeEach(() => {
+    queryClient = createMockQueryClient()
+  })
+
+  it('TestMessageNew_PatchesFlatMessages', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), { ok: true, messages: [] })
+    handleRealtimeEvent({
+      type: 'message.new',
+      event_id: 'evt_flat',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: makeMessage({ id: 1, telegram_message_id: 1 }),
+    }, queryClient as never, 1, 'u_456')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(cached.messages).toHaveLength(1)
+  })
+
+  it('TestMessageNew_PatchesPagedMessagesSafely', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), {
+      ok: true,
+      pages: [{ messages: [] }],
+    })
+    handleRealtimeEvent({
+      type: 'message.new',
+      event_id: 'evt_paged',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: makeMessage({ id: 1, telegram_message_id: 1 }),
+    }, queryClient as never, 1, 'u_456')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { pages: Array<{ messages: ChatMessage[] }> }
+    expect(cached.pages[0].messages).toHaveLength(1)
+  })
+
+  it('TestMessageEdited_PatchesByTelegramMessageID', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), {
+      ok: true,
+      older_messages: [makeMessage({ id: 5, telegram_message_id: 5, text: 'old' })],
+      messages: [],
+    })
+    handleRealtimeEvent({
+      type: 'message.edited',
+      event_id: 'evt_edit',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: makeMessage({ id: 5, telegram_message_id: 5, text: 'edited' }),
+    }, queryClient as never, 1, 'u_456')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { older_messages: ChatMessage[] }
+    expect(cached.older_messages[0].text).toBe('edited')
+  })
+
+  it('TestMessageDeleted_PatchesPagedMessagesSafely', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), {
+      ok: true,
+      pages: [{ messages: [makeMessage({ id: 7, telegram_message_id: 7 })] }],
+    })
+    handleRealtimeEvent({
+      type: 'message.deleted',
+      event_id: 'evt_delete',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: { telegram_message_ids: [7] },
+    }, queryClient as never, 1, 'u_456')
+
+    const cached = queryClient.getQueryData(['messages', 1, 'u_456']) as { pages: Array<{ messages: ChatMessage[] }> }
+    expect(cached.pages[0].messages).toHaveLength(0)
+  })
+
+  it('TestDialogUpserted_DoesNotClearMessages', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), { ok: true, messages: [makeMessage()] })
+    queryClient._cache.set(JSON.stringify(['dialogs', 1]), { ok: true, dialogs: [makeDialog()] })
+    handleRealtimeEvent({
+      type: 'dialog.upserted',
+      event_id: 'evt_dialog',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: makeDialog({ title: 'Updated' }),
+    }, queryClient as never, 1, 'u_456')
+
+    const messages = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(messages.messages).toHaveLength(1)
+  })
+
+  it('TestSyncFailed_DoesNotClearMessages', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), { ok: true, messages: [makeMessage()] })
+    handleRealtimeEvent({
+      type: 'sync.failed',
+      event_id: 'evt_sync_failed',
+      account_id: 1,
+      created_at: '2026-01-01T12:00:00Z',
+    }, queryClient as never, 1, 'u_456')
+
+    const messages = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(messages.messages).toHaveLength(1)
+  })
+
+  it('TestReconnect_DoesNotClearExistingMessagesBeforeRefetch', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), { ok: true, messages: [makeMessage()] })
+    queryClient.invalidateQueries({ queryKey: ['messages', 1, 'u_456'] })
+    const messages = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(messages.messages).toHaveLength(1)
+  })
+
+  it('TestMessageDeleted_IgnoresDifferentPeer', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), { ok: true, messages: [makeMessage({ id: 1, telegram_message_id: 1 })] })
+    handleRealtimeEvent({
+      type: 'message.deleted',
+      event_id: 'evt_other_peer',
+      account_id: 1,
+      peer_ref: 'u_999',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: { telegram_message_ids: [1] },
+    }, queryClient as never, 1, 'u_456')
+
+    const messages = queryClient.getQueryData(['messages', 1, 'u_456']) as { messages: ChatMessage[] }
+    expect(messages.messages).toHaveLength(1)
+  })
+
+  it('TestMessageDeleted_DoesNotForceScrollBottom', () => {
+    queryClient._cache.set(JSON.stringify(['messages', 1, 'u_456']), { ok: true, messages: [makeMessage({ id: 1, telegram_message_id: 1 })] })
+    handleRealtimeEvent({
+      type: 'message.deleted',
+      event_id: 'evt_delete_no_scroll',
+      account_id: 1,
+      peer_ref: 'u_456',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: { telegram_message_ids: [1] },
+    }, queryClient as never, 1, 'u_456')
+
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
   })
 })

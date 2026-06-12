@@ -37,6 +37,7 @@ export interface ChatMessage {
   id: number
   telegram_message_id?: number
   local_id?: string
+  client_pending_id?: string
   pending?: boolean
   peer_ref: string
   direction: 'in' | 'out'
@@ -44,14 +45,17 @@ export interface ChatMessage {
   text: string
   sent_at: string
   is_outgoing: boolean
-  status: 'sent' | 'failed' | 'unknown'
+  status: 'sending' | 'sent' | 'failed' | 'unknown'
   message_type: MessageKind
+  kind?: MessageKind
   caption?: string
   media?: MediaInfo
 }
 
 export interface SendResult {
   id: number
+  telegram_message_id?: number
+  local_id?: string
   sent_at: string
   status: string
   direction: string
@@ -69,6 +73,8 @@ export interface DialogsResponse {
 export interface MessagesResponse {
   ok: boolean
   messages: ChatMessage[]
+  older_messages?: ChatMessage[]
+  pages?: Array<{ messages: ChatMessage[] }>
   source?: string
   stale?: boolean
   has_older?: boolean

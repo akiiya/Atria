@@ -60,7 +60,7 @@
 
 | 旧路由 | 重定向目标 | 说明 |
 |--------|------------|------|
-| `/` | 无变化 | 保留旧仪表盘（Go Template） |
+| `/` | `/app/#/dashboard` | 已登录用户重定向到 Vue Dashboard |
 | `/accounts` | `/app/#/accounts` | 302 重定向 |
 | `/accounts/login` | `/app/#/accounts/login` | 302 重定向 |
 | `/accounts/:id` | `/app/#/accounts/:id` | 302 重定向 |
@@ -282,3 +282,14 @@ npm run build
 - 用户消息使用 escapeHtml，不使用 v-html
 - access_hash 加密存储在 chat_peer_cache
 - 消息正文加密存储在 chat_message_cache
+
+## 2026-06 canonical routing addendum
+
+- Authenticated `GET /` redirects to `/app/#/dashboard`; unauthenticated `GET /` follows the existing auth flow to `/login` or `/init`.
+- Login success and init success redirect to `/app/#/dashboard`.
+- Legacy `/dashboard`, `/accounts`, `/chats`, and `/settings` redirect to `/app/#/dashboard`, `/app/#/accounts`, `/app/#/chats`, and `/app/#/settings`.
+- `/app` and `/app/` return the Vue SPA shell; `/app/#/` is handled by Vue Router and redirects to `/dashboard`.
+- `/login`, `/init`, `/api/*`, `/healthz`, and `/static/*` are not handled by SPA redirects.
+- Sidebar navigation uses Vue Router push paths and must not contain old `href="/"`, `href="/accounts"`, `href="/chats"`, or `href="/settings"` entries.
+- URL generation must not produce `/app/app/*`, `/app/accounts#/dashboard`, or `/accounts#/dashboard`.
+- Dashboard and Accounts are both rendered by Vue through the shared `AppShell`; the old Go Template dashboard is not the logged-in default entry.

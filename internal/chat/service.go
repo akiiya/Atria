@@ -370,11 +370,12 @@ func (s *ChatService) SendText(accountID uint, peerRef string, text string) (*Se
 	}
 
 	return &SendResult{
-		MessageID: result.MessageID,
-		SentAt:    result.SentAt,
-		Status:    result.Status,
-		Direction: result.Direction,
-		Text:      result.Text,
+		MessageID:         result.MessageID,
+		TelegramMessageID: result.MessageID,
+		SentAt:            result.SentAt,
+		Status:            result.Status,
+		Direction:         result.Direction,
+		Text:              result.Text,
 	}, nil
 }
 
@@ -475,14 +476,15 @@ func (s *ChatService) decryptCachedMessages(cached []model.ChatMessageCache) []M
 	for i := len(cached) - 1; i >= 0; i-- {
 		c := cached[i]
 		msg := Message{
-			MessageID:   c.TelegramMessageID,
-			PeerRef:     c.PeerRef,
-			Direction:   MessageDirection(c.Direction),
-			SenderName:  c.SenderName,
-			SentAt:      c.SentAt,
-			IsOutgoing:  c.Direction == "out",
-			Status:      MessageStatusSent,
-			MessageType: c.Kind,
+			MessageID:         c.TelegramMessageID,
+			TelegramMessageID: c.TelegramMessageID,
+			PeerRef:           c.PeerRef,
+			Direction:         MessageDirection(c.Direction),
+			SenderName:        c.SenderName,
+			SentAt:            c.SentAt,
+			IsOutgoing:        c.Direction == "out",
+			Status:            MessageStatusSent,
+			MessageType:       c.Kind,
 		}
 		// 解密消息正文
 		if c.TextEncrypted != "" {
@@ -753,15 +755,16 @@ func mapNeutralDialogToChatDialog(d telegramclient.Dialog) Dialog {
 // mapNeutralMessageToChatMessage 将中立 Message DTO 转换为 chat 包内部 Message。
 func mapNeutralMessageToChatMessage(m telegramclient.Message) Message {
 	return Message{
-		MessageID:   m.TelegramMessageID,
-		PeerRef:     m.PeerRef,
-		Direction:   MessageDirection(m.Direction),
-		SenderName:  m.SenderName,
-		Text:        m.Text,
-		SentAt:      m.SentAt,
-		IsOutgoing:  m.IsOutgoing,
-		Status:      MessageStatus(m.Status),
-		MessageType: string(m.Kind),
+		MessageID:         m.TelegramMessageID,
+		TelegramMessageID: m.TelegramMessageID,
+		PeerRef:           m.PeerRef,
+		Direction:         MessageDirection(m.Direction),
+		SenderName:        m.SenderName,
+		Text:              m.Text,
+		SentAt:            m.SentAt,
+		IsOutgoing:        m.IsOutgoing,
+		Status:            MessageStatus(m.Status),
+		MessageType:       string(m.Kind),
 	}
 }
 

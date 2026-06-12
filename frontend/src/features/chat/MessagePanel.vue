@@ -11,7 +11,6 @@ import type { ChatMessage } from '@/types/chat'
 const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string }>()
 const queryClient = useQueryClient()
 
-// 首屏消息查询
 const { data, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['messages', props.accountId, props.peerRef]),
   queryFn: () => fetchMessages(props.peerRef, 50),
@@ -20,27 +19,32 @@ const { data, isLoading, error, refetch } = useQuery({
   staleTime: 30_000,
 })
 
-// 分页状态
 const olderPages = ref<ChatMessage[]>([])
 const hasOlder = ref(true)
 const loadingOlder = ref(false)
 const olderError = ref<string | null>(null)
 
-// 首屏消息
-const recentMessages = computed(() => data.value?.messages || [])
+function messageKey(msg: ChatMessage): string {
+  if (msg.telegram_message_id) return `tg:${msg.telegram_message_id}`
+  if (msg.local_id) return `local:${msg.local_id}`
+  return `id:${msg.id}`
+}
 
-// 合并所有消息并去重，按时间正序
+function messagePaginationID(msg: ChatMessage): number {
+  return msg.telegram_message_id || msg.id
+}
+
+const recentMessages = computed(() => data.value?.messages || [])
+const olderMessages = computed(() => data.value?.older_messages || olderPages.value)
+
 const allMessages = computed(() => {
-  const map = new Map<number, ChatMessage>()
-  // 先加 older（较早的）
-  for (const msg of olderPages.value) {
-    map.set(msg.id, msg)
+  const map = new Map<string, ChatMessage>()
+  for (const msg of olderMessages.value) {
+    map.set(messageKey(msg), msg)
   }
-  // 再加 recent（较新的，会覆盖重复的）
   for (const msg of recentMessages.value) {
-    map.set(msg.id, msg)
+    map.set(messageKey(msg), msg)
   }
-  // 按 sent_at 正序
   return Array.from(map.values()).sort((a, b) =>
     new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
   )
@@ -48,7 +52,6 @@ const allMessages = computed(() => {
 
 const isStale = computed(() => data.value?.stale || false)
 
-// 切换 peer 时重置分页状态
 watch(() => props.peerRef, () => {
   olderPages.value = []
   hasOlder.value = true
@@ -56,11 +59,9 @@ watch(() => props.peerRef, () => {
   olderError.value = null
 })
 
-// 加载更早消息
 async function loadOlder() {
   if (loadingOlder.value || !hasOlder.value) return
 
-  // 找到当前最早消息的 ID
   const oldestMsg = allMessages.value[0]
   if (!oldestMsg) return
 
@@ -68,19 +69,23 @@ async function loadOlder() {
   olderError.value = null
 
   try {
-    const result = await fetchMessages(props.peerRef, 50, oldestMsg.id)
+    const result = await fetchMessages(props.peerRef, 50, messagePaginationID(oldestMsg))
     if (result.ok && result.messages) {
       if (result.messages.length === 0) {
         hasOlder.value = false
       } else {
-        // 过滤掉已有的消息（去重）
-        const existingIds = new Set(allMessages.value.map(m => m.id))
-        const newMsgs = result.messages.filter(m => !existingIds.has(m.id))
+        const existingIds = new Set(allMessages.value.map(messageKey))
+        const newMsgs = result.messages.filter((m) => !existingIds.has(messageKey(m)))
         if (newMsgs.length === 0) {
           hasOlder.value = false
         } else {
           olderPages.value = [...newMsgs, ...olderPages.value]
           hasOlder.value = result.has_older ?? true
+          queryClient.setQueryData(['messages', props.accountId, props.peerRef], (old: unknown) => {
+            const cached = old as Record<string, unknown> | undefined
+            if (!cached) return old
+            return { ...cached, older_messages: olderPages.value }
+          })
         }
       }
     } else {
@@ -93,9 +98,7 @@ async function loadOlder() {
   }
 }
 
-// 发送消息后刷新
 function handleSent() {
-  queryClient.invalidateQueries({ queryKey: ['messages', props.accountId, props.peerRef] })
   queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
 }
 </script>
@@ -143,6 +146,7 @@ function handleSent() {
   height: 100%;
   padding: 24px;
 }
+
 .message-stale-hint {
   text-align: center;
   padding: 4px;

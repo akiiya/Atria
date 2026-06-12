@@ -103,7 +103,7 @@ gotd 实现在 `gotd/runtime.go`（`RuntimeManagerImpl`）。
 - `Publish(accountID, event)` → 非阻塞
 - 每个 subscriber 有独立 buffered channel
 - 慢 subscriber 不阻塞 runtime
-- 下一轮 WebSocket 会接这个 EventBus
+- WebSocket 已接入这个 EventBus
 
 ## gotd adapter 职责
 
@@ -227,3 +227,11 @@ REST request → gotd Adapter → runtime executor → runtime client → Telegr
 - `id` 字段来自 REST API，等同于 `telegram_message_id`
 - `local_id` 是前端 optimistic message 的临时标识
 - `pending` 标记 optimistic message 尚未收到服务端确认
+
+## 2026-06 boundary hardening addendum
+
+- WebSocket handlers consume only `telegramclient.UpdateEvent` from EventBus and do not import gotd.
+- `internal/chat` and server chat handlers continue to depend on neutral `telegramclient` interfaces, not gotd raw types.
+- `message.deleted` canonical payload is `telegram_message_ids`; adapters may accept old `message_ids` as input compatibility only.
+- gotd raw payloads must be mapped inside `internal/telegramclient/gotd` before reaching EventBus, WebSocket, REST DTOs, or frontend Query patch code.
+- Future TDLib runtime must publish the same neutral `UpdateEvent` values, so ChatService, WebSocket serialization, and frontend Query patch code should not need structural changes.

@@ -267,11 +267,12 @@ func TestChatSendStillWorksWithRuntimeHardening(t *testing.T) {
 }
 
 func TestBulkFieldsStillRejected(t *testing.T) {
-	r, _ := setupTestRouter(t)
+	r, srv := setupTestRouter(t)
 
 	initAdmin(t, r)
 	csrfCookie, sessionCookie := loginAdmin(t, r)
 	csrfCookie = refreshCSRF(t, r, sessionCookie)
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
 
 	// 使用 JSON 格式发送 bulk 字段（参照已有测试 TestChatSend_DoesNotSupportBulk）
 	w := httptest.NewRecorder()
