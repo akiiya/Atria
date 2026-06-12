@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -234,4 +235,94 @@ func isSameOrigin(origin, host string) bool {
 	hostName := strings.Split(host, ":")[0]
 
 	return originHost == hostName
+}
+
+// ===== Dev/Test Event Publish =====
+
+// devPublishAllowedEvents 白名单事件类型。
+var devPublishAllowedEvents = map[telegramclient.UpdateEventType]bool{
+	telegramclient.EventMessageNew:     true,
+	telegramclient.EventMessageEdited:  true,
+	telegramclient.EventMessageDeleted: true,
+	telegramclient.EventDialogUpserted: true,
+	telegramclient.EventSyncStarted:    true,
+	telegramclient.EventSyncDone:       true,
+	telegramclient.EventSyncFailed:     true,
+}
+
+// devRealtimeMiddleware 检查 ATRIA_DEV_REALTIME_TEST 环境变量。
+func devRealtimeMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if os.Getenv("ATRIA_DEV_REALTIME_TEST") != "1" {
+			c.JSON(http.StatusNotFound, gin.H{"ok": false, "code": "not_found"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// handleRealtimeDevPublish 处理 dev/test 事件注入。
+// POST /api/realtime/dev/publish
+// 默认关闭，仅当 ATRIA_DEV_REALTIME_TEST=1 时可用。
+func (s *Server) handleRealtimeDevPublish(c *gin.Context) {
+
+	// 鉴权
+	username := auth.GetUsername(c)
+	if username == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "code": "unauthorized"})
+		return
+	}
+
+	// 检查 selected account
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "code": "no_current_account"})
+		return
+	}
+
+	// 解析请求
+	var req struct {
+		Type    telegramclient.UpdateEventType `json:"type"`
+		PeerRef string                         `json:"peer_ref,omitempty"`
+		Payload interface{}                    `json:"payload,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "code": "invalid_request", "message": err.Error()})
+		return
+	}
+
+	// 白名单检查
+	if !devPublishAllowedEvents[req.Type] {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"ok":      false,
+			"code":    "event_type_not_allowed",
+			"message": "不允许的事件类型",
+		})
+		return
+	}
+
+	// 构造事件
+	event := telegramclient.UpdateEvent{
+		EventID:   fmt.Sprintf("dev_%d_%d", selectedID, time.Now().UnixNano()),
+		AccountID: selectedID,
+		Type:      req.Type,
+		PeerRef:   req.PeerRef,
+		Payload:   req.Payload,
+		CreatedAt: time.Now(),
+	}
+
+	// 发布到 EventBus
+	s.eventBus.Publish(selectedID, event)
+
+	slog.Info("Dev 事件已发布",
+		"event_type", req.Type,
+		"account_id", selectedID,
+		"peer_ref", req.PeerRef,
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":       true,
+		"event_id": event.EventID,
+	})
 }
