@@ -38,6 +38,14 @@ export function handleRealtimeEvent(
   }
 }
 
+/**
+ * 获取消息的去重主键。
+ * 优先使用 telegram_message_id，其次使用 id。
+ */
+function getMessageKey(msg: ChatMessage): number {
+  return msg.telegram_message_id ?? msg.id
+}
+
 function handleMessageNew(
   event: RealtimeEvent,
   queryClient: QueryClient,
@@ -46,6 +54,8 @@ function handleMessageNew(
 ): void {
   const msg = event.payload as ChatMessage | undefined
   if (!msg) return
+
+  const msgKey = getMessageKey(msg)
 
   // 更新 dialogs query
   queryClient.setQueryData(['dialogs', accountId], (old: unknown) => {
@@ -86,14 +96,26 @@ function handleMessageNew(
       const data = old as { ok: boolean; messages: ChatMessage[] } | undefined
       if (!data?.ok) return old
 
-      // 去重：检查 id
-      const exists = data.messages.some(
-        (m) => m.id === msg.id
-      )
-      if (exists) return old
+      // 去重：检查 telegram_message_id
+      const exists = data.messages.some((m) => {
+        const mKey = getMessageKey(m)
+        return mKey === msgKey
+      })
+      if (exists) {
+        // 如果存在 pending 的 optimistic message，替换为真实消息
+        const pendingIdx = data.messages.findIndex(
+          (m) => m.pending && m.local_id && m.local_id === msg.local_id
+        )
+        if (pendingIdx >= 0) {
+          const messages = [...data.messages]
+          messages[pendingIdx] = { ...msg, telegram_message_id: msgKey }
+          return { ...data, messages }
+        }
+        return old
+      }
 
       // 插入并保持时间正序
-      const messages = [...data.messages, msg].sort(
+      const messages = [...data.messages, { ...msg, telegram_message_id: msgKey }].sort(
         (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
       )
 
@@ -111,6 +133,8 @@ function handleMessageEdited(
   const msg = event.payload as ChatMessage | undefined
   if (!msg) return
 
+  const msgKey = getMessageKey(msg)
+
   // 更新当前 peer 的 messages
   if (currentPeerRef && event.peer_ref === currentPeerRef) {
     queryClient.setQueryData(['messages', accountId, currentPeerRef], (old: unknown) => {
@@ -118,7 +142,7 @@ function handleMessageEdited(
       if (!data?.ok) return old
 
       const messages = data.messages.map((m) => {
-        if (m.id === msg.id) {
+        if (getMessageKey(m) === msgKey) {
           return { ...m, text: msg.text, caption: msg.caption }
         }
         return m
@@ -153,8 +177,9 @@ function handleMessageDeleted(
   accountId: number,
   currentPeerRef: string | null
 ): void {
-  const payload = event.payload as { message_ids?: number[] } | undefined
-  const messageIds = payload?.message_ids || []
+  // 统一使用 telegram_message_ids 字段
+  const payload = event.payload as { telegram_message_ids?: number[]; message_ids?: number[] } | undefined
+  const messageIds = payload?.telegram_message_ids || payload?.message_ids || []
   if (messageIds.length === 0) return
 
   // 从当前 peer 的 messages 中删除
@@ -164,7 +189,7 @@ function handleMessageDeleted(
       if (!data?.ok) return old
 
       const messages = data.messages.filter(
-        (m) => !messageIds.includes(m.id)
+        (m) => !messageIds.includes(getMessageKey(m))
       )
 
       return { ...data, messages }

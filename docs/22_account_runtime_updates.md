@@ -435,4 +435,32 @@ Runtime Execution Queue 与 WebSocket 的关系：
 - WebSocket 只消费 EventBus 事件
 - 两者独立，互不阻塞
 
-本轮仍不做全量同步，只做实时事件推送。
+### 链路排查指南
+
+**Runtime 正常但 WS 没收到事件：**
+1. 检查 `GET /api/chats/runtime/status` 确认 `state=live`
+2. 检查 runtime 日志是否有 `新消息处理完成` 或 `消息编辑处理完成`
+3. 如果 runtime 没收到 update，检查 `TelegramUpdateState` 表的 pts/qts 是否在变化
+4. 如果 runtime 收到了但 WS 没推送，检查 EventBus subscriber count
+
+**WS 收到但 UI 不更新：**
+1. 打开浏览器 DevTools WS 面板，确认收到 JSON 事件
+2. 检查 `event.account_id` 是否等于当前 `accountId`
+3. 检查 `event.peer_ref` 是否等于当前打开的 peer
+4. 检查 TanStack Query DevTools 中 `['messages', accountId, peerRef]` 是否被 patch
+5. 如果 patch 了但 UI 没更新，检查 Vue 组件是否正确响应式
+
+**关键字段用于排查：**
+- `last_event_at`：最后收到事件的时间
+- `last_event_type`：最后事件类型
+- `last_event_peer_ref`：最后事件的 peer_ref
+- `ws_clients_count`：当前 WebSocket 连接数（可选）
+
+## 默认入口 canonical 化
+
+登录后默认入口已 canonical 化到 `/app/#/dashboard`：
+- `GET /` 已认证用户 → 重定向到 `/app/#/dashboard`
+- 登录成功 → 重定向到 `/app/#/dashboard`
+- 初始化成功 → 重定向到 `/app/#/dashboard`
+- 旧 `/dashboard`、`/accounts`、`/chats` 路由 → 重定向到 `/app/#/...`
+- `/login`、`/init`、`/api/*`、`/healthz` 不受影响

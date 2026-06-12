@@ -393,13 +393,13 @@ func parseCredentialID(c *gin.Context) (uint, error) {
 	return uint(id), nil
 }
 
-// redirectBack 重定向回 Referer 或首页。
+// redirectBack 重定向回 Referer 或 SPA 首页。
 func redirectBack(c *gin.Context) {
 	referer := c.GetHeader("Referer")
 	if referer != "" {
 		c.Redirect(http.StatusFound, referer)
 	} else {
-		c.Redirect(http.StatusFound, "/")
+		c.Redirect(http.StatusFound, "/app/#/dashboard")
 	}
 }
 

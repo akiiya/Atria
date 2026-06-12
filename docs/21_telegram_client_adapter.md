@@ -201,3 +201,29 @@ REST request → gotd Adapter → runtime executor → runtime client → Telegr
 - `frontend/` API types 和 UI
 - `internal/telegramclient/types.go` 中立 DTO
 - `internal/telegramclient/errors.go` 中立错误码
+
+## WebSocket 事件字段规范
+
+### message.deleted 统一字段
+
+```json
+{
+  "type": "message.deleted",
+  "payload": {
+    "telegram_message_ids": [12345, 12346]
+  }
+}
+```
+
+- 后端统一使用 `telegram_message_ids`
+- 前端按 `telegram_message_id` 删除
+- 兼容读取 `message_ids` 作为 fallback
+- 不包含 message body
+- 不包含 gotd 原始类型
+
+### ChatMessage 去重主键
+
+- `telegram_message_id` 是跨 REST / WebSocket / optimistic 去重的主键
+- `id` 字段来自 REST API，等同于 `telegram_message_id`
+- `local_id` 是前端 optimistic message 的临时标识
+- `pending` 标记 optimistic message 尚未收到服务端确认

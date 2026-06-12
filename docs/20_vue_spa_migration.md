@@ -2,6 +2,31 @@
 
 > 聊天底层协议实现已通过 `telegramclient.ClientAdapter` 隔离，当前实现是 gotd，未来可替换 TDLib。详见 `docs/21_telegram_client_adapter.md`。
 
+## Canonical URL 策略
+
+登录后的所有页面统一使用 `/app/#/...` 格式：
+
+| 旧路由 | Canonical URL | 说明 |
+|--------|--------------|------|
+| `/` | `/app/#/dashboard` | 登录后重定向 |
+| `/dashboard` | `/app/#/dashboard` | 旧路由重定向 |
+| `/accounts` | `/app/#/accounts` | 旧路由重定向 |
+| `/chats` | `/app/#/chats` | 旧路由重定向 |
+| `/settings` | `/app/#/settings` | 旧路由重定向 |
+| `/audit` | `/app/#/audit` | 旧路由重定向 |
+
+**不受影响的路由：**
+- `/login` — 保持 Go Template
+- `/init` — 保持 Go Template
+- `/api/*` — JSON API
+- `/healthz` — 健康检查
+- `/static/*` — 静态资源
+
+**不允许的 URL：**
+- `/app/app/*`
+- `/app/accounts#/dashboard`
+- `/accounts#/dashboard`
+
 ## 迁移目标
 
 将 Atria 登录后的所有页面从 Go Template 迁移为 Vue SPA 架构，同时完整保留现有 UI 风格。

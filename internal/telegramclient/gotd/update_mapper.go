@@ -78,7 +78,7 @@ func mapUpdateDeleteMessages(peerRef string, msgIDs []int) telegramclient.Update
 		EventID:   fmt.Sprintf("del_%s_%d", peerRef, time.Now().UnixNano()),
 		Type:      telegramclient.EventMessageDeleted,
 		PeerRef:   peerRef,
-		Payload:   map[string]any{"message_ids": msgIDs},
+		Payload:   map[string]any{"telegram_message_ids": msgIDs},
 		CreatedAt: time.Now(),
 	}
 }

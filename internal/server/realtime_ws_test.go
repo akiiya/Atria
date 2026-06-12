@@ -148,7 +148,7 @@ func TestRealtimeEvent_MessageDeletedSerialization(t *testing.T) {
 		PeerRef:   "u_123",
 		CreatedAt: time.Now(),
 		Payload: map[string]interface{}{
-			"message_ids": []int{100, 200},
+			"telegram_message_ids": []int{100, 200},
 		},
 	}
 
@@ -164,7 +164,7 @@ func TestRealtimeEvent_MessageDeletedSerialization(t *testing.T) {
 
 	body := string(data)
 	if !strings.Contains(body, "100") || !strings.Contains(body, "200") {
-		t.Error("payload 应包含 message_ids")
+		t.Error("payload 应包含 telegram_message_ids")
 	}
 }
 
