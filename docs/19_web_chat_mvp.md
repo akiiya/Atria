@@ -204,3 +204,11 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - Optimistic outgoing messages use local ids and are deduplicated against REST success and later WebSocket `message.new`.
 - Dev publish is for local/manual verification only, disabled by default, protected by auth and CSRF, and does not access real Telegram.
 - Before merging to `main`, real Telegram manual acceptance is still required: start `bin/atria.exe serve`, open `/app/#/chats`, confirm runtime live and `/api/realtime/ws` connected, receive a phone-sent message without refresh, verify non-current dialog preview/unread updates, verify outgoing messages do not duplicate, and confirm logs contain no message body or sensitive fields.
+
+## 2026-06 chat loading deadlock fix
+
+- Chat page (`/app/#/chats`) must not show infinite skeleton. When runtime is `connecting`, REST dialogs/messages fall through to temporary client or cache instead of blocking on executor.
+- Error states: dialogs and messages queries show `ErrorBanner` on failure with retry. Skeleton shows "加载时间较长" hint after 10 seconds.
+- Cache-first: when cache has data, it is returned immediately regardless of runtime state. When cache is empty and Telegram is unreachable, a clear error is returned within the timeout (15s).
+- Runtime status badge shows `last_error` tooltip and executor ready state for diagnostics.
+- Frontend HTTP layer enforces 30-second fetch timeout via `AbortController`.

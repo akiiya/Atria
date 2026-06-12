@@ -3,6 +3,9 @@
 package security
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/user/atria/internal/crypto"
 )
 
@@ -67,4 +70,37 @@ func EncryptSessionData(key []byte, data []byte) ([]byte, error) {
 // DecryptSessionData 解密 Session 文件数据。
 func DecryptSessionData(key []byte, encrypted []byte) ([]byte, error) {
 	return crypto.DecryptAESGCM(key, encrypted, aadSession)
+}
+
+// sanitizePatterns 是错误消息中需要脱敏替换的正则模式。
+var sanitizePatterns = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	// 文件路径
+	{regexp.MustCompile(`(?i)([/\\])(?:data|tmp|sessions?|secret)[/\\]\S+`), `${1}***`},
+	// API Hash / token 类十六进制串（32 字符以上）
+	{regexp.MustCompile(`(?i)[0-9a-f]{32,}`), `***REDACTED***`},
+	// 手机号
+	{regexp.MustCompile(`(?i)\+?\d{7,15}`), `***PHONE***`},
+}
+
+// SanitizeErrorMessage 脱敏错误消息中的敏感信息。
+// 用于 runtime last_error 等需要展示给前端但不允许泄露敏感数据的场景。
+func SanitizeErrorMessage(msg string) string {
+	out := msg
+	for _, p := range sanitizePatterns {
+		out = p.re.ReplaceAllString(out, p.repl)
+	}
+	// 额外处理：替换包含关键敏感词的整个片段
+	sensitiveFragments := []string{"api_hash", "api_hash:", "proxy_password", "proxy_password:", "session_path", "session_path:", "access_hash", "access_hash:"}
+	lowerOut := strings.ToLower(out)
+	for _, frag := range sensitiveFragments {
+		if idx := strings.Index(lowerOut, frag); idx >= 0 {
+			// 截断该 fragment 后面的值部分
+			out = out[:idx] + frag + ` ***REDACTED***`
+			lowerOut = strings.ToLower(out)
+		}
+	}
+	return out
 }

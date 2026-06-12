@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/user/atria/internal/credential"
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
+	"github.com/user/atria/internal/security"
 	"github.com/user/atria/internal/version"
 
 	"github.com/gin-gonic/gin"
@@ -121,14 +123,23 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 		}
 	}
 
+	// 15 秒超时：即使 Telegram/runtime 卡住，客户端也不会无限等待
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
 	chatSvc := s.newChatService()
 
-	result, err := chatSvc.ListDialogs(selectedID, limit)
+	result, err := chatSvc.ListDialogs(ctx, selectedID, limit)
 	if err != nil {
 		errMsg := s.classifyChatError(err)
+		errCode := "telegram_error"
+		if c.Request.Context().Err() != nil {
+			errCode = "request_timeout"
+			errMsg = "请求超时，请稍后重试"
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
-			"code":    "telegram_error",
+			"code":    errCode,
 			"message": errMsg,
 			"dialogs": []interface{}{},
 		})
@@ -175,15 +186,19 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 
 	chatSvc := s.newChatService()
 
+	// 15 秒超时
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
 	var result *chat.MessagesResult
 	var err error
 
 	if beforeID > 0 {
 		// 加载更早消息
-		result, err = chatSvc.LoadOlderMessages(selectedID, peerRef, beforeID, limit)
+		result, err = chatSvc.LoadOlderMessages(ctx, selectedID, peerRef, beforeID, limit)
 	} else {
 		// 加载最近消息
-		result, err = chatSvc.GetMessages(selectedID, peerRef, limit)
+		result, err = chatSvc.GetMessages(ctx, selectedID, peerRef, limit)
 	}
 
 	if err != nil {
@@ -191,6 +206,10 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 		errCode := "telegram_error"
 		if chatErr, ok := err.(*chat.ChatError); ok {
 			errCode = chatErr.Code
+		}
+		if c.Request.Context().Err() != nil {
+			errCode = "request_timeout"
+			errMsg = "请求超时，请稍后重试"
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"ok":       false,
@@ -535,14 +554,24 @@ func (s *Server) handleAPIRuntimeStatus(c *gin.Context) {
 
 	status := s.runtimeManager.Status(selectedID)
 
+	// executor_ready: 只在 live/syncing 时为 true（connecting 时 Run() 未启动）
+	executorReady := status.State == "live" || status.State == "syncing"
+
+	// last_error 脱敏：移除可能包含的敏感路径和凭据
+	lastErr := status.LastError
+	if lastErr != "" {
+		lastErr = security.SanitizeErrorMessage(lastErr)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"account_id":    status.AccountID,
-		"state":         string(status.State),
-		"last_sync_at":  formatTimePtr(status.LastSyncAt),
-		"last_event_at": formatTimePtr(status.LastEventAt),
-		"last_error":    status.LastError,
-		"active":        status.State != "stopped",
+		"ok":             true,
+		"account_id":     status.AccountID,
+		"state":          string(status.State),
+		"executor_ready": executorReady,
+		"last_sync_at":   formatTimePtr(status.LastSyncAt),
+		"last_event_at":  formatTimePtr(status.LastEventAt),
+		"last_error":     lastErr,
+		"active":         status.State != "stopped",
 	})
 }
 

@@ -294,3 +294,98 @@ func TestBulkFieldsStillRejected(t *testing.T) {
 		}
 	}
 }
+
+// TestRuntimeStatus_IncludesExecutorReady 验证 runtime status 返回 executor_ready 字段。
+func TestRuntimeStatus_IncludesExecutorReady(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/runtime/status", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "executor_ready") {
+		t.Fatalf("runtime status 应包含 executor_ready 字段，实际: %s", body)
+	}
+	// stopped 状态下 executor_ready 应为 false
+	if strings.Contains(body, `"executor_ready":true`) {
+		t.Errorf("stopped 状态下 executor_ready 应为 false，实际: %s", body)
+	}
+}
+
+// TestRuntimeStatus_IncludesSanitizedLastError 验证 last_error 字段存在且不泄露敏感信息。
+func TestRuntimeStatus_IncludesSanitizedLastError(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/runtime/status", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// last_error 字段必须存在
+	if !strings.Contains(body, "last_error") {
+		t.Fatalf("runtime status 应包含 last_error 字段，实际: %s", body)
+	}
+	// 不应包含敏感路径模式
+	sensitivePatterns := []string{"api_hash", "proxy_password", "session_path", "access_hash"}
+	for _, p := range sensitivePatterns {
+		if strings.Contains(strings.ToLower(body), p) {
+			t.Errorf("runtime status 不应包含敏感字段 %q，实际: %s", p, body)
+		}
+	}
+	_ = srv
+}
+
+// TestDialogsREST_DoesNotHangWhenNoRuntime 验证无 runtime 时 dialogs 请求能正常返回。
+func TestDialogsREST_DoesNotHangWhenNoRuntime(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	// 不创建账号 → 无 runtime
+	// dialogs 应返回 no_current_account，不应挂起
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/dialogs", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("预期 200，实际 %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":false`) && !strings.Contains(body, `"ok": false`) {
+		t.Errorf("无账号时应返回 ok:false，实际: %s", body)
+	}
+}
+
+// TestMessagesREST_DoesNotHangWhenNoRuntime 验证无 runtime 时 messages 请求能正常返回。
+func TestMessagesREST_DoesNotHangWhenNoRuntime(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/chats/u_123/messages", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("预期 200，实际 %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":false`) && !strings.Contains(body, `"ok": false`) {
+		t.Errorf("无账号时应返回 ok:false，实际: %s", body)
+	}
+}
