@@ -102,6 +102,88 @@ GET /api/realtime/ws
 - 再连接 WebSocket
 - Runtime 未启动时 WebSocket 仍可连接，但只收到状态事件
 
+## Dev/Test 事件注入
+
+### Endpoint
+
+```
+POST /api/realtime/dev/publish
+```
+
+### 默认关闭
+
+仅当环境变量 `ATRIA_DEV_REALTIME_TEST=1` 时可用。默认返回 404。
+
+### 用途
+
+1. 后端自动化测试 WebSocket 推送
+2. 前端本地手动验证 Query patch
+3. 不依赖真实 Telegram 的端到端 UI 验收
+
+### 请求格式
+
+```json
+{
+  "type": "message.new",
+  "peer_ref": "u_123",
+  "payload": { "text": "test message" }
+}
+```
+
+### 白名单事件
+
+- `message.new`
+- `message.edited`
+- `message.deleted`
+- `dialog.upserted`
+- `sync.started`
+- `sync.done`
+- `sync.failed`
+
+### 安全约束
+
+- 必须鉴权（cookie session）
+- 只能发布到当前 selected account
+- 不允许传任意 account_id
+- 事件 payload 走同样的 sanitize 路径
+- 不写 Telegram
+- 不访问真实 Telegram
+- 生产环境默认关闭
+
+## 真实 Telegram 手动验收步骤
+
+1. 启动 `bin/atria.exe serve`
+2. 登录 Atria
+3. 选择已登录 Telegram 账号
+4. 打开 `/app/#/chats`
+5. 确认 runtime status 为 `live`
+6. 打开浏览器 DevTools Network，确认 `/api/realtime/ws` 已连接
+7. 打开一个会话并停留在底部
+8. 用手机 Telegram 或官方客户端给该账号发送一条消息
+9. 不刷新页面
+10. 确认新消息自动显示
+11. 上滑到历史位置
+12. 再发送一条消息
+13. 确认页面不被强制拉到底部，并显示"有新消息"
+14. 点击"有新消息"，确认滚到底部
+15. 切到另一个会话
+16. 给非当前会话发消息
+17. 确认当前消息区不变，左侧会话 preview/unread 更新
+18. 断开网络或停止服务，确认 WebSocket reconnecting
+19. 恢复后确认 reconnect 并补偿 invalidate
+20. 检查日志不含敏感字段和 message body
+
+## WebSocket 链路排查顺序
+
+如果 WebSocket 未收到事件，按以下顺序排查：
+
+1. **Runtime 状态**：`GET /api/chats/runtime/status` 确认 `state=live`
+2. **EventBus**：检查 runtime 日志是否有 `新消息处理完成` 或 `消息编辑处理完成`
+3. **WebSocket 连接**：DevTools Network 确认 WS 连接建立
+4. **事件接收**：DevTools WS 面板确认收到 JSON 事件
+5. **Query patch**：DevTools Console 检查 TanStack Query cache 是否更新
+6. **UI 更新**：确认 Vue 组件是否重新渲染
+
 ## 后续扩展
 
 - 媒体消息实时更新

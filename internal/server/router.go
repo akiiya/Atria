@@ -348,6 +348,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	r.GET("/api/realtime/ws", func(c *gin.Context) {
 		s.handleRealtimeWS(c)
 	})
+	// Dev/Test 事件注入（默认关闭，ATRIA_DEV_REALTIME_TEST=1 时启用）
+	// 注意：此端点仅用于测试，不走 CSRF（因为是 dev-only 且已通过 env var 保护）
+	r.POST("/api/realtime/dev/publish", devRealtimeMiddleware(), authMiddleware, func(c *gin.Context) {
+		s.handleRealtimeDevPublish(c)
+	})
 
 	// 账号列表 JSON
 	r.GET("/api/accounts", authMiddleware, func(c *gin.Context) {

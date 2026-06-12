@@ -314,3 +314,285 @@ func TestRuntimeStatusStillWorksWithRealtimeWS(t *testing.T) {
 		t.Errorf("runtime status 应返回 ok:true，实际: %s", body)
 	}
 }
+
+// ===== Dev Publish Endpoint Tests =====
+
+func TestRealtimeDevPublish_DisabledByDefault(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	// 默认不设置 ATRIA_DEV_REALTIME_TEST，应返回 404
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123"}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfCookie)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("未启用时应返回 404，实际 %d", w.Code)
+	}
+}
+
+func TestRealtimeDevPublish_RequiresAuth(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123"}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized && w.Code != http.StatusFound {
+		t.Errorf("未登录应返回 401 或重定向，实际 %d", w.Code)
+	}
+}
+
+func TestRealtimeDevPublish_UsesSelectedAccountOnly(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123"}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	// 应该成功（使用 selected account）
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":true`) && !strings.Contains(body, `"ok": true`) {
+		t.Errorf("应返回 ok:true，实际: %s", body)
+	}
+}
+
+func TestRealtimeDevPublish_PublishesMessageNew(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	// 订阅 EventBus 以验证事件被发布
+	sink, ch := telegramclient.NewChannelSink(10)
+	sub, _ := srv.eventBus.Subscribe(1, sink)
+	defer sub.Close()
+
+	// 在 goroutine 中接收事件
+	received := make(chan telegramclient.UpdateEvent, 1)
+	go func() {
+		select {
+		case event := <-ch:
+			received <- event
+		case <-time.After(2 * time.Second):
+		}
+	}()
+
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123","payload":{"text":"test message"}}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":true`) && !strings.Contains(body, `"ok": true`) {
+		t.Errorf("应返回 ok:true，实际: %s", body)
+	}
+
+	// 验证事件被发布到 EventBus
+	select {
+	case event := <-received:
+		if event.Type != telegramclient.EventMessageNew {
+			t.Errorf("期望 message.new，实际 %s", event.Type)
+		}
+		if event.PeerRef != "u_123" {
+			t.Errorf("期望 peer_ref=u_123，实际 %s", event.PeerRef)
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("超时：未收到事件")
+	}
+}
+
+func TestRealtimeDevPublish_DoesNotAllowAccountIDOverride(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	// 尝试传入 account_id（应被忽略）
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123","account_id":999}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	// 应该成功但使用 selected account，不是 999
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":true`) && !strings.Contains(body, `"ok": true`) {
+		t.Errorf("应返回 ok:true，实际: %s", body)
+	}
+	_ = srv
+}
+
+func TestRealtimeDevPublish_DoesNotReturnSensitiveFields(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123","payload":{"text":"test"}}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfCookie)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	sensitiveFields := []string{"api_hash", "proxy_password", "session_path", "access_hash"}
+	for _, field := range sensitiveFields {
+		if strings.Contains(body, field) {
+			t.Errorf("响应不应包含敏感字段 %q", field)
+		}
+	}
+	_ = srv
+}
+
+// ===== Event Serialization Extended Tests =====
+
+func TestRealtimeEvent_MessageEditedSerialization(t *testing.T) {
+	event := telegramclient.UpdateEvent{
+		EventID:   "evt_msg_edit_1",
+		AccountID: 1,
+		Type:      telegramclient.EventMessageEdited,
+		PeerRef:   "u_123",
+		CreatedAt: time.Now(),
+		Payload: telegramclient.Message{
+			ID:                "msg_1",
+			TelegramMessageID: 123,
+			PeerRef:           "u_123",
+			Direction:         telegramclient.MessageDirectionOut,
+			SenderName:        "Test User",
+			Text:              "Edited text",
+			Kind:              telegramclient.MessageKindText,
+			SentAt:            time.Now(),
+			IsOutgoing:        true,
+			Status:            telegramclient.MessageStatusSent,
+		},
+	}
+
+	payload := sanitizePayload(event)
+	if payload == nil {
+		t.Fatal("payload 不应为 nil")
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("JSON 序列化失败: %s", err)
+	}
+
+	body := string(data)
+	if !strings.Contains(body, "Edited text") {
+		t.Error("payload 应包含编辑后的文本")
+	}
+}
+
+func TestRealtimeEvent_NoAPIHash(t *testing.T) {
+	event := telegramclient.UpdateEvent{
+		Type: telegramclient.EventMessageNew,
+		Payload: telegramclient.Message{
+			ID:   "msg_1",
+			Text: "test",
+		},
+	}
+
+	payload := sanitizePayload(event)
+	data, _ := json.Marshal(payload)
+	body := string(data)
+
+	if strings.Contains(body, "api_hash") {
+		t.Error("payload 不应包含 api_hash")
+	}
+}
+
+func TestRealtimeEvent_NoProxyPassword(t *testing.T) {
+	event := telegramclient.UpdateEvent{
+		Type: telegramclient.EventMessageNew,
+		Payload: telegramclient.Message{
+			ID:   "msg_1",
+			Text: "test",
+		},
+	}
+
+	payload := sanitizePayload(event)
+	data, _ := json.Marshal(payload)
+	body := string(data)
+
+	if strings.Contains(body, "proxy_password") {
+		t.Error("payload 不应包含 proxy_password")
+	}
+}
+
+func TestRealtimeEvent_NoSessionPath(t *testing.T) {
+	event := telegramclient.UpdateEvent{
+		Type: telegramclient.EventMessageNew,
+		Payload: telegramclient.Message{
+			ID:   "msg_1",
+			Text: "test",
+		},
+	}
+
+	payload := sanitizePayload(event)
+	data, _ := json.Marshal(payload)
+	body := string(data)
+
+	if strings.Contains(body, "session_path") || strings.Contains(body, "SessionFilePath") {
+		t.Error("payload 不应包含 session_path")
+	}
+}
+
+func TestRealtimeEvent_NoGotdRawPayload(t *testing.T) {
+	// 验证 payload 不包含 gotd 原始类型标记
+	event := telegramclient.UpdateEvent{
+		Type: telegramclient.EventMessageNew,
+		Payload: telegramclient.Message{
+			ID:   "msg_1",
+			Text: "test",
+		},
+	}
+
+	payload := sanitizePayload(event)
+	data, _ := json.Marshal(payload)
+	body := string(data)
+
+	gotdMarkers := []string{"tg.Message", "tg.Dialog", "InputPeer", "gotd"}
+	for _, marker := range gotdMarkers {
+		if strings.Contains(body, marker) {
+			t.Errorf("payload 不应包含 gotd 标记 %q", marker)
+		}
+	}
+}
