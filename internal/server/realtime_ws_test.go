@@ -166,6 +166,56 @@ func TestRealtimeEvent_MessageDeletedSerialization(t *testing.T) {
 	if !strings.Contains(body, "100") || !strings.Contains(body, "200") {
 		t.Error("payload 应包含 telegram_message_ids")
 	}
+	if !strings.Contains(body, "telegram_message_ids") {
+		t.Error("payload 应使用 telegram_message_ids 字段")
+	}
+	if strings.Contains(body, `"message_ids"`) || strings.Contains(body, `"text"`) {
+		t.Errorf("payload 不应包含旧字段或消息正文: %s", body)
+	}
+}
+
+func TestRealtimeEvent_MessageDeletedSerialization_UsesTelegramMessageIDs(t *testing.T) {
+	event := telegramclient.UpdateEvent{
+		EventID:   "evt_msg_del_compat",
+		AccountID: 1,
+		Type:      telegramclient.EventMessageDeleted,
+		PeerRef:   "u_123",
+		CreatedAt: time.Now(),
+		Payload: map[string]interface{}{
+			"message_ids": []interface{}{float64(100), float64(200)},
+			"text":        "deleted body must not leak",
+		},
+	}
+
+	data, err := json.Marshal(sanitizePayload(event))
+	if err != nil {
+		t.Fatalf("JSON 序列化失败: %s", err)
+	}
+	body := string(data)
+	if !strings.Contains(body, `"telegram_message_ids":[100,200]`) {
+		t.Fatalf("删除事件必须规范为 telegram_message_ids，实际 %s", body)
+	}
+	if strings.Contains(body, `"message_ids"`) || strings.Contains(body, "deleted body") || strings.Contains(body, `"text"`) {
+		t.Fatalf("删除事件不应返回旧字段或 message body，实际 %s", body)
+	}
+}
+
+func TestRealtimeEvent_MessageDeleted_NoMessageBody(t *testing.T) {
+	event := telegramclient.UpdateEvent{
+		Type:    telegramclient.EventMessageDeleted,
+		PeerRef: "u_123",
+		Payload: map[string]interface{}{
+			"telegram_message_ids": []int{123},
+			"text":                 "secret message",
+			"message_body":         "secret body",
+		},
+	}
+
+	data, _ := json.Marshal(sanitizePayload(event))
+	body := string(data)
+	if strings.Contains(body, "secret") || strings.Contains(body, "message_body") || strings.Contains(body, `"text"`) {
+		t.Fatalf("删除事件不应包含 message body，实际 %s", body)
+	}
 }
 
 func TestRealtimeEvent_DialogUpsertedSerialization(t *testing.T) {
@@ -353,14 +403,13 @@ func TestRealtimeDevPublish_RequiresAuth(t *testing.T) {
 	}
 }
 
-func TestRealtimeDevPublish_UsesSelectedAccountOnly(t *testing.T) {
+func TestRealtimeDevPublish_RequiresCSRF(t *testing.T) {
 	r, srv := setupTestRouter(t)
 
 	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
 
 	initAdmin(t, r)
 	_, sessionCookie := loginAdmin(t, r)
-
 	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
 
 	w := httptest.NewRecorder()
@@ -368,6 +417,53 @@ func TestRealtimeDevPublish_UsesSelectedAccountOnly(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("missing CSRF should return 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRealtimeDevPublish_RejectsInvalidCSRF(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123"}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "invalid-token")
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("invalid CSRF should return 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRealtimeDevPublish_UsesSelectedAccountOnly(t *testing.T) {
+	r, srv := setupTestRouter(t)
+
+	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
+
+	initAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+	csrfCookie = refreshCSRF(t, r, sessionCookie)
+
+	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+	csrfCookie = refreshCSRF(t, r, sessionCookie)
+
+	w := httptest.NewRecorder()
+	reqBody := `{"type":"message.new","peer_ref":"u_123"}`
+	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfCookie)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
 	// 应该成功（使用 selected account）
@@ -383,14 +479,15 @@ func TestRealtimeDevPublish_PublishesMessageNew(t *testing.T) {
 	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
 
 	initAdmin(t, r)
-	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+	csrfCookie = refreshCSRF(t, r, sessionCookie)
 
-	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+	account := createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+	sink, ch := telegramclient.NewChannelSink(10)
+	sub, _ := srv.eventBus.Subscribe(account.ID, sink)
+	defer sub.Close()
 
 	// 订阅 EventBus 以验证事件被发布
-	sink, ch := telegramclient.NewChannelSink(10)
-	sub, _ := srv.eventBus.Subscribe(1, sink)
-	defer sub.Close()
 
 	// 在 goroutine 中接收事件
 	received := make(chan telegramclient.UpdateEvent, 1)
@@ -406,7 +503,8 @@ func TestRealtimeDevPublish_PublishesMessageNew(t *testing.T) {
 	reqBody := `{"type":"message.new","peer_ref":"u_123","payload":{"text":"test message"}}`
 	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	req.Header.Set("X-CSRF-Token", csrfCookie)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
 	body := w.Body.String()
@@ -434,16 +532,21 @@ func TestRealtimeDevPublish_DoesNotAllowAccountIDOverride(t *testing.T) {
 	t.Setenv("ATRIA_DEV_REALTIME_TEST", "1")
 
 	initAdmin(t, r)
-	_, sessionCookie := loginAdmin(t, r)
+	csrfCookie, sessionCookie := loginAdmin(t, r)
+	csrfCookie = refreshCSRF(t, r, sessionCookie)
 
-	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+	account := createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
+	sink, ch := telegramclient.NewChannelSink(10)
+	sub, _ := srv.eventBus.Subscribe(account.ID, sink)
+	defer sub.Close()
 
 	// 尝试传入 account_id（应被忽略）
 	w := httptest.NewRecorder()
 	reqBody := `{"type":"message.new","peer_ref":"u_123","account_id":999}`
 	req, _ := http.NewRequest("POST", "/api/realtime/dev/publish", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	req.Header.Set("X-CSRF-Token", csrfCookie)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfCookie)
 	r.ServeHTTP(w, req)
 
 	// 应该成功但使用 selected account，不是 999
@@ -451,7 +554,14 @@ func TestRealtimeDevPublish_DoesNotAllowAccountIDOverride(t *testing.T) {
 	if !strings.Contains(body, `"ok":true`) && !strings.Contains(body, `"ok": true`) {
 		t.Errorf("应返回 ok:true，实际: %s", body)
 	}
-	_ = srv
+	select {
+	case event := <-ch:
+		if event.AccountID != account.ID {
+			t.Fatalf("dev publish must use selected account %d, got %d", account.ID, event.AccountID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for dev publish event")
+	}
 }
 
 func TestRealtimeDevPublish_DoesNotReturnSensitiveFields(t *testing.T) {
@@ -461,6 +571,7 @@ func TestRealtimeDevPublish_DoesNotReturnSensitiveFields(t *testing.T) {
 
 	initAdmin(t, r)
 	csrfCookie, sessionCookie := loginAdmin(t, r)
+	csrfCookie = refreshCSRF(t, r, sessionCookie)
 
 	createTestAccount(t, srv.db, "Test User", "test_user", model.TelegramAccountStatusActive)
 
@@ -473,6 +584,9 @@ func TestRealtimeDevPublish_DoesNotReturnSensitiveFields(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	body := w.Body.String()
+	if w.Code != http.StatusOK || (!strings.Contains(body, `"ok":true`) && !strings.Contains(body, `"ok": true`)) {
+		t.Fatalf("expected dev publish success, status=%d body=%s", w.Code, body)
+	}
 	sensitiveFields := []string{"api_hash", "proxy_password", "session_path", "access_hash"}
 	for _, field := range sensitiveFields {
 		if strings.Contains(body, field) {

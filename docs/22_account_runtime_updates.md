@@ -277,7 +277,7 @@ type TelegramChannelUpdateState struct {
 关键设计：
 - 每个 subscriber 有独立的 buffered channel（100 events）
 - Publish 是非阻塞的，慢 subscriber 不阻塞 runtime
-- 下一轮 WebSocket 会接这个 EventBus
+- WebSocket 已接入这个 EventBus（见 `docs/23_websocket_realtime_push.md`）
 
 ## UpdateEvent 类型
 
@@ -287,7 +287,7 @@ type TelegramChannelUpdateState struct {
 |---------|------|---------|
 | `message.new` | 新消息 | `telegramclient.Message` |
 | `message.edited` | 编辑消息 | `telegramclient.Message` |
-| `message.deleted` | 删除消息 | `map[string]any{"message_ids": []}` |
+| `message.deleted` | 删除消息 | `map[string]any{"telegram_message_ids": []}` |
 | `dialog.upserted` | 会话更新 | `telegramclient.Dialog` |
 | `account.connected` | 连接成功 | nil |
 | `account.disconnected` | 断开连接 | nil |
@@ -360,7 +360,7 @@ ChatView 在加载时：
 12. 停止 runtime，再启动，确认 state 不丢（检查 `TelegramUpdateState` 表）
 13. 断网/代理失败时，确认 state 进入 `degraded`/`offline`，且不泄露敏感日志
 
-**注意**：本轮没有 WebSocket，所以"不刷新页面自动出现消息"不要求。但 cache 和 runtime status 必须能证明后端 updates 已工作。
+**历史注意**：该段记录的是 AccountRuntime 初始落地时的验收口径；WebSocket 已在后续阶段接入，当前实时验收以 `docs/23_websocket_realtime_push.md` 为准。
 
 ## Runtime Execution Queue 手动验证
 
@@ -381,13 +381,13 @@ ChatView 在加载时：
 - `runtime_queue`：通过 executor 执行（正常路径）
 - `使用临时 client fallback`：fallback 到临时 client（runtime 不可用时）
 
-## WebSocket 下一轮
+## WebSocket 接入状态
 
-本轮只建立后端基础。下一轮会：
-1. 创建 WebSocket endpoint
-2. WebSocket handler 订阅 EventBus
-3. 将 UpdateEvent 推送到前端
-4. 前端实时更新消息列表和会话列表
+当前 WebSocket 已接入：
+1. `GET /api/realtime/ws`
+2. WebSocket handler 订阅 selected account 的 EventBus
+3. 将中立 `UpdateEvent` 推送到前端
+4. 前端局部 patch 消息列表和会话列表
 
 ## TDLib 替换路径
 
@@ -407,11 +407,11 @@ ChatView 在加载时：
 4. 恢复期间状态为 `syncing`
 5. 恢复完成后状态变为 `live`
 
-## 为什么本轮不做 WebSocket
+## 历史说明：最初为什么未在 AccountRuntime 阶段直接做 WebSocket
 
 - WebSocket 需要前端配合（连接管理、重连、消息格式）
-- 后端 EventBus 已经就绪，下一轮直接接入
-- 本轮专注于后端基础的正确性和测试覆盖
+- 后端 EventBus 当时已经就绪，后续阶段已接入 WebSocket
+- AccountRuntime 阶段专注于后端基础的正确性和测试覆盖
 
 ## 为什么不做全量历史同步
 
@@ -464,3 +464,11 @@ Runtime Execution Queue 与 WebSocket 的关系：
 - 初始化成功 → 重定向到 `/app/#/dashboard`
 - 旧 `/dashboard`、`/accounts`、`/chats` 路由 → 重定向到 `/app/#/...`
 - `/login`、`/init`、`/api/*`、`/healthz` 不受影响
+
+## 2026-06 EventBus to WebSocket troubleshooting update
+
+- Runtime healthy but WebSocket receives no events: check `GET /api/chats/runtime/status` for `state=live`, `last_event_at`, and `last_event_type`; then check runtime logs for neutral `UpdateEvent` publish and EventBus subscriber registration.
+- WebSocket receives events but UI does not update: verify `event.account_id` equals the selected account, `event.peer_ref` equals the current peer when patching messages, and TanStack Query has `['messages', accountId, peerRef]` or `['dialogs', accountId]` cached.
+- `message.deleted` events must publish `payload.telegram_message_ids`; `message_ids` is only a compatibility input fallback.
+- EventBus payloads must remain neutral and must not contain gotd raw types, access hashes, session paths, API hashes, proxy passwords, complete phone numbers, or message body logs.
+- WebSocket is now implemented in `docs/23_websocket_realtime_push.md`; the older “next round WebSocket” note is historical.

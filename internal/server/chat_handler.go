@@ -7,7 +7,6 @@ import (
 
 	"github.com/user/atria/internal/chat"
 	"github.com/user/atria/internal/mtproto"
-	gotdadapter "github.com/user/atria/internal/telegramclient/gotd"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,13 +27,7 @@ func (s *Server) handleGetChats(c *gin.Context) {
 	data["HasCurrentAccount"] = true
 
 	// 获取会话列表
-	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	adapter.SetGate(s.accountGate)
-	adapter.SetRuntime(s.runtimeManager)
-	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
-		adapter.SetDialer(dialer)
-	}
-	chatSvc := chat.NewChatService(s.db, s.key, adapter, slog.Default())
+	chatSvc := s.newChatService()
 
 	dialogs, err := chatSvc.ListDialogs(selectedID, 20)
 	if err != nil {
@@ -73,13 +66,7 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 	data["PeerRef"] = peerRef
 
 	// 获取消息历史
-	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	adapter.SetGate(s.accountGate)
-	adapter.SetRuntime(s.runtimeManager)
-	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
-		adapter.SetDialer(dialer)
-	}
-	chatSvc := chat.NewChatService(s.db, s.key, adapter, slog.Default())
+	chatSvc := s.newChatService()
 
 	result, err := chatSvc.GetMessages(selectedID, peerRef, 50)
 	if err != nil {
@@ -145,13 +132,7 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 		return
 	}
 
-	adapter := gotdadapter.NewAdapter(s.cfg.SessionDir, s.key, s.flowStore, slog.Default())
-	adapter.SetGate(s.accountGate)
-	adapter.SetRuntime(s.runtimeManager)
-	if dialer, _ := BuildProxyDialerFromDB(s.db, s.key); dialer != nil {
-		adapter.SetDialer(dialer)
-	}
-	chatSvc := chat.NewChatService(s.db, s.key, adapter, slog.Default())
+	chatSvc := s.newChatService()
 
 	result, err := chatSvc.SendText(selectedID, peerRef, text)
 	if err != nil {

@@ -1,17 +1,23 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { RealtimeEvent } from './ws'
-import type { ChatMessage, Dialog } from '@/types/chat'
+import type { ChatMessage, Dialog, MessageKind } from '@/types/chat'
 
-/**
- * 处理 WebSocket 实时事件，局部 patch TanStack Query cache。
- */
+type MessagesCache = {
+  ok?: boolean
+  messages?: ChatMessage[]
+  older_messages?: ChatMessage[]
+  pages?: Array<{ messages?: ChatMessage[]; [key: string]: unknown }>
+  [key: string]: unknown
+}
+
+type MessagePatchMode = 'upsert' | 'replace-local' | 'mark-failed'
+
 export function handleRealtimeEvent(
   event: RealtimeEvent,
   queryClient: QueryClient,
   currentAccountId: number | null,
   currentPeerRef: string | null
 ): void {
-  // 只处理当前 account 的事件
   if (!currentAccountId || event.account_id !== currentAccountId) return
 
   switch (event.type) {
@@ -32,18 +38,44 @@ export function handleRealtimeEvent(
     case 'sync.failed':
     case 'account.connected':
     case 'account.disconnected':
-      // 状态事件 - 通过 runtime status query 刷新处理
       queryClient.invalidateQueries({ queryKey: ['runtime-status', currentAccountId] })
       break
   }
 }
 
-/**
- * 获取消息的去重主键。
- * 优先使用 telegram_message_id，其次使用 id。
- */
-function getMessageKey(msg: ChatMessage): number {
-  return msg.telegram_message_id ?? msg.id
+export function upsertMessageInMessagesCache(
+  queryClient: QueryClient,
+  accountId: number,
+  peerRef: string,
+  message: ChatMessage
+): void {
+  patchMessagesQuery(queryClient, accountId, peerRef, (old) =>
+    patchMessageInCache(old, normalizeMessage(message, peerRef), 'upsert')
+  )
+}
+
+export function replaceLocalMessageInMessagesCache(
+  queryClient: QueryClient,
+  accountId: number,
+  peerRef: string,
+  localId: string,
+  message: ChatMessage
+): void {
+  patchMessagesQuery(queryClient, accountId, peerRef, (old) =>
+    patchMessageInCache(old, normalizeMessage({ ...message, local_id: localId }, peerRef), 'replace-local', localId)
+  )
+}
+
+export function markLocalMessageFailedInMessagesCache(
+  queryClient: QueryClient,
+  accountId: number,
+  peerRef: string,
+  localId: string,
+  errorText?: string
+): void {
+  patchMessagesQuery(queryClient, accountId, peerRef, (old) =>
+    patchMessageInCache(old, undefined, 'mark-failed', localId, errorText)
+  )
 }
 
 function handleMessageNew(
@@ -52,12 +84,9 @@ function handleMessageNew(
   accountId: number,
   currentPeerRef: string | null
 ): void {
-  const msg = event.payload as ChatMessage | undefined
+  const msg = normalizeMessage(event.payload as Partial<ChatMessage> | undefined, event.peer_ref)
   if (!msg) return
 
-  const msgKey = getMessageKey(msg)
-
-  // 更新 dialogs query
   queryClient.setQueryData(['dialogs', accountId], (old: unknown) => {
     const data = old as { ok: boolean; dialogs: Dialog[] } | undefined
     if (!data?.ok || !data.dialogs) return old
@@ -74,11 +103,9 @@ function handleMessageNew(
       return d
     })
 
-    // 移动更新的 dialog 到前面（非 pinned 的情况下）
     const updatedIdx = dialogs.findIndex((d) => d.peer_ref === event.peer_ref)
     if (updatedIdx > 0 && !dialogs[updatedIdx].is_pinned) {
       const [updated] = dialogs.splice(updatedIdx, 1)
-      // 找到第一个非 pinned 的位置插入
       let insertIdx = 0
       for (let i = 0; i < dialogs.length; i++) {
         if (dialogs[i].is_pinned) insertIdx = i + 1
@@ -90,37 +117,8 @@ function handleMessageNew(
     return { ...data, dialogs }
   })
 
-  // 如果是当前打开的 peer，更新 messages
   if (currentPeerRef && event.peer_ref === currentPeerRef) {
-    queryClient.setQueryData(['messages', accountId, currentPeerRef], (old: unknown) => {
-      const data = old as { ok: boolean; messages: ChatMessage[] } | undefined
-      if (!data?.ok) return old
-
-      // 去重：检查 telegram_message_id
-      const exists = data.messages.some((m) => {
-        const mKey = getMessageKey(m)
-        return mKey === msgKey
-      })
-      if (exists) {
-        // 如果存在 pending 的 optimistic message，替换为真实消息
-        const pendingIdx = data.messages.findIndex(
-          (m) => m.pending && m.local_id && m.local_id === msg.local_id
-        )
-        if (pendingIdx >= 0) {
-          const messages = [...data.messages]
-          messages[pendingIdx] = { ...msg, telegram_message_id: msgKey }
-          return { ...data, messages }
-        }
-        return old
-      }
-
-      // 插入并保持时间正序
-      const messages = [...data.messages, { ...msg, telegram_message_id: msgKey }].sort(
-        (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
-      )
-
-      return { ...data, messages }
-    })
+    upsertMessageInMessagesCache(queryClient, accountId, currentPeerRef, msg)
   }
 }
 
@@ -130,29 +128,24 @@ function handleMessageEdited(
   accountId: number,
   currentPeerRef: string | null
 ): void {
-  const msg = event.payload as ChatMessage | undefined
+  const msg = normalizeMessage(event.payload as Partial<ChatMessage> | undefined, event.peer_ref)
   if (!msg) return
+  const msgID = telegramMessageID(msg)
+  if (!msgID) return
 
-  const msgKey = getMessageKey(msg)
-
-  // 更新当前 peer 的 messages
   if (currentPeerRef && event.peer_ref === currentPeerRef) {
-    queryClient.setQueryData(['messages', accountId, currentPeerRef], (old: unknown) => {
-      const data = old as { ok: boolean; messages: ChatMessage[] } | undefined
-      if (!data?.ok) return old
-
-      const messages = data.messages.map((m) => {
-        if (getMessageKey(m) === msgKey) {
-          return { ...m, text: msg.text, caption: msg.caption }
-        }
-        return m
-      })
-
-      return { ...data, messages }
-    })
+    patchMessagesQuery(queryClient, accountId, currentPeerRef, (old) =>
+      patchMessageCollections(old, (messages) =>
+        messages.map((m) => {
+          if (telegramMessageID(m) === msgID) {
+            return normalizeMessage({ ...m, text: msg.text, caption: msg.caption }, m.peer_ref) || m
+          }
+          return m
+        })
+      )
+    )
   }
 
-  // 更新 dialog preview
   queryClient.setQueryData(['dialogs', accountId], (old: unknown) => {
     const data = old as { ok: boolean; dialogs: Dialog[] } | undefined
     if (!data?.ok || !data.dialogs) return old
@@ -177,23 +170,19 @@ function handleMessageDeleted(
   accountId: number,
   currentPeerRef: string | null
 ): void {
-  // 统一使用 telegram_message_ids 字段
   const payload = event.payload as { telegram_message_ids?: number[]; message_ids?: number[] } | undefined
   const messageIds = payload?.telegram_message_ids || payload?.message_ids || []
   if (messageIds.length === 0) return
 
-  // 从当前 peer 的 messages 中删除
   if (currentPeerRef && event.peer_ref === currentPeerRef) {
-    queryClient.setQueryData(['messages', accountId, currentPeerRef], (old: unknown) => {
-      const data = old as { ok: boolean; messages: ChatMessage[] } | undefined
-      if (!data?.ok) return old
-
-      const messages = data.messages.filter(
-        (m) => !messageIds.includes(getMessageKey(m))
+    patchMessagesQuery(queryClient, accountId, currentPeerRef, (old) =>
+      patchMessageCollections(old, (messages) =>
+        messages.filter((m) => {
+          const id = telegramMessageID(m)
+          return !id || !messageIds.includes(id)
+        })
       )
-
-      return { ...data, messages }
-    })
+    )
   }
 }
 
@@ -216,6 +205,182 @@ function handleDialogUpserted(
       return { ...data, dialogs }
     }
 
-    return data
+    return { ...data, dialogs: [dlg, ...data.dialogs] }
   })
+}
+
+function patchMessagesQuery(
+  queryClient: QueryClient,
+  accountId: number,
+  peerRef: string,
+  updater: (old: unknown) => unknown
+): void {
+  queryClient.setQueryData(['messages', accountId, peerRef], updater)
+}
+
+function patchMessageInCache(
+  old: unknown,
+  incoming: ChatMessage | undefined,
+  mode: MessagePatchMode,
+  localId?: string,
+  errorText?: string
+): unknown {
+  return patchMessageCollections(old, (messages) => {
+    if (mode === 'mark-failed' && localId) {
+      return messages.map((m) =>
+        m.local_id === localId || m.client_pending_id === localId
+          ? { ...m, pending: false, status: 'failed' as const, error: errorText }
+          : m
+      )
+    }
+    if (!incoming) return messages
+    if (mode === 'replace-local' && localId) {
+      const idx = messages.findIndex((m) => m.local_id === localId || m.client_pending_id === localId)
+      if (idx >= 0) {
+        const next = [...messages]
+        next[idx] = mergeMessages(messages[idx], incoming)
+        return sortMessagesByTime(dedupeMessages(next))
+      }
+    }
+    return upsertMessageList(messages, incoming)
+  })
+}
+
+function patchMessageCollections(old: unknown, patchList: (messages: ChatMessage[]) => ChatMessage[]): unknown {
+  const data = old as MessagesCache | undefined
+  if (!data?.ok) return old
+
+  let changed = false
+  const next: MessagesCache = { ...data }
+
+  if (Array.isArray(data.messages)) {
+    next.messages = patchList(data.messages)
+    changed = true
+  }
+  if (Array.isArray(data.older_messages)) {
+    next.older_messages = patchList(data.older_messages)
+    changed = true
+  }
+  if (Array.isArray(data.pages)) {
+    next.pages = data.pages.map((page) => {
+      if (!Array.isArray(page.messages)) return page
+      changed = true
+      return { ...page, messages: patchList(page.messages) }
+    })
+  }
+
+  return changed ? next : old
+}
+
+function upsertMessageList(messages: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  const incomingID = telegramMessageID(incoming)
+  const idx = messages.findIndex((m) => {
+    const existingID = telegramMessageID(m)
+    if (incomingID && existingID && incomingID === existingID) return true
+    if (incoming.local_id && m.local_id === incoming.local_id) return true
+    if (incoming.client_pending_id && m.client_pending_id === incoming.client_pending_id) return true
+    return isConservativeOutgoingMatch(m, incoming)
+  })
+
+  if (idx >= 0) {
+    const next = [...messages]
+    next[idx] = mergeMessages(messages[idx], incoming)
+    return sortMessagesByTime(dedupeMessages(next))
+  }
+
+  return sortMessagesByTime(dedupeMessages([...messages, incoming]))
+}
+
+function dedupeMessages(messages: ChatMessage[]): ChatMessage[] {
+  const seenTelegramIDs = new Set<number>()
+  const seenLocalIDs = new Set<string>()
+  const result: ChatMessage[] = []
+
+  for (const msg of messages) {
+    const id = telegramMessageID(msg)
+    if (id) {
+      if (seenTelegramIDs.has(id)) continue
+      seenTelegramIDs.add(id)
+    }
+    const localID = msg.local_id || msg.client_pending_id
+    if (localID) {
+      if (seenLocalIDs.has(localID)) continue
+      seenLocalIDs.add(localID)
+    }
+    result.push(msg)
+  }
+  return result
+}
+
+function mergeMessages(existing: ChatMessage, incoming: ChatMessage): ChatMessage {
+  return {
+    ...existing,
+    ...incoming,
+    id: incoming.id || existing.id,
+    telegram_message_id: incoming.telegram_message_id || existing.telegram_message_id,
+    local_id: existing.local_id || incoming.local_id,
+    client_pending_id: existing.client_pending_id || incoming.client_pending_id,
+    pending: incoming.pending ?? false,
+    status: incoming.status || 'sent',
+  }
+}
+
+function normalizeMessage(raw: Partial<ChatMessage> | undefined, fallbackPeerRef?: string): ChatMessage | undefined {
+  if (!raw) return undefined
+  const rawID = Number(raw.telegram_message_id ?? raw.id)
+  const telegramID = Number.isFinite(rawID) && rawID > 0 ? rawID : undefined
+  const messageType = (raw.message_type || raw.kind || 'text') as MessageKind
+  const numericID = Number(raw.id)
+  const id = telegramID ?? (Number.isFinite(numericID) && numericID !== 0
+    ? numericID
+    : negativeLocalID(raw.local_id || raw.client_pending_id))
+
+  return {
+    id,
+    telegram_message_id: telegramID,
+    local_id: raw.local_id,
+    client_pending_id: raw.client_pending_id,
+    pending: raw.pending ?? false,
+    peer_ref: raw.peer_ref || fallbackPeerRef || '',
+    direction: raw.direction || (raw.is_outgoing ? 'out' : 'in'),
+    sender_name: raw.sender_name || '',
+    text: raw.text || '',
+    sent_at: raw.sent_at || new Date().toISOString(),
+    is_outgoing: raw.is_outgoing ?? raw.direction === 'out',
+    status: raw.status || 'sent',
+    message_type: messageType,
+    kind: raw.kind,
+    caption: raw.caption,
+    media: raw.media,
+  }
+}
+
+function negativeLocalID(seed?: string): number {
+  if (!seed) return -Date.now()
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  }
+  return -Math.abs(hash || Date.now())
+}
+
+function telegramMessageID(msg: ChatMessage): number | undefined {
+  if (msg.telegram_message_id && msg.telegram_message_id > 0) return msg.telegram_message_id
+  if (typeof msg.id === 'number' && msg.id > 0) return msg.id
+  return undefined
+}
+
+function isConservativeOutgoingMatch(existing: ChatMessage, incoming: ChatMessage): boolean {
+  const onePending = Boolean(existing.pending) !== Boolean(incoming.pending)
+  if (!onePending || !existing.is_outgoing || !incoming.is_outgoing) return false
+  if (existing.peer_ref !== incoming.peer_ref) return false
+  if (existing.text.trim() !== incoming.text.trim()) return false
+  const delta = Math.abs(new Date(existing.sent_at).getTime() - new Date(incoming.sent_at).getTime())
+  return Number.isFinite(delta) && delta <= 30_000
+}
+
+function sortMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
+  return [...messages].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+  )
 }

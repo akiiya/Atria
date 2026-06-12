@@ -43,7 +43,7 @@ GET /api/realtime/ws
 |------|------|---------|
 | `message.new` | 新消息 | ChatMessage DTO |
 | `message.edited` | 编辑消息 | ChatMessage DTO |
-| `message.deleted` | 删除消息 | `{message_ids: []}` |
+| `message.deleted` | 删除消息 | `{telegram_message_ids: []}` |
 | `dialog.upserted` | 会话更新 | Dialog DTO |
 | `sync.started` | 同步开始 | state |
 | `sync.done` | 同步完成 | state |
@@ -190,3 +190,16 @@ POST /api/realtime/dev/publish
 - read state 同步
 - typing indicator
 - reaction 更新
+
+## 2026-06 realtime hardening addendum
+
+- Dev publish remains disabled by default and is available only when `ATRIA_DEV_REALTIME_TEST=1`.
+- `POST /api/realtime/dev/publish` is protected by the same auth cookie and CSRF cookie/header mechanism as other POST APIs.
+- Dev publish always resolves the selected account server-side; client supplied `account_id` is ignored and cannot override the target account.
+- Dev publish never calls Telegram and only publishes sanitized neutral `UpdateEvent` payloads into EventBus.
+- `message.deleted` uses `payload.telegram_message_ids` as the canonical field. `message_ids` is only a legacy input fallback and is never serialized as the primary field.
+- `ChatMessage.telegram_message_id` is the REST/WebSocket deletion and deduplication key. `ChatMessage.id` mirrors it for REST compatibility and must not be treated as a cross-layer deletion contract.
+- Optimistic outgoing messages use `local_id` / `client_pending_id`, `pending=true`, and `status="sending"` before send. REST success replaces the local message, and later WebSocket `message.new` deduplicates by `telegram_message_id` or local id.
+- Query patch supports flat `messages`, `older_messages`, and paged `pages[].messages` without clearing existing history. `sync.failed` does not clear messages, and reconnect only invalidates scoped queries.
+- Manual dev publish acceptance must cover disabled-by-default, unauthenticated, missing/invalid CSRF, selected-account-only, `message.new`, `message.edited`, `message.deleted` by `telegram_message_ids`, dialog preview updates, and optimistic outgoing deduplication.
+- Real Telegram acceptance remains manual only: automated tests must not connect to Telegram.

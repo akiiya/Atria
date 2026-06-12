@@ -45,24 +45,26 @@ const (
 
 // Message 表示一条消息。
 type Message struct {
-	MessageID   int              `json:"id"`
-	PeerRef     string           `json:"peer_ref"`
-	Direction   MessageDirection `json:"direction"`
-	SenderName  string           `json:"sender_name,omitempty"`
-	Text        string           `json:"text"`
-	SentAt      time.Time        `json:"sent_at"`
-	IsOutgoing  bool             `json:"is_outgoing"`
-	Status      MessageStatus    `json:"status"`
-	MessageType string           `json:"message_type"` // text, photo, sticker, etc.
+	MessageID         int              `json:"id"`
+	TelegramMessageID int              `json:"telegram_message_id"`
+	PeerRef           string           `json:"peer_ref"`
+	Direction         MessageDirection `json:"direction"`
+	SenderName        string           `json:"sender_name,omitempty"`
+	Text              string           `json:"text"`
+	SentAt            time.Time        `json:"sent_at"`
+	IsOutgoing        bool             `json:"is_outgoing"`
+	Status            MessageStatus    `json:"status"`
+	MessageType       string           `json:"message_type"` // text, photo, sticker, etc.
 }
 
 // SendResult 表示发送消息的结果。
 type SendResult struct {
-	MessageID int       `json:"id"`
-	SentAt    time.Time `json:"sent_at"`
-	Status    string    `json:"status"`
-	Direction string    `json:"direction"`
-	Text      string    `json:"text"`
+	MessageID         int       `json:"id"`
+	TelegramMessageID int       `json:"telegram_message_id"`
+	SentAt            time.Time `json:"sent_at"`
+	Status            string    `json:"status"`
+	Direction         string    `json:"direction"`
+	Text              string    `json:"text"`
 }
 
 // DialogsResult 会话列表结果（含缓存元数据）。

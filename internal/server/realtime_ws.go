@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -158,29 +159,17 @@ func sanitizePayload(event telegramclient.UpdateEvent) interface{} {
 		return nil
 	}
 
-	// 对于 message 事件，过滤敏感字段
 	switch event.Type {
 	case telegramclient.EventMessageNew, telegramclient.EventMessageEdited:
 		if msg, ok := event.Payload.(telegramclient.Message); ok {
-			return map[string]interface{}{
-				"id":                  msg.ID,
-				"telegram_message_id": msg.TelegramMessageID,
-				"peer_ref":            msg.PeerRef,
-				"direction":           string(msg.Direction),
-				"sender_name":         msg.SenderName,
-				"text":                msg.Text,
-				"kind":                string(msg.Kind),
-				"caption":             msg.Caption,
-				"sent_at":             msg.SentAt.UTC().Format(time.RFC3339),
-				"is_outgoing":         msg.IsOutgoing,
-				"status":              string(msg.Status),
-			}
+			return sanitizeMessageDTO(msg)
+		}
+		if payload, ok := event.Payload.(map[string]interface{}); ok {
+			return sanitizeMessageMap(payload, event.PeerRef)
 		}
 
 	case telegramclient.EventMessageDeleted:
-		if payload, ok := event.Payload.(map[string]interface{}); ok {
-			return payload
-		}
+		return sanitizeDeletedPayload(event)
 
 	case telegramclient.EventDialogUpserted:
 		if dlg, ok := event.Payload.(telegramclient.Dialog); ok {
@@ -197,10 +186,231 @@ func sanitizePayload(event telegramclient.UpdateEvent) interface{} {
 				"is_muted":             dlg.IsMuted,
 			}
 		}
+		if payload, ok := event.Payload.(map[string]interface{}); ok {
+			return sanitizeDialogMap(payload, event.PeerRef)
+		}
 	}
 
-	// 对于 sync/status 事件，直接返回 payload
-	return event.Payload
+	return sanitizeGenericPayload(event.Payload)
+}
+
+func sanitizeMessageDTO(msg telegramclient.Message) map[string]interface{} {
+	messageID := msg.TelegramMessageID
+	if messageID == 0 {
+		if parsed, err := strconv.Atoi(msg.ID); err == nil {
+			messageID = parsed
+		}
+	}
+	peerRef := msg.PeerRef
+	result := map[string]interface{}{
+		"id":                  messageID,
+		"telegram_message_id": messageID,
+		"peer_ref":            peerRef,
+		"direction":           string(msg.Direction),
+		"sender_name":         msg.SenderName,
+		"text":                msg.Text,
+		"kind":                string(msg.Kind),
+		"message_type":        string(msg.Kind),
+		"caption":             msg.Caption,
+		"sent_at":             msg.SentAt.UTC().Format(time.RFC3339),
+		"is_outgoing":         msg.IsOutgoing,
+		"status":              string(msg.Status),
+	}
+	if msg.Media != nil {
+		result["media"] = msg.Media
+	}
+	return result
+}
+
+func sanitizeMessageMap(payload map[string]interface{}, fallbackPeerRef string) map[string]interface{} {
+	allowed := map[string]bool{
+		"id":                  true,
+		"telegram_message_id": true,
+		"local_id":            true,
+		"client_pending_id":   true,
+		"peer_ref":            true,
+		"direction":           true,
+		"sender_name":         true,
+		"text":                true,
+		"kind":                true,
+		"message_type":        true,
+		"caption":             true,
+		"sent_at":             true,
+		"is_outgoing":         true,
+		"status":              true,
+		"pending":             true,
+		"media":               true,
+	}
+	result := copyAllowedPayloadFields(payload, allowed)
+	if fallbackPeerRef != "" {
+		if _, ok := result["peer_ref"]; !ok {
+			result["peer_ref"] = fallbackPeerRef
+		}
+	}
+	if _, ok := result["telegram_message_id"]; !ok {
+		if id, ok := payloadInt(payload["id"]); ok {
+			result["telegram_message_id"] = id
+			result["id"] = id
+		}
+	} else if id, ok := payloadInt(result["telegram_message_id"]); ok {
+		result["telegram_message_id"] = id
+		result["id"] = id
+	}
+	if _, ok := result["message_type"]; !ok {
+		if kind, ok := result["kind"]; ok {
+			result["message_type"] = kind
+		}
+	}
+	return result
+}
+
+func sanitizeDeletedPayload(event telegramclient.UpdateEvent) map[string]interface{} {
+	result := map[string]interface{}{}
+	if event.PeerRef != "" {
+		result["peer_ref"] = event.PeerRef
+	}
+	payload, _ := event.Payload.(map[string]interface{})
+	if payload == nil {
+		result["telegram_message_ids"] = []int{}
+		return result
+	}
+
+	ids := payloadIntSlice(payload["telegram_message_ids"])
+	if len(ids) == 0 {
+		ids = payloadIntSlice(payload["message_ids"])
+	}
+	if len(ids) == 0 {
+		if id, ok := payloadInt(payload["telegram_message_id"]); ok {
+			ids = []int{id}
+		}
+	}
+	if len(ids) == 0 {
+		if id, ok := payloadInt(payload["id"]); ok {
+			ids = []int{id}
+		}
+	}
+	if peerRef, ok := payload["peer_ref"].(string); ok && peerRef != "" {
+		result["peer_ref"] = peerRef
+	}
+	result["telegram_message_ids"] = ids
+	return result
+}
+
+func sanitizeDialogMap(payload map[string]interface{}, fallbackPeerRef string) map[string]interface{} {
+	allowed := map[string]bool{
+		"peer_ref":             true,
+		"peer_type":            true,
+		"title":                true,
+		"username":             true,
+		"avatar_text":          true,
+		"avatar_placeholder":   true,
+		"last_message_preview": true,
+		"last_message_at":      true,
+		"unread_count":         true,
+		"is_pinned":            true,
+		"is_muted":             true,
+	}
+	result := copyAllowedPayloadFields(payload, allowed)
+	if fallbackPeerRef != "" {
+		if _, ok := result["peer_ref"]; !ok {
+			result["peer_ref"] = fallbackPeerRef
+		}
+	}
+	return result
+}
+
+func sanitizeGenericPayload(payload interface{}) interface{} {
+	switch p := payload.(type) {
+	case map[string]interface{}:
+		result := make(map[string]interface{}, len(p))
+		for k, v := range p {
+			if isSensitivePayloadKey(k) {
+				continue
+			}
+			result[k] = sanitizeGenericPayload(v)
+		}
+		return result
+	case []interface{}:
+		items := make([]interface{}, 0, len(p))
+		for _, item := range p {
+			items = append(items, sanitizeGenericPayload(item))
+		}
+		return items
+	default:
+		return payload
+	}
+}
+
+func copyAllowedPayloadFields(payload map[string]interface{}, allowed map[string]bool) map[string]interface{} {
+	result := make(map[string]interface{}, len(allowed))
+	for k, v := range payload {
+		if allowed[k] && !isSensitivePayloadKey(k) {
+			result[k] = sanitizeGenericPayload(v)
+		}
+	}
+	return result
+}
+
+func isSensitivePayloadKey(key string) bool {
+	k := strings.ToLower(key)
+	return strings.Contains(k, "access_hash") ||
+		strings.Contains(k, "api_hash") ||
+		strings.Contains(k, "proxy_password") ||
+		strings.Contains(k, "session_path") ||
+		strings.Contains(k, "session_file") ||
+		strings.Contains(k, "phone") ||
+		strings.Contains(k, "message_body")
+}
+
+func payloadIntSlice(v interface{}) []int {
+	switch ids := v.(type) {
+	case []int:
+		return ids
+	case []int64:
+		result := make([]int, 0, len(ids))
+		for _, id := range ids {
+			result = append(result, int(id))
+		}
+		return result
+	case []float64:
+		result := make([]int, 0, len(ids))
+		for _, id := range ids {
+			result = append(result, int(id))
+		}
+		return result
+	case []interface{}:
+		result := make([]int, 0, len(ids))
+		for _, raw := range ids {
+			if id, ok := payloadInt(raw); ok {
+				result = append(result, id)
+			}
+		}
+		return result
+	default:
+		if id, ok := payloadInt(v); ok {
+			return []int{id}
+		}
+		return nil
+	}
+}
+
+func payloadInt(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	case string:
+		i, err := strconv.Atoi(n)
+		return i, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // writeJSON 写入 JSON 到 WebSocket，带写超时。
@@ -311,6 +521,7 @@ func (s *Server) handleRealtimeDevPublish(c *gin.Context) {
 		Payload:   req.Payload,
 		CreatedAt: time.Now(),
 	}
+	event.Payload = sanitizePayload(event)
 
 	// 发布到 EventBus
 	s.eventBus.Publish(selectedID, event)

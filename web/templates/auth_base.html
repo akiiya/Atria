@@ -1,0 +1,35 @@
+{{define "auth_base"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Atria</title>
+    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme_script" .}}
+</head>
+<body>
+    <div class="auth-shell">
+        <header class="auth-topbar">
+            <div class="auth-topbar-left">
+                <span class="auth-logo">Atria</span>
+            </div>
+            <div class="auth-topbar-right">
+                <div class="theme-switcher">
+                    <button class="theme-btn" data-theme="light" title="浅色模式">☀️</button>
+                    <button class="theme-btn" data-theme="dark" title="深色模式">🌙</button>
+                    <button class="theme-btn" data-theme="system" title="跟随系统">💻</button>
+                </div>
+                <span class="version-badge">v{{.Version}}</span>
+            </div>
+        </header>
+        <main class="auth-main">
+            <div class="auth-card">
+                {{template "auth_content" .}}
+            </div>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

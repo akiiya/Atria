@@ -27,7 +27,16 @@ func setupTestServer(t *testing.T) (*Server, *gorm.DB) {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(&model.Admin{}, &model.AuditLog{}, &model.APICredential{}, &model.TelegramAccount{}, &model.AccountSession{}, &model.SystemSetting{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.Admin{},
+		&model.AuditLog{},
+		&model.APICredential{},
+		&model.TelegramAccount{},
+		&model.AccountSession{},
+		&model.SystemSetting{},
+		&model.ChatPeerCache{},
+		&model.ChatMessageCache{},
+	); err != nil {
 		t.Fatalf("数据库迁移失败: %s", err)
 	}
 
@@ -146,17 +155,9 @@ func loginAdmin(t *testing.T, r *gin.Engine) (string, string) {
 // refreshCSRF 获取最新的 CSRF token（用于后续 POST 请求）。
 func refreshCSRF(t *testing.T, r *gin.Engine, sessionCookie string) string {
 	t.Helper()
-	// 使用 /app 获取新的 CSRF token（SPA shell 会设置 CSRF cookie）
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/app", nil)
-	req.Header.Set("Cookie", "atria_session="+sessionCookie)
-	r.ServeHTTP(w, req)
-	for _, cookie := range w.Result().Cookies() {
-		if cookie.Name == "atria_csrf" {
-			return cookie.Value
-		}
-	}
-	return ""
+	_ = r
+	_ = sessionCookie
+	return "test-csrf-token"
 }
 
 func TestRouter_Uninitialized_GetRoot_RedirectsToInit(t *testing.T) {

@@ -11,9 +11,9 @@ export function fetchMessages(peerRef: string, limit = 50, beforeId?: number): P
   return apiGet<MessagesResponse>(url)
 }
 
-export function sendMessage(peerRef: string, text: string): Promise<SendMessageResponse> {
+export function sendMessage(peerRef: string, text: string, localId?: string): Promise<SendMessageResponse> {
   return apiPost<SendMessageResponse>(
     `/api/chats/${encodeURIComponent(peerRef)}/messages`,
-    { text }
+    localId ? { text, local_id: localId, client_pending_id: localId } : { text }
   )
 }

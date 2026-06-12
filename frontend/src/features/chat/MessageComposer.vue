@@ -2,6 +2,12 @@
 import { ref } from 'vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { sendMessage } from '@/api/chat'
+import {
+  markLocalMessageFailedInMessagesCache,
+  replaceLocalMessageInMessagesCache,
+  upsertMessageInMessagesCache,
+} from '@/realtime/handler'
+import type { ChatMessage, SendMessageResponse } from '@/types/chat'
 
 const props = defineProps<{ peerRef: string; accountId: number }>()
 const emit = defineEmits<{ sent: [] }>()
@@ -11,20 +17,58 @@ const error = ref('')
 const queryClient = useQueryClient()
 
 const sendMutation = useMutation({
-  mutationFn: () => sendMessage(props.peerRef, text.value.trim()),
-  onSuccess: (data: { ok: boolean; error?: string; message?: unknown }) => {
+  mutationFn: (vars: { text: string; localId: string }) =>
+    sendMessage(props.peerRef, vars.text, vars.localId),
+  onMutate: (vars) => {
+    const optimistic: ChatMessage = {
+      id: negativeLocalID(vars.localId),
+      local_id: vars.localId,
+      client_pending_id: vars.localId,
+      pending: true,
+      peer_ref: props.peerRef,
+      direction: 'out',
+      sender_name: '',
+      text: vars.text,
+      sent_at: new Date().toISOString(),
+      is_outgoing: true,
+      status: 'sending',
+      message_type: 'text',
+    }
+    upsertMessageInMessagesCache(queryClient, props.accountId, props.peerRef, optimistic)
+    return vars
+  },
+  onSuccess: (data: SendMessageResponse, vars) => {
     if (data.ok) {
+      if (data.message) {
+        const telegramMessageId = data.message.telegram_message_id ?? data.message.id
+        replaceLocalMessageInMessagesCache(queryClient, props.accountId, props.peerRef, vars.localId, {
+          id: telegramMessageId,
+          telegram_message_id: telegramMessageId,
+          local_id: vars.localId,
+          client_pending_id: vars.localId,
+          pending: false,
+          peer_ref: props.peerRef,
+          direction: data.message.direction === 'in' ? 'in' : 'out',
+          sender_name: '',
+          text: data.message.text || vars.text,
+          sent_at: data.message.sent_at || new Date().toISOString(),
+          is_outgoing: true,
+          status: data.message.status === 'failed' ? 'failed' : 'sent',
+          message_type: 'text',
+        })
+      }
       text.value = ''
       error.value = ''
-      queryClient.invalidateQueries({ queryKey: ['messages', props.accountId, props.peerRef] })
       queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
       emit('sent')
     } else {
       error.value = data.error || (typeof data.message === 'string' ? data.message : '') || '发送失败'
+      markLocalMessageFailedInMessagesCache(queryClient, props.accountId, props.peerRef, vars.localId, error.value)
     }
   },
-  onError: (err: Error) => {
+  onError: (err: Error, vars) => {
     error.value = err.message || '网络请求失败'
+    markLocalMessageFailedInMessagesCache(queryClient, props.accountId, props.peerRef, vars.localId, error.value)
   },
 })
 
@@ -43,7 +87,19 @@ function send() {
     return
   }
   error.value = ''
-  sendMutation.mutate()
+  sendMutation.mutate({ text: trimmed, localId: createLocalID() })
+}
+
+function createLocalID(): string {
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function negativeLocalID(seed: string): number {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  }
+  return -Math.abs(hash || Date.now())
 }
 </script>
 

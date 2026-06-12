@@ -9,6 +9,7 @@ require (
 	golang.org/x/crypto v0.27.0
 	golang.org/x/net v0.29.0
 	gorm.io/gorm v1.25.10
+	nhooyr.io/websocket v1.8.17
 )
 
 require (
@@ -60,6 +61,5 @@ require (
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.23.1 // indirect
-	nhooyr.io/websocket v1.8.17 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )

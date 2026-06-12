@@ -92,6 +92,12 @@ function isNewDay(idx: number): boolean {
   const curr = new Date(props.messages[idx].sent_at).toDateString()
   return prev !== curr
 }
+
+function messageKey(msg: ChatMessage, idx: number): string {
+  if (msg.telegram_message_id) return `tg:${msg.telegram_message_id}`
+  if (msg.local_id) return `local:${msg.local_id}`
+  return `id:${msg.id}:${idx}`
+}
 </script>
 
 <template>
@@ -111,7 +117,7 @@ function isNewDay(idx: number): boolean {
     <div v-if="messages.length === 0" class="message-empty">
       暂无消息
     </div>
-    <template v-for="(msg, idx) in messages" :key="msg.id || idx">
+    <template v-for="(msg, idx) in messages" :key="messageKey(msg, idx)">
       <DateDivider v-if="isNewDay(idx)" :date="msg.sent_at" />
       <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
       <MessageBubble v-else :message="msg" />
