@@ -21,12 +21,31 @@ const chat = useChatStore()
 const account = useAccountStore()
 const queryClient = useQueryClient()
 
+// Skeleton 超时提示：loading 超过 10 秒时显示提示
+const slowLoading = ref(false)
+let slowTimer: ReturnType<typeof setTimeout> | undefined
+
+function startSlowTimer() {
+  clearSlowTimer()
+  slowLoading.value = false
+  slowTimer = setTimeout(() => { slowLoading.value = true }, 10_000)
+}
+function clearSlowTimer() {
+  if (slowTimer) { clearTimeout(slowTimer); slowTimer = undefined }
+  slowLoading.value = false
+}
+
 const { data: dialogsData, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['dialogs', account.currentAccountId]),
-  queryFn: () => fetchDialogs(30),
+  queryFn: () => { startSlowTimer(); return fetchDialogs(30) },
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
   staleTime: 30_000,
+})
+
+// loading 结束时清理 timer
+watch(isLoading, (loading) => {
+  if (!loading) clearSlowTimer()
 })
 
 // Runtime status query
@@ -132,6 +151,7 @@ watch(wsState, (state, oldState) => {
 
 onUnmounted(() => {
   disconnectWebSocket()
+  clearSlowTimer()
 })
 
 // Runtime state display
@@ -145,6 +165,17 @@ const runtimeLabel = computed(() => {
     case 'stopped': return '未启动'
     default: return ''
   }
+})
+
+const runtimeTooltip = computed(() => {
+  const parts: string[] = []
+  const lastErr = runtimeData.value?.last_error as string | undefined
+  if (lastErr) parts.push(lastErr)
+  const execReady = runtimeData.value?.executor_ready as boolean | undefined
+  if (execReady === false && runtimeState.value !== 'stopped') {
+    parts.push('执行器未就绪')
+  }
+  return parts.join(' · ') || ''
 })
 
 const runtimeClass = computed(() => {
@@ -165,7 +196,7 @@ const runtimeClass = computed(() => {
       <div class="chat-sidebar-header">
         <h2 class="chat-sidebar-title">会话</h2>
         <div class="chat-sidebar-actions">
-          <span v-if="account.currentAccountId && runtimeLabel" :class="['runtime-badge', runtimeClass]" :title="runtimeLabel">
+          <span v-if="account.currentAccountId && runtimeLabel" :class="['runtime-badge', runtimeClass]" :title="runtimeTooltip || runtimeLabel">
             <span class="runtime-dot"></span>
             {{ runtimeLabel }}
           </span>
@@ -189,6 +220,9 @@ const runtimeClass = computed(() => {
               <div class="skeleton-line short"></div>
             </div>
           </div>
+        </div>
+        <div v-if="slowLoading" class="slow-hint">
+          <span>加载时间较长，请检查网络或 <button class="btn-link" @click="refetch()">刷新重试</button></span>
         </div>
       </div>
       <div v-else-if="error" class="chat-sidebar-body">
@@ -278,5 +312,22 @@ const runtimeClass = computed(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+.slow-hint {
+  text-align: center;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary, #3b82f6);
+  cursor: pointer;
+  font-size: inherit;
+  text-decoration: underline;
+  padding: 0;
 }
 </style>

@@ -8,8 +8,19 @@ function getCookie(name: string): string {
   return match ? decodeURIComponent(match[2]) : ''
 }
 
+const DEFAULT_TIMEOUT_MS = 30_000
+
+function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => {
+    clearTimeout(timer)
+  })
+}
+
 export async function apiGet<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: {
       'Accept': 'application/json',
       'X-CSRF-Token': getCSRFToken() || getCookie('atria_csrf'),
@@ -21,7 +32,7 @@ export async function apiGet<T>(url: string): Promise<T> {
 }
 
 export async function apiPost<T>(url: string, body?: Record<string, unknown>): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -36,7 +47,7 @@ export async function apiPost<T>(url: string, body?: Record<string, unknown>): P
 }
 
 export async function apiPostForm<T>(url: string, body: FormData): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Accept': 'application/json',

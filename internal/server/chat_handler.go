@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/user/atria/internal/chat"
 	"github.com/user/atria/internal/mtproto"
@@ -29,7 +31,7 @@ func (s *Server) handleGetChats(c *gin.Context) {
 	// 获取会话列表
 	chatSvc := s.newChatService()
 
-	dialogs, err := chatSvc.ListDialogs(selectedID, 20)
+	dialogs, err := chatSvc.ListDialogs(c.Request.Context(), selectedID, 20)
 	if err != nil {
 		slog.Error("获取会话列表失败", "error", err)
 		errMsg := s.classifyChatError(err)
@@ -68,7 +70,7 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 	// 获取消息历史
 	chatSvc := s.newChatService()
 
-	result, err := chatSvc.GetMessages(selectedID, peerRef, 50)
+	result, err := chatSvc.GetMessages(c.Request.Context(), selectedID, peerRef, 50)
 	if err != nil {
 		slog.Error("获取消息历史失败", "error", err, "peer_ref_length", len(peerRef))
 		errMsg := s.classifyChatError(err)
@@ -134,7 +136,11 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 
 	chatSvc := s.newChatService()
 
-	result, err := chatSvc.SendText(selectedID, peerRef, text)
+	// 30 秒超时
+	sendCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	result, err := chatSvc.SendText(sendCtx, selectedID, peerRef, text)
 	if err != nil {
 		slog.Error("发送消息失败", "error", err, "peer_ref_length", len(peerRef), "text_len", len(text))
 		errMsg := s.classifyChatError(err)

@@ -472,3 +472,12 @@ Runtime Execution Queue 与 WebSocket 的关系：
 - `message.deleted` events must publish `payload.telegram_message_ids`; `message_ids` is only a compatibility input fallback.
 - EventBus payloads must remain neutral and must not contain gotd raw types, access hashes, session paths, API hashes, proxy passwords, complete phone numbers, or message body logs.
 - WebSocket is now implemented in `docs/23_websocket_realtime_push.md`; the older “next round WebSocket” note is historical.
+
+## 2026-06 REST loading deadlock fix
+
+- `GetExecutor()` returns executor only in `live`/`syncing` states. During `connecting`, the executor's `Run()` goroutine has not started, so returning it would cause requests to enqueue but never process, deadlocking the REST handler.
+- Runtime status API now includes `executor_ready` (boolean) to distinguish between “runtime exists but not ready” and “runtime fully operational”.
+- REST handlers enforce context timeout (15s for dialogs/messages, 30s for send). ChatService methods accept `context.Context` instead of `context.Background()`.
+- When `GetExecutor()` returns nil (connecting/stopped/degraded), REST calls fall through to temporary client or return cached data.
+- `last_error` in runtime status is sanitized via `security.SanitizeErrorMessage()` to prevent leaking file paths, API hashes, proxy passwords, or phone numbers.
+- Frontend diagnosis order: REST response → runtime status `executor_ready` + `last_error` → WebSocket state.

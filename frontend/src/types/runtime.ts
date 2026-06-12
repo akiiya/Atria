@@ -2,6 +2,7 @@ export interface RuntimeStatusResponse {
   ok: boolean
   account_id?: number
   state?: string
+  executor_ready?: boolean
   last_sync_at?: string
   last_event_at?: string
   last_error?: string

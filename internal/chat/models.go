@@ -1,7 +1,10 @@
 // Package chat 提供聊天服务抽象。
 package chat
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // PeerType 表示会话对象类型。
 type PeerType string
@@ -87,14 +90,14 @@ type MessagesResult struct {
 // Service 定义聊天服务接口。
 type Service interface {
 	// ListDialogs 获取最近会话列表。
-	ListDialogs(accountID uint, limit int) (*DialogsResult, error)
+	ListDialogs(ctx context.Context, accountID uint, limit int) (*DialogsResult, error)
 
 	// GetMessages 获取指定会话的最近消息（首屏）。
-	GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error)
+	GetMessages(ctx context.Context, accountID uint, peerRef string, limit int) (*MessagesResult, error)
 
 	// LoadOlderMessages 加载指定会话更早的消息（分页）。
-	LoadOlderMessages(accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error)
+	LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error)
 
 	// SendText 向指定会话发送文本消息。
-	SendText(accountID uint, peerRef string, text string) (*SendResult, error)
+	SendText(ctx context.Context, accountID uint, peerRef string, text string) (*SendResult, error)
 }

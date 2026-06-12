@@ -104,7 +104,7 @@ func TestChatService_ListDialogs_UsesAdapter(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.ListDialogs(account.ID, 20)
+	result, err := svc.ListDialogs(context.Background(), account.ID, 20)
 	if err != nil {
 		t.Fatalf("ListDialogs 失败: %s", err)
 	}
@@ -142,7 +142,7 @@ func TestChatService_GetMessages_UsesAdapter(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -183,7 +183,7 @@ func TestChatService_SendText_UsesAdapter(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.SendText(account.ID, "u_999", "hello")
+	result, err := svc.SendText(context.Background(), account.ID, "u_999", "hello")
 	if err != nil {
 		t.Fatalf("SendText 失败: %s", err)
 	}
@@ -204,7 +204,7 @@ func TestChatService_AdapterErrorPropagatesNeutralCode(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	_, err := svc.ListDialogs(account.ID, 20)
+	_, err := svc.ListDialogs(context.Background(), account.ID, 20)
 	if err == nil {
 		t.Fatal("期望返回错误")
 	}
@@ -244,7 +244,7 @@ func TestChatService_LoadOlderMessages_UsesAdapter(t *testing.T) {
 
 	// LoadOlderMessages 通过 GetMessages 间接测试（因为 ChatService 目前不直接暴露 LoadOlderMessages）
 	// 这里测试 adapter 被正确注入
-	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -259,7 +259,7 @@ func TestChatService_SendText_TextEmpty(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewChatService(db, testKey, nil, slog.Default())
 
-	_, err := svc.SendText(1, "u_1", "")
+	_, err := svc.SendText(context.Background(), 1, "u_1", "")
 	if err == nil {
 		t.Fatal("空文本应返回错误")
 	}
@@ -281,7 +281,7 @@ func TestChatService_SendText_TextTooLong(t *testing.T) {
 		longText += "a"
 	}
 
-	_, err := svc.SendText(1, "u_1", longText)
+	_, err := svc.SendText(context.Background(), 1, "u_1", longText)
 	if err == nil {
 		t.Fatal("超长文本应返回错误")
 	}
@@ -310,7 +310,7 @@ func TestChatService_GetMessages_PeerRefFromOtherAccountRejected(t *testing.T) {
 
 	svc := NewChatService(db, testKey, nil, slog.Default())
 
-	_, err := svc.GetMessages(account.ID, "u_999", 50)
+	_, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err == nil {
 		t.Fatal("跨账号 peer_ref 应被拒绝")
 	}
@@ -341,7 +341,7 @@ func TestChatService_MissingAccessHashRejected(t *testing.T) {
 	fake := &FakeAdapter{}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	_, err := svc.GetMessages(account.ID, "u_999", 50)
+	_, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err == nil {
 		t.Fatal("缺少 access_hash 应返回错误")
 	}
@@ -643,7 +643,7 @@ func TestChatMessages_DefaultLimitRecent50(t *testing.T) {
 	fake := &FakeAdapter{HasOlder: true}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.GetMessages(account.ID, "u_999", 0)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 0)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -670,7 +670,7 @@ func TestChatMessages_LimitMax100(t *testing.T) {
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
 	// limit 超过 200 应被截断到 50
-	result, err := svc.GetMessages(account.ID, "u_999", 999)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 999)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -701,7 +701,7 @@ func TestChatMessages_BeforeIDLoadsOlder(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.LoadOlderMessages(account.ID, "u_999", 100, 50)
+	result, err := svc.LoadOlderMessages(context.Background(), account.ID, "u_999", 100, 50)
 	if err != nil {
 		t.Fatalf("LoadOlderMessages 失败: %s", err)
 	}
@@ -737,7 +737,7 @@ func TestChatMessages_ReturnsChronologicalOrder(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -770,7 +770,7 @@ func TestChatMessages_HasOlderTrueWhenMoreExists(t *testing.T) {
 	fake := &FakeAdapter{HasOlder: true}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -796,7 +796,7 @@ func TestChatMessages_HasOlderFalseAtBeginning(t *testing.T) {
 	fake := &FakeAdapter{HasOlder: false}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -854,7 +854,7 @@ func TestChatMessages_NoFullHistoryScan(t *testing.T) {
 	svc.cacheMessages(account.ID, "u_999", msgs)
 
 	// GetMessages 应只返回请求的数量，不扫描全部
-	result, err := svc.GetMessages(account.ID, "u_999", 3)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 3)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -886,7 +886,7 @@ func TestChatMessages_OldestNewestMessageID(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.GetMessages(account.ID, "u_999", 50)
+	result, err := svc.GetMessages(context.Background(), account.ID, "u_999", 50)
 	if err != nil {
 		t.Fatalf("GetMessages 失败: %s", err)
 	}
@@ -902,7 +902,7 @@ func TestChatMessages_LoadOlderBeforeIDInvalid(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewChatService(db, testKey, nil, slog.Default())
 
-	_, err := svc.LoadOlderMessages(1, "u_1", 0, 50)
+	_, err := svc.LoadOlderMessages(context.Background(), 1, "u_1", 0, 50)
 	if err == nil {
 		t.Fatal("before_message_id=0 应返回错误")
 	}

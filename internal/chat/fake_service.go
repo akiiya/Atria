@@ -1,6 +1,9 @@
 package chat
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // FakeService 是用于测试的假聊天服务实现。
 type FakeService struct {
@@ -15,7 +18,7 @@ type FakeService struct {
 }
 
 // ListDialogs 返回预设的会话列表。
-func (f *FakeService) ListDialogs(accountID uint, limit int) (*DialogsResult, error) {
+func (f *FakeService) ListDialogs(_ context.Context, accountID uint, limit int) (*DialogsResult, error) {
 	if f.ListErr != nil {
 		return nil, f.ListErr
 	}
@@ -27,7 +30,7 @@ func (f *FakeService) ListDialogs(accountID uint, limit int) (*DialogsResult, er
 }
 
 // GetMessages 返回预设的消息列表。
-func (f *FakeService) GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error) {
+func (f *FakeService) GetMessages(_ context.Context, accountID uint, peerRef string, limit int) (*MessagesResult, error) {
 	if f.GetErr != nil {
 		return nil, f.GetErr
 	}
@@ -44,7 +47,7 @@ func (f *FakeService) GetMessages(accountID uint, peerRef string, limit int) (*M
 }
 
 // LoadOlderMessages 返回预设的更早消息列表。
-func (f *FakeService) LoadOlderMessages(accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
+func (f *FakeService) LoadOlderMessages(_ context.Context, accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
 	if f.LoadErr != nil {
 		return nil, f.LoadErr
 	}
@@ -61,7 +64,7 @@ func (f *FakeService) LoadOlderMessages(accountID uint, peerRef string, beforeMe
 }
 
 // SendText 返回预设的发送结果，并记录调用次数。
-func (f *FakeService) SendText(accountID uint, peerRef string, text string) (*SendResult, error) {
+func (f *FakeService) SendText(_ context.Context, accountID uint, peerRef string, text string) (*SendResult, error) {
 	f.SendCallCount++
 	if f.SendErr != nil {
 		return nil, f.SendErr

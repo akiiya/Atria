@@ -313,8 +313,9 @@ func (m *RuntimeManagerImpl) Subscribe(accountID uint, sink telegramclient.Updat
 }
 
 // GetExecutor 获取指定账号的 execution queue。
-// 只有 runtime 处于 live/syncing/connecting 状态时返回 executor。
-// stopped/degraded/offline 返回 nil。
+// 只有 runtime 处于 live/syncing 状态时返回 executor。
+// connecting 状态时 executor.Run() 尚未启动，不应返回，否则请求会永久阻塞。
+// stopped/degraded/offline/connecting 返回 nil，触发 temporary client fallback。
 func (m *RuntimeManagerImpl) GetExecutor(accountID uint) *RuntimeExecutor {
 	m.mu.RLock()
 	rt, ok := m.runtimes[accountID]
@@ -326,8 +327,7 @@ func (m *RuntimeManagerImpl) GetExecutor(accountID uint) *RuntimeExecutor {
 
 	state := rt.GetState().State
 	if state == telegramclient.RuntimeStateLive ||
-		state == telegramclient.RuntimeStateSyncing ||
-		state == telegramclient.RuntimeStateConnecting {
+		state == telegramclient.RuntimeStateSyncing {
 		return rt.executor
 	}
 	return nil

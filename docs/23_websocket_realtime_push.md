@@ -203,3 +203,15 @@ POST /api/realtime/dev/publish
 - Query patch supports flat `messages`, `older_messages`, and paged `pages[].messages` without clearing existing history. `sync.failed` does not clear messages, and reconnect only invalidates scoped queries.
 - Manual dev publish acceptance must cover disabled-by-default, unauthenticated, missing/invalid CSRF, selected-account-only, `message.new`, `message.edited`, `message.deleted` by `telegram_message_ids`, dialog preview updates, and optimistic outgoing deduplication.
 - Real Telegram acceptance remains manual only: automated tests must not connect to Telegram.
+
+## 2026-06 chat loading deadlock fix
+
+- WebSocket failure or runtime `connecting` state must not block REST dialogs/messages loading. REST queries are independent of WebSocket connection state.
+- `GetExecutor()` returns executor only when runtime state is `live` or `syncing`; `connecting` returns nil so REST falls back to temporary client or cache.
+- REST handlers (`/api/chats/dialogs`, `/api/chats/:peer_ref/messages`) enforce 15-second context timeout; send text uses 30 seconds. `context.Background()` replaced with request context.
+- ChatService methods (`ListDialogs`, `GetMessages`, `LoadOlderMessages`, `SendText`) now accept `context.Context` for timeout propagation.
+- Runtime status API (`GET /api/chats/runtime/status`) now returns `executor_ready` (boolean, true only in `live`/`syncing`) and sanitized `last_error` (file paths, hex strings, phone numbers redacted).
+- Frontend `apiGet`/`apiPost` use `AbortController` with 30-second timeout to prevent infinite fetch.
+- Frontend dialogs skeleton shows "加载时间较长" hint after 10 seconds with a retry button.
+- Runtime badge tooltip shows `last_error` and executor status for diagnostics.
+- Diagnosis order for loading issues: REST dialogs/messages response → runtime status `executor_ready` + `last_error` → WebSocket connection state.

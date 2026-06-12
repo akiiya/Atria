@@ -38,7 +38,7 @@ func NewChatService(db *gorm.DB, key []byte, adapter telegramclient.ClientAdapte
 }
 
 // ListDialogs 获取最近会话列表（cache-first）。
-func (s *ChatService) ListDialogs(accountID uint, limit int) (*DialogsResult, error) {
+func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int) (*DialogsResult, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -70,7 +70,7 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) (*DialogsResult, er
 	)
 
 	// 通过 adapter 获取会话列表
-	page, err := s.adapter.ListDialogs(context.Background(), telegramclient.ListDialogsRequest{
+	page, err := s.adapter.ListDialogs(ctx, telegramclient.ListDialogsRequest{
 		AccountID:       accountID,
 		Limit:           limit,
 		APIID:           int(cred.APIID),
@@ -105,7 +105,7 @@ func (s *ChatService) ListDialogs(accountID uint, limit int) (*DialogsResult, er
 }
 
 // GetMessages 获取指定会话的最近消息（cache-first）。
-func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) (*MessagesResult, error) {
+func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef string, limit int) (*MessagesResult, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -159,7 +159,7 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) (*M
 	}
 
 	// 通过 adapter 获取消息
-	page, err := s.adapter.GetRecentMessages(context.Background(), telegramclient.GetRecentMessagesRequest{
+	page, err := s.adapter.GetRecentMessages(ctx, telegramclient.GetRecentMessagesRequest{
 		AccountID:       accountID,
 		PeerRef:         peerRef,
 		Limit:           limit,
@@ -208,7 +208,7 @@ func (s *ChatService) GetMessages(accountID uint, peerRef string, limit int) (*M
 }
 
 // LoadOlderMessages 加载指定会话更早的消息（cache-first + adapter fallback）。
-func (s *ChatService) LoadOlderMessages(accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
+func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -265,7 +265,7 @@ func (s *ChatService) LoadOlderMessages(accountID uint, peerRef string, beforeMe
 	}
 
 	// 通过 adapter 加载更早消息
-	page, err := s.adapter.LoadOlderMessages(context.Background(), telegramclient.LoadOlderMessagesRequest{
+	page, err := s.adapter.LoadOlderMessages(ctx, telegramclient.LoadOlderMessagesRequest{
 		AccountID:       accountID,
 		PeerRef:         peerRef,
 		BeforeMessageID: int64(beforeMessageID),
@@ -311,7 +311,7 @@ func (s *ChatService) LoadOlderMessages(accountID uint, peerRef string, beforeMe
 }
 
 // SendText 发送文本消息。
-func (s *ChatService) SendText(accountID uint, peerRef string, text string) (*SendResult, error) {
+func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef string, text string) (*SendResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, &ChatError{Code: "text_empty", Message: "消息内容不能为空"}
@@ -353,7 +353,7 @@ func (s *ChatService) SendText(accountID uint, peerRef string, text string) (*Se
 	s.logger.Info("发送消息", "text_len", len(text), "peer_ref", peerRef)
 
 	// 通过 adapter 发送消息
-	result, err := s.adapter.SendText(context.Background(), telegramclient.SendTextRequest{
+	result, err := s.adapter.SendText(ctx, telegramclient.SendTextRequest{
 		AccountID:       accountID,
 		PeerRef:         peerRef,
 		Text:            text,
