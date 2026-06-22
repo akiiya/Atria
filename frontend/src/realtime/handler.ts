@@ -273,7 +273,13 @@ function patchMessageInCache(
 
 function patchMessageCollections(old: unknown, patchList: (messages: ChatMessage[]) => ChatMessage[]): unknown {
   const data = old as MessagesCache | undefined
-  if (!data?.ok) return old
+
+  // 如果 cache 不存在或无效，创建初始结构
+  if (!data?.ok) {
+    const initial = patchList([])
+    if (initial.length === 0) return old // 没有消息可写，保持原样
+    return { ok: true, messages: initial, stale: true, source: 'realtime' }
+  }
 
   let changed = false
   const next: MessagesCache = { ...data }
