@@ -65,6 +65,7 @@ const proxyForm = ref({
 })
 const proxySaving = ref(false)
 const proxyMsg = ref('')
+const proxyWarning = ref('')
 
 // Sync proxy form from settings data when it loads
 watch(settings, (val) => {
@@ -87,10 +88,17 @@ watch(settings, (val) => {
 function saveProxy() {
   proxySaving.value = true
   proxyMsg.value = ''
+  proxyWarning.value = ''
   apiPost<any>('/api/settings/proxy', proxyForm.value).then(data => {
     if (data.ok) {
-      proxyMsg.value = '代理配置已保存'
+      proxyMsg.value = '代理配置已保存，运行时正在重新加载'
+      // 显示后端返回的 warning（如 API Proxy 不适用于 MTProto）
+      if (data.warning) {
+        proxyWarning.value = data.warning
+      }
       queryClient.invalidateQueries({ queryKey: ['settings'] })
+      // 刷新 runtime status，让聊天页感知代理变化
+      queryClient.invalidateQueries({ queryKey: ['runtime-status'] })
     } else {
       proxyMsg.value = data.message || '保存失败'
     }
@@ -210,6 +218,7 @@ function savePassword() {
             <strong>💡 说明：</strong>代理配置仅用于 Telegram MTProto API 连接，不影响 Web 界面访问。
           </div>
           <div v-if="proxyMsg" :class="['alert', proxyMsg.includes('失败') ? 'alert-error' : 'alert-success']">{{ proxyMsg }}</div>
+          <div v-if="proxyWarning" class="alert alert-warning" style="margin-bottom:16px;">{{ proxyWarning }}</div>
 
           <div class="form-group">
             <label class="form-label">代理类型</label>

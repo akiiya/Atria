@@ -119,6 +119,55 @@ gotd/td 库使用 MTProto 协议与 Telegram 通信：
 | `proxy_remark` | 备注 |
 | `api_proxy_url` | API Proxy URL（api_proxy 使用） |
 
+## 代理设置热生效
+
+### 行为
+
+代理配置保存后，**运行时立即生效**，不需要重启服务。
+
+保存流程：
+1. 前端调用 `POST /api/settings/proxy`
+2. 后端持久化配置到数据库
+3. 后端调用 `RuntimeManager.OnProxySettingsChanged()`
+4. RuntimeManager 重建 dialer（从数据库重新读取配置）
+5. RuntimeManager 停止所有运行时（它们会用旧 dialer）
+6. 前端刷新 runtime status
+7. 用户可手动重新启动 runtime，或等待自动启动
+
+### 保存 SOCKS5 / HTTPS CONNECT
+
+1. 页面保存成功
+2. 后端立即持久化配置
+3. 后端重建 dialer 并停止所有运行时
+4. REST temporary client 立即使用新配置（每次请求都从 DB 读取）
+5. Runtime 下次 start 时使用新 dialer
+6. 前端 runtime status 刷新
+
+### 保存 API Proxy
+
+1. 页面保存成功
+2. 后端重建 dialer（api_proxy 不适用于 MTProto，dialer 为 nil）
+3. 后端停止所有运行时
+4. 前端显示 warning："API Proxy 不适用于 MTProto 连接"
+5. 聊天页不应无限 skeleton，应显示明确错误
+6. 已有缓存仍可查看
+
+### 保存 none / direct
+
+1. 页面保存成功
+2. 后端重建 dialer（直连）
+3. 后端停止所有运行时
+4. 后续连接使用直连
+
+### 不清空的内容
+
+代理配置变更后：
+- 不清空聊天消息缓存
+- 不删除 session
+- 不删除 account
+- 不清空 dialogs/messages query cache
+- 只重置 runtime/network connection 状态
+
 ## 安全说明
 
 - `proxy_password` 使用 AES-256-GCM 加密存储
