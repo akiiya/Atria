@@ -89,14 +89,17 @@ type MessagesResult struct {
 
 // Service 定义聊天服务接口。
 type Service interface {
-	// ListDialogs 获取最近会话列表。
-	ListDialogs(ctx context.Context, accountID uint, limit int) (*DialogsResult, error)
+	// ListDialogs 获取最近会话列表（cache-first）。
+	// forceRefresh=true 时跳过缓存直接调 Telegram。
+	ListDialogs(ctx context.Context, accountID uint, limit int, forceRefresh bool) (*DialogsResult, error)
 
-	// GetMessages 获取指定会话的最近消息（首屏）。
-	GetMessages(ctx context.Context, accountID uint, peerRef string, limit int) (*MessagesResult, error)
+	// GetMessages 获取指定会话的最近消息（首屏，cache-first）。
+	// forceRefresh=true 时跳过缓存直接调 Telegram。
+	GetMessages(ctx context.Context, accountID uint, peerRef string, limit int, forceRefresh bool) (*MessagesResult, error)
 
-	// LoadOlderMessages 加载指定会话更早的消息（分页）。
-	LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error)
+	// LoadOlderMessages 加载指定会话更早的消息（分页，cache-first）。
+	// forceRefresh=true 时跳过缓存直接调 Telegram。
+	LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int, forceRefresh bool) (*MessagesResult, error)
 
 	// SendText 向指定会话发送文本消息。
 	SendText(ctx context.Context, accountID uint, peerRef string, text string) (*SendResult, error)

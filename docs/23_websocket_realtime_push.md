@@ -215,3 +215,31 @@ POST /api/realtime/dev/publish
 - Frontend dialogs skeleton shows "加载时间较长" hint after 10 seconds with a retry button.
 - Runtime badge tooltip shows `last_error` and executor status for diagnostics.
 - Diagnosis order for loading issues: REST dialogs/messages response → runtime status `executor_ready` + `last_error` → WebSocket connection state.
+
+## WebSocket 失败不阻塞 REST
+
+- WebSocket 连接状态不影响 REST API 调用
+- REST dialogs/messages 使用独立的 HTTP 请求，与 WebSocket 无关
+- WebSocket reconnect 时只 invalidate 对应的 query，不影响首屏加载
+- `refetchOnWindowFocus: false` 避免窗口聚焦时触发不必要的请求
+
+## Reconnect 只补偿，不影响首屏
+
+- WebSocket reconnect 成功后，invalidate 丢失事件期间的查询
+- 补偿 invalidate 范围：`['dialogs', accountId]` + `['messages', accountId, peerRef]`
+- 不影响首屏 cache-first 加载
+- 不清空已有缓存数据
+
+## 排查顺序：dialogs/messages → runtime status → websocket
+
+1. **dialogs/messages**：检查 REST 响应，确认 source 和 stale
+2. **runtime status**：检查 `executor_ready` 和 `last_error`
+3. **websocket**：检查连接状态和事件接收
+
+## 2026-06 cache-first + force_refresh
+
+- Cache-first：缓存有数据时立即返回，不等待 WebSocket 或 runtime
+- `force_refresh=true`：用户主动刷新时跳过缓存
+- source 字段标识数据来源：cache/telegram/mixed
+- stale 字段标识数据时效：true=缓存（可能过期）、false=实时数据
+- Telegram refresh 失败不清空缓存

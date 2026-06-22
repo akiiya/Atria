@@ -481,3 +481,58 @@ Runtime Execution Queue 与 WebSocket 的关系：
 - When `GetExecutor()` returns nil (connecting/stopped/degraded), REST calls fall through to temporary client or return cached data.
 - `last_error` in runtime status is sanitized via `security.SanitizeErrorMessage()` to prevent leaking file paths, API hashes, proxy passwords, or phone numbers.
 - Frontend diagnosis order: REST response → runtime status `executor_ready` + `last_error` → WebSocket state.
+
+## executor_ready 含义
+
+| Runtime 状态 | executor_ready | 说明 |
+|-------------|----------------|------|
+| `stopped` | false | 未启动 |
+| `connecting` | false | Run() 未启动，executor 无法接受请求 |
+| `syncing` | true | Run() 已启动，executor 可用 |
+| `live` | true | Run() 已启动，executor 可用 |
+| `degraded` | false | 连接异常 |
+| `offline` | false | 连接断开 |
+
+## connecting 状态不返回 executor
+
+**原因**：`connecting` 状态时 `executor.Run()` 尚未启动。如果此时返回 executor，REST 请求会 enqueue 到 channel 但永远不会被执行（死锁）。
+
+**行为**：`GetExecutor()` 在 `connecting` 状态返回 `nil`，REST 请求 fallback 到：
+1. 缓存数据（如果有）
+2. 临时客户端（如果缓存为空）
+
+## REST fallback 规则
+
+```
+REST request → ChatService → adapter
+  → GetExecutor(accountID)
+    → 有 executor（live/syncing）：通过 executor.Execute()
+    → 无 executor（connecting/stopped/degraded）：
+      → 缓存有数据？返回缓存（source=cache, stale=true）
+      → 缓存无数据？创建临时客户端（通过 AccountGate）
+```
+
+## runtime_not_ready / request_timeout
+
+| 错误码 | 场景 | 处理 |
+|--------|------|------|
+| `runtime_not_ready` | executor 不可用，且无缓存 | 返回 JSON 错误，前端显示重试 |
+| `request_timeout` | 超过 15s 超时 | 返回 JSON 错误，前端显示超时提示 |
+| `runtime_execute_timeout` | executor 执行超时（30s） | 返回 JSON 错误 |
+
+## 如何排查 connecting 卡住
+
+1. 检查代理配置是否正确
+2. 检查 session 文件是否有效
+3. 检查 Telegram 服务是否可达
+4. 查看日志中的 `runtime` 关键字，确认连接状态变化
+5. 如果持续 `connecting`，检查 `last_error` 字段
+
+## 2026-06 cache-first 行为
+
+- Cache-first：缓存有数据时立即返回，不等待 runtime live，不等待 Telegram refresh
+- `force_refresh` 参数：用户主动刷新时跳过缓存
+- source 字段标识数据来源：cache/telegram/mixed
+- stale 字段标识数据时效：true=缓存（可能过期）、false=实时数据
+- Telegram refresh 失败不清空缓存
+- 不允许无限 pending（强制超时 15s）

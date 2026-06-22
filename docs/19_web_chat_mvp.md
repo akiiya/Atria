@@ -205,6 +205,47 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - Dev publish is for local/manual verification only, disabled by default, protected by auth and CSRF, and does not access real Telegram.
 - Before merging to `main`, real Telegram manual acceptance is still required: start `bin/atria.exe serve`, open `/app/#/chats`, confirm runtime live and `/api/realtime/ws` connected, receive a phone-sent message without refresh, verify non-current dialog preview/unread updates, verify outgoing messages do not duplicate, and confirm logs contain no message body or sensitive fields.
 
+## 聊天页性能目标
+
+### 加载时间约束
+
+- 打开 `/app/#/chats` 后，会话列表**不能**长时间 skeleton
+- 如果有缓存，会话列表应在 **300ms 到 800ms** 内显示
+- 点击一个已有缓存的会话，最近消息应在 **300ms 到 800ms** 内显示
+- 如果没有缓存或 Telegram 不可达，**10 到 15 秒内**显示明确错误，不允许无限 loading
+
+### Cache-first 行为
+
+1. **缓存有数据时立即返回**：有缓存时，不等待 runtime live，不等待 Telegram refresh，不因为 runtime connecting 而阻塞缓存返回
+2. **缓存空时才尝试 Telegram/runtime**：缓存为空或 `force_refresh=true` 时才调 Telegram
+3. **source 字段标识数据来源**：`cache`（仅缓存）、`telegram`（仅 Telegram）、`mixed`（两者合并）
+4. **stale 字段标识数据时效**：`true` 表示数据来自缓存（可能过期）、`false` 表示实时数据
+5. **Telegram refresh 失败不清空缓存**：刷新失败时保留现有缓存
+6. **不允许无限 pending**：强制超时 15 秒
+
+### Loading/Error/Empty/Stale 状态定义
+
+| 状态 | 条件 | 行为 |
+|------|------|------|
+| loading（首次无数据） | `isLoading && allMessages.length === 0` | 显示 skeleton |
+| stale cache | `isStale && isLoading` | 显示已有消息 + "正在刷新..." |
+| error（首次无数据） | `error && allMessages.length === 0` | 显示 ErrorBanner + 重试 |
+| empty | `!isLoading && allMessages.length === 0 && !error` | 显示空消息提示 |
+| retrying（已有数据） | `isLoading && allMessages.length > 0` | 保留已有消息，不显示 skeleton |
+
+### Runtime connecting 不阻塞阅读缓存
+
+- `runtime connecting` 状态**不影响** dialogs/messages 加载
+- 卡在 connecting 超过 15 秒，前端显示"连接较慢"
+- connecting 时 REST 请求走临时客户端或缓存，不等待 executor
+- `executor_ready=false` 时 tooltip 显示"实时通道尚未就绪，当前使用缓存/REST"
+
+### `force_refresh` 参数
+
+- 用户主动点击刷新按钮时，前端发送 `?force_refresh=true`
+- 后端收到后跳过缓存，直接调 Telegram
+- 用于用户想要获取最新数据的场景
+
 ## 2026-06 chat loading deadlock fix
 
 - Chat page (`/app/#/chats`) must not show infinite skeleton. When runtime is `connecting`, REST dialogs/messages fall through to temporary client or cache instead of blocking on executor.

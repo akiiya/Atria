@@ -31,7 +31,7 @@ func (s *Server) handleGetChats(c *gin.Context) {
 	// 获取会话列表
 	chatSvc := s.newChatService()
 
-	dialogs, err := chatSvc.ListDialogs(c.Request.Context(), selectedID, 20)
+	dialogs, err := chatSvc.ListDialogs(c.Request.Context(), selectedID, 20, false)
 	if err != nil {
 		slog.Error("获取会话列表失败", "error", err)
 		errMsg := s.classifyChatError(err)
@@ -70,7 +70,7 @@ func (s *Server) handleGetChatDetail(c *gin.Context) {
 	// 获取消息历史
 	chatSvc := s.newChatService()
 
-	result, err := chatSvc.GetMessages(c.Request.Context(), selectedID, peerRef, 50)
+	result, err := chatSvc.GetMessages(c.Request.Context(), selectedID, peerRef, 50, false)
 	if err != nil {
 		slog.Error("获取消息历史失败", "error", err, "peer_ref_length", len(peerRef))
 		errMsg := s.classifyChatError(err)

@@ -133,6 +133,7 @@ describe('MessageHeader', () => {
       props: { peerRef: 'u_123', title: 'Alice Smith' },
       global: {
         stubs: { routerLink: true },
+        plugins: [VueQueryPlugin],
       },
     })
     expect(wrapper.find('.message-header-title').text()).toBe('Alice Smith')
@@ -144,6 +145,7 @@ describe('MessageHeader', () => {
       props: { peerRef: 'u_123', title: '' },
       global: {
         stubs: { routerLink: true },
+        plugins: [VueQueryPlugin],
       },
     })
     expect(wrapper.find('.message-header-title').text()).toBe('u_123')
@@ -155,6 +157,7 @@ describe('MessageHeader', () => {
       props: { peerRef: 'u_123' },
       global: {
         stubs: { routerLink: true },
+        plugins: [VueQueryPlugin],
       },
     })
     expect(wrapper.find('.message-header-title').text()).toBe('u_123')

@@ -986,3 +986,78 @@ func TestNoSQLFilesForChannelUpdateStateMigration(t *testing.T) {
 		}
 	}
 }
+
+// ===== 迁移 9: 聊天缓存索引 =====
+
+func TestMigration009_CreatesIndexes(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	// 确保 chat_message_cache 表也存在
+	if err := db.AutoMigrate(&model.ChatMessageCache{}); err != nil {
+		t.Fatalf("AutoMigrate chat_message_cache 失败: %s", err)
+	}
+
+	key := make([]byte, 32)
+
+	Register(Migration{
+		Version: 9,
+		Name:    "add_chat_cache_indexes",
+		Run:     migration009AddChatCacheIndexes,
+	})
+
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移 9 失败: %s", err)
+	}
+}
+
+func TestMigration009_Idempotent(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	if err := db.AutoMigrate(&model.ChatMessageCache{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	// 直接调用两次，应不报错
+	for i := 0; i < 2; i++ {
+		if err := migration009AddChatCacheIndexes(db, nil); err != nil {
+			t.Fatalf("第 %d 次调用迁移 9 失败: %s", i+1, err)
+		}
+	}
+}
+
+func TestMigration009_IndexesImproveQueries(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	db := setupTestDB(t)
+	if err := db.AutoMigrate(&model.ChatMessageCache{}); err != nil {
+		t.Fatalf("AutoMigrate 失败: %s", err)
+	}
+
+	key := make([]byte, 32)
+
+	Register(Migration{
+		Version: 9,
+		Name:    "add_chat_cache_indexes",
+		Run:     migration009AddChatCacheIndexes,
+	})
+
+	if err := Run(db, key); err != nil {
+		t.Fatalf("迁移 9 失败: %s", err)
+	}
+
+	// 验证索引查询不报错
+	var peers []model.ChatPeerCache
+	if err := db.Where("account_id = ? AND peer_ref = ?", 1, "u_1").Find(&peers).Error; err != nil {
+		t.Fatalf("peer 索引查询失败: %s", err)
+	}
+
+	var msgs []model.ChatMessageCache
+	if err := db.Where("account_id = ? AND peer_ref = ? AND sent_at < ?", 1, "u_1", "2025-01-01").Find(&msgs).Error; err != nil {
+		t.Fatalf("message 索引查询失败: %s", err)
+	}
+}

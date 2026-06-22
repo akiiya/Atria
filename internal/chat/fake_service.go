@@ -18,7 +18,7 @@ type FakeService struct {
 }
 
 // ListDialogs 返回预设的会话列表。
-func (f *FakeService) ListDialogs(_ context.Context, accountID uint, limit int) (*DialogsResult, error) {
+func (f *FakeService) ListDialogs(_ context.Context, accountID uint, limit int, forceRefresh bool) (*DialogsResult, error) {
 	if f.ListErr != nil {
 		return nil, f.ListErr
 	}
@@ -30,7 +30,7 @@ func (f *FakeService) ListDialogs(_ context.Context, accountID uint, limit int) 
 }
 
 // GetMessages 返回预设的消息列表。
-func (f *FakeService) GetMessages(_ context.Context, accountID uint, peerRef string, limit int) (*MessagesResult, error) {
+func (f *FakeService) GetMessages(_ context.Context, accountID uint, peerRef string, limit int, forceRefresh bool) (*MessagesResult, error) {
 	if f.GetErr != nil {
 		return nil, f.GetErr
 	}
@@ -47,7 +47,7 @@ func (f *FakeService) GetMessages(_ context.Context, accountID uint, peerRef str
 }
 
 // LoadOlderMessages 返回预设的更早消息列表。
-func (f *FakeService) LoadOlderMessages(_ context.Context, accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
+func (f *FakeService) LoadOlderMessages(_ context.Context, accountID uint, peerRef string, beforeMessageID int, limit int, forceRefresh bool) (*MessagesResult, error) {
 	if f.LoadErr != nil {
 		return nil, f.LoadErr
 	}
