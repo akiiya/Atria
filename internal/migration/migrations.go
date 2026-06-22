@@ -66,6 +66,13 @@ func init() {
 		Description: "创建 Telegram channel update state 表，用于频道 pts 持久化",
 		Run:         migration008CreateTelegramChannelUpdateState,
 	})
+
+	Register(Migration{
+		Version:     9,
+		Name:        "add_chat_cache_indexes",
+		Description: "为 chat_peer_cache 和 chat_message_cache 补齐复合索引，优化缓存查询性能",
+		Run:         migration009AddChatCacheIndexes,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -339,5 +346,39 @@ func migration008CreateTelegramChannelUpdateState(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("创建 telegram_channel_update_state 表失败: %w", err)
 	}
 	slog.Info("迁移 8: telegram_channel_update_state 表创建/更新完成")
+	return nil
+}
+
+// migration009AddChatCacheIndexes 为 chat_peer_cache 和 chat_message_cache 补齐复合索引。
+//
+// 诊断发现以下查询缺少索引支持：
+//   - chat_peer_cache: WHERE account_id = ? AND peer_ref = ? (5 处查询)
+//   - chat_peer_cache: WHERE account_id = ? ORDER BY is_pinned DESC, last_message_at DESC
+//   - chat_message_cache: ORDER BY sent_at 需 (account_id, peer_ref, sent_at)
+//
+// 使用 CREATE INDEX IF NOT EXISTS 确保幂等。
+func migration009AddChatCacheIndexes(db *gorm.DB, _ []byte) error {
+	indexes := []struct {
+		table  string
+		name   string
+		column string
+	}{
+		// chat_peer_cache: 按账号+会话引用查找 peer
+		{"chat_peer_cache", "idx_peer_account_peer", "(account_id, peer_ref)"},
+		// chat_peer_cache: 会话列表排序（置顶优先 + 最新消息优先）
+		{"chat_peer_cache", "idx_peer_account_pinned_msgat", "(account_id, is_pinned, last_message_at DESC)"},
+		// chat_message_cache: 缓存清理时按 sent_at 排序删除旧消息
+		{"chat_message_cache", "idx_msg_account_peer_sent", "(account_id, peer_ref, sent_at DESC)"},
+	}
+
+	for _, idx := range indexes {
+		sql := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s %s", idx.name, idx.table, idx.column)
+		if err := db.Exec(sql).Error; err != nil {
+			return fmt.Errorf("创建索引 %s 失败: %w", idx.name, err)
+		}
+		slog.Info("迁移 9: 创建索引", "index", idx.name, "table", idx.table)
+	}
+
+	slog.Info("迁移 9: 聊天缓存索引补齐完成")
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
@@ -38,17 +39,32 @@ func NewChatService(db *gorm.DB, key []byte, adapter telegramclient.ClientAdapte
 }
 
 // ListDialogs 获取最近会话列表（cache-first）。
-func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int) (*DialogsResult, error) {
+// forceRefresh=true 时跳过缓存直接调 Telegram；否则有缓存立即返回。
+func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int, forceRefresh bool) (*DialogsResult, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 
+	start := time.Now()
+
 	// 先尝试从缓存读取
 	cached := s.listDialogsFromCache(accountID, limit)
 
+	// cache-first：有缓存且非强制刷新时，立即返回缓存
+	if !forceRefresh && len(cached) > 0 {
+		s.logger.Info("ListDialogs 缓存命中",
+			"operation", "list_dialogs",
+			"account_id", accountID,
+			"source", "cache",
+			"count", len(cached),
+			"duration_ms", msSince(start),
+		)
+		return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
+	}
+
 	account, cred, err := s.getAccountAndCredential(accountID)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, err
@@ -56,7 +72,7 @@ func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
@@ -67,6 +83,8 @@ func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int
 		"account_id", accountID,
 		"session_configured", account.Session != nil,
 		"api_id_present", cred.APIID > 0,
+		"force_refresh", forceRefresh,
+		"cache_count", len(cached),
 	)
 
 	// 通过 adapter 获取会话列表
@@ -79,8 +97,8 @@ func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int
 	})
 	if err != nil {
 		// Telegram 刷新失败，返回缓存（如有）
-		if cached != nil {
-			s.logger.Warn("Telegram 刷新失败，返回缓存", "error", err)
+		if len(cached) > 0 {
+			s.logger.Warn("Telegram 刷新失败，返回缓存", "error", err, "duration_ms", msSince(start))
 			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, s.classifyError(err)
@@ -98,14 +116,24 @@ func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int
 	}
 
 	source := "telegram"
-	if cached != nil {
+	if len(cached) > 0 {
 		source = "mixed"
 	}
+
+	s.logger.Info("ListDialogs 完成",
+		"operation", "list_dialogs",
+		"account_id", accountID,
+		"source", source,
+		"count", len(dialogs),
+		"duration_ms", msSince(start),
+	)
+
 	return &DialogsResult{Dialogs: dialogs, Source: source, Stale: false}, nil
 }
 
 // GetMessages 获取指定会话的最近消息（cache-first）。
-func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef string, limit int) (*MessagesResult, error) {
+// forceRefresh=true 时跳过缓存直接调 Telegram；否则有缓存立即返回。
+func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef string, limit int, forceRefresh bool) (*MessagesResult, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -113,12 +141,32 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 		return nil, &ChatError{Code: "peer_invalid", Message: "会话引用不能为空"}
 	}
 
+	start := time.Now()
+
 	// 先尝试从缓存读取
 	cached := s.getMessagesFromCache(accountID, peerRef, limit)
 
+	// cache-first：有缓存且非强制刷新时，立即返回缓存
+	if !forceRefresh && len(cached) > 0 {
+		s.logger.Info("GetMessages 缓存命中",
+			"operation", "get_messages",
+			"account_id", accountID,
+			"peer_ref", peerRef,
+			"source", "cache",
+			"count", len(cached),
+			"duration_ms", msSince(start),
+		)
+		return &MessagesResult{
+			Messages: cached,
+			Source:   "cache",
+			Stale:    true,
+			HasOlder: len(cached) >= limit,
+		}, nil
+	}
+
 	account, cred, err := s.getAccountAndCredential(accountID)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, err
@@ -126,7 +174,7 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 
 	cache, err := s.getPeerCache(accountID, peerRef)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, err
@@ -136,14 +184,14 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 	var accessHash int64
 	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel {
 		if cache.AccessHashEncrypted == "" {
-			if cached != nil {
+			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
 			}
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
 		}
 		accessHash, err = s.decryptAccessHash(cache.AccessHashEncrypted)
 		if err != nil {
-			if cached != nil {
+			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
 			}
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败，请刷新会话列表"}
@@ -152,11 +200,19 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
+
+	s.logger.Info("GetMessages 开始",
+		"operation", "get_messages",
+		"account_id", accountID,
+		"peer_ref", peerRef,
+		"force_refresh", forceRefresh,
+		"cache_count", len(cached),
+	)
 
 	// 通过 adapter 获取消息
 	page, err := s.adapter.GetRecentMessages(ctx, telegramclient.GetRecentMessagesRequest{
@@ -171,8 +227,8 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 		AccessHash:      accessHash,
 	})
 	if err != nil {
-		if cached != nil {
-			s.logger.Warn("Telegram 刷新消息失败，返回缓存", "error", err, "peer_ref", peerRef)
+		if len(cached) > 0 {
+			s.logger.Warn("Telegram 刷新消息失败，返回缓存", "error", err, "peer_ref", peerRef, "duration_ms", msSince(start))
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
 		}
 		return nil, s.classifyError(err)
@@ -191,7 +247,7 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 	s.cacheMessages(accountID, peerRef, messages)
 
 	source := "telegram"
-	if cached != nil {
+	if len(cached) > 0 {
 		source = "mixed"
 	}
 	result := &MessagesResult{
@@ -204,11 +260,22 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 		result.OldestMessageID = messages[0].MessageID
 		result.NewestMessageID = messages[len(messages)-1].MessageID
 	}
+
+	s.logger.Info("GetMessages 完成",
+		"operation", "get_messages",
+		"account_id", accountID,
+		"peer_ref", peerRef,
+		"source", source,
+		"count", len(messages),
+		"duration_ms", msSince(start),
+	)
+
 	return result, nil
 }
 
 // LoadOlderMessages 加载指定会话更早的消息（cache-first + adapter fallback）。
-func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int) (*MessagesResult, error) {
+// forceRefresh=true 时跳过缓存直接调 Telegram。
+func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int, forceRefresh bool) (*MessagesResult, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -222,9 +289,14 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 	// 先从缓存读取 before_id 之前的消息
 	cached := s.getMessagesBeforeFromCache(accountID, peerRef, beforeMessageID, limit)
 
+	// cache-first：有缓存且非强制刷新时，立即返回缓存
+	if !forceRefresh && len(cached) > 0 {
+		return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
+	}
+
 	account, cred, err := s.getAccountAndCredential(accountID)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 		}
 		return nil, err
@@ -232,7 +304,7 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 
 	cache, err := s.getPeerCache(accountID, peerRef)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 		}
 		return nil, err
@@ -242,14 +314,14 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 	var accessHash int64
 	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel {
 		if cache.AccessHashEncrypted == "" {
-			if cached != nil {
+			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 			}
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
 		}
 		accessHash, err = s.decryptAccessHash(cache.AccessHashEncrypted)
 		if err != nil {
-			if cached != nil {
+			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 			}
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败，请刷新会话列表"}
@@ -258,7 +330,7 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 		}
 		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
@@ -278,7 +350,7 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 		AccessHash:      accessHash,
 	})
 	if err != nil {
-		if cached != nil {
+		if len(cached) > 0 {
 			s.logger.Warn("Telegram 加载更早消息失败，返回缓存", "error", err, "peer_ref", peerRef)
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 		}
@@ -823,3 +895,8 @@ func truncateText(text string, maxLen int) string {
 
 // Ensure ChatService implements Service.
 var _ Service = (*ChatService)(nil)
+
+// msSince 返回从 start 到现在的毫秒数，用于安全计时日志。
+func msSince(start time.Time) int64 {
+	return time.Since(start).Milliseconds()
+}

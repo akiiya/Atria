@@ -283,6 +283,77 @@ npm run build
 - access_hash 加密存储在 chat_peer_cache
 - 消息正文加密存储在 chat_message_cache
 
+## 聊天 AppShell 布局约束
+
+### 整体布局
+
+- `AppShell` 使用 `height: 100vh; overflow: hidden` 确保页面不会出现整体滚动条
+- 聊天页使用 `page-full` class，移除 padding，内部各区域独立滚动
+- `.chat-layout` 是水平 flex 容器：左侧 sidebar + 右侧 message panel
+- `.chat-sidebar` 固定宽度 360px（`flex: 0 0 360px`），带 `border-right` 分隔线
+- `.chat-main` 是 `flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden`
+
+### Message Panel 滚动容器
+
+```css
+.message-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.message-body {
+  flex: 1 1 auto;
+  display: flex;        /* 必须 */
+  flex-direction: column; /* 必须 */
+  overflow: hidden;
+  min-height: 0;
+}
+
+.message-scroll-container {
+  flex: 1 1 auto;
+  min-height: 0;       /* 必须，否则 flex 子项不会收缩 */
+  overflow-y: auto;    /* 独立滚动 */
+  overscroll-behavior: contain;
+  padding: 16px;
+}
+```
+
+**关键点**：
+- `.message-body` 必须是 `display: flex; flex-direction: column`，否则内部滚动容器无法正确填充剩余高度
+- `.message-scroll-container` 必须有 `min-height: 0`，否则 flex 子项不会收缩
+- 这三个容器形成 flex 链，确保滚动容器正确填充 message panel 剩余空间
+
+### Composer 固定策略
+
+```css
+.message-composer {
+  border-top: 1px solid var(--border-color);
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  flex-shrink: 0;  /* 不收缩 */
+}
+```
+
+- Composer 是 `.message-panel` 的直接子元素，位于 `.message-body` 之后
+- 使用 `flex-shrink: 0` 确保不被压缩
+- 不遮挡消息（`.message-body` 有 `overflow: hidden`）
+
+### Dialog List 滚动
+
+```css
+.dialog-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+}
+```
+
+- 独立于 message panel 滚动
+- 会话列表头部（runtime badge + 刷新按钮）固定不滚动
+
 ## 2026-06 canonical routing addendum
 
 - Authenticated `GET /` redirects to `/app/#/dashboard`; unauthenticated `GET /` follows the existing auth flow to `/login` or `/init`.

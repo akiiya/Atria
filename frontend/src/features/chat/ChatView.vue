@@ -41,6 +41,7 @@ const { data: dialogsData, isLoading, error, refetch } = useQuery({
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
   staleTime: 30_000,
+  refetchOnWindowFocus: false,
 })
 
 // loading 结束时清理 timer
@@ -49,12 +50,13 @@ watch(isLoading, (loading) => {
 })
 
 // Runtime status query
-const { data: runtimeData } = useQuery({
+const { data: runtimeData, refetch: refetchRuntime } = useQuery({
   queryKey: computed(() => ['runtime-status', account.currentAccountId]),
   queryFn: fetchRuntimeStatus,
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
   refetchInterval: 60_000, // 每 60 秒刷新一次
+  refetchOnWindowFocus: false,
 })
 
 const runtimeState = computed(() => (runtimeData.value?.state || 'stopped') as RuntimeState)
@@ -98,6 +100,17 @@ watch(routePeerRef, (val) => {
 function selectDialog(ref: string) {
   chat.selectPeer(ref)
   router.push(`/chats/${ref}`)
+}
+
+// 强制刷新：跳过缓存，直接请求 Telegram
+function forceRefresh() {
+  startSlowTimer()
+  // 用 force_refresh=true 重写 queryFn 触发后端跳过缓存
+  queryClient.fetchQuery({
+    queryKey: ['dialogs', account.currentAccountId],
+    queryFn: () => fetchDialogs(30, true),
+  })
+  refetchRuntime()
 }
 
 const noAccount = computed(() => !account.currentAccountId)
@@ -200,7 +213,7 @@ const runtimeClass = computed(() => {
             <span class="runtime-dot"></span>
             {{ runtimeLabel }}
           </span>
-          <button class="btn-icon" @click="refetch()" title="刷新">↻</button>
+          <button class="btn-icon" @click="forceRefresh()" title="刷新">↻</button>
         </div>
       </div>
 
@@ -222,7 +235,7 @@ const runtimeClass = computed(() => {
           </div>
         </div>
         <div v-if="slowLoading" class="slow-hint">
-          <span>加载时间较长，请检查网络或 <button class="btn-link" @click="refetch()">刷新重试</button></span>
+          <span>加载时间较长，请检查网络或 <button class="btn-link" @click="forceRefresh()">强制刷新</button></span>
         </div>
       </div>
       <div v-else-if="error" class="chat-sidebar-body">
@@ -285,12 +298,12 @@ const runtimeClass = computed(() => {
 }
 
 .runtime-connecting {
-  background: var(--color-warning-light, rgba(245, 158, 11, 0.1));
-  color: var(--color-warning, #f59e0b);
+  background: transparent;
+  color: var(--text-secondary, #888);
+  opacity: 0.7;
 }
 .runtime-connecting .runtime-dot {
-  background: var(--color-warning, #f59e0b);
-  animation: pulse 1.5s infinite;
+  background: var(--text-secondary, #888);
 }
 
 .runtime-error {

@@ -17,6 +17,7 @@ const { data, isLoading, error, refetch } = useQuery({
   enabled: computed(() => !!props.peerRef && !!props.accountId),
   retry: 1,
   staleTime: 30_000,
+  refetchOnWindowFocus: false,
 })
 
 const olderPages = ref<ChatMessage[]>([])
@@ -46,7 +47,8 @@ const allMessages = computed(() => {
     map.set(messageKey(msg), msg)
   }
   return Array.from(map.values()).sort((a, b) =>
-    new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+    // 直接比较 ISO 字符串，避免创建 Date 对象
+    a.sent_at < b.sent_at ? -1 : a.sent_at > b.sent_at ? 1 : 0
   )
 })
 
@@ -105,7 +107,7 @@ function handleSent() {
 
 <template>
   <div class="message-panel">
-    <MessageHeader :peer-ref="peerRef" :title="dialogTitle || ''" @refresh="refetch()" />
+    <MessageHeader :peer-ref="peerRef" :title="dialogTitle || ''" :account-id="accountId" @refresh="refetch()" />
 
     <div v-if="isLoading && allMessages.length === 0" class="message-body">
       <div class="message-loading">

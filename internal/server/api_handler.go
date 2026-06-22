@@ -129,7 +129,10 @@ func (s *Server) handleAPIDialogs(c *gin.Context) {
 
 	chatSvc := s.newChatService()
 
-	result, err := chatSvc.ListDialogs(ctx, selectedID, limit)
+	// force_refresh: 用户主动刷新时跳过缓存
+	forceRefresh := c.Query("force_refresh") == "true"
+
+	result, err := chatSvc.ListDialogs(ctx, selectedID, limit, forceRefresh)
 	if err != nil {
 		errMsg := s.classifyChatError(err)
 		errCode := "telegram_error"
@@ -186,6 +189,9 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 
 	chatSvc := s.newChatService()
 
+	// force_refresh: 用户主动刷新时跳过缓存
+	forceRefresh := c.Query("force_refresh") == "true"
+
 	// 15 秒超时
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
@@ -195,10 +201,10 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 
 	if beforeID > 0 {
 		// 加载更早消息
-		result, err = chatSvc.LoadOlderMessages(ctx, selectedID, peerRef, beforeID, limit)
+		result, err = chatSvc.LoadOlderMessages(ctx, selectedID, peerRef, beforeID, limit, forceRefresh)
 	} else {
 		// 加载最近消息
-		result, err = chatSvc.GetMessages(ctx, selectedID, peerRef, limit)
+		result, err = chatSvc.GetMessages(ctx, selectedID, peerRef, limit, forceRefresh)
 	}
 
 	if err != nil {
