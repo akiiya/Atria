@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { RealtimeEvent } from './ws'
 import type { ChatMessage, Dialog, MessageKind } from '@/types/chat'
+import { useChatStore } from '@/stores/chat'
 
 type MessagesCache = {
   ok?: boolean
@@ -87,6 +88,7 @@ function handleMessageNew(
   const msg = normalizeMessage(event.payload as Partial<ChatMessage> | undefined, event.peer_ref)
   if (!msg) return
 
+  // 1. 始终更新 dialogs cache（preview、unread、排序）
   queryClient.setQueryData(['dialogs', accountId], (old: unknown) => {
     const data = old as { ok: boolean; dialogs: Dialog[] } | undefined
     if (!data?.ok || !data.dialogs) return old
@@ -117,8 +119,21 @@ function handleMessageNew(
     return { ...data, dialogs }
   })
 
-  if (currentPeerRef && event.peer_ref === currentPeerRef) {
-    upsertMessageInMessagesCache(queryClient, accountId, currentPeerRef, msg)
+  // 2. 始终写入对应 peer 的 messages cache（不仅是当前 peer）
+  // 这样切换到该 peer 时，TanStack Query cache 已有最新消息
+  const peerRef = event.peer_ref
+  if (peerRef) {
+    upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
+
+    // 3. 非当前 peer 标记 stale，确保切换时触发 latest reconcile
+    if (currentPeerRef && peerRef !== currentPeerRef) {
+      try {
+        const chat = useChatStore()
+        chat.markPeerStale(peerRef)
+      } catch {
+        // store 未初始化时忽略
+      }
+    }
   }
 }
 
@@ -207,6 +222,16 @@ function handleDialogUpserted(
 
     return { ...data, dialogs: [dlg, ...data.dialogs] }
   })
+
+  // dialog.upserted 也标记 stale，确保切换时 reconcile
+  if (dlg.peer_ref) {
+    try {
+      const chat = useChatStore()
+      chat.markPeerStale(dlg.peer_ref)
+    } catch {
+      // store 未初始化时忽略
+    }
+  }
 }
 
 function patchMessagesQuery(

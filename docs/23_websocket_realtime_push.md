@@ -223,6 +223,63 @@ POST /api/realtime/dev/publish
 - WebSocket reconnect 时只 invalidate 对应的 query，不影响首屏加载
 - `refetchOnWindowFocus: false` 避免窗口聚焦时触发不必要的请求
 
+## 非当前 peer message.new 处理策略
+
+### 问题
+
+收到非当前会话的新消息后，如果只更新 dialogs cache，用户切换到该会话时可能看不到最新消息（因为 TanStack Query staleTime=30s 内不会 refetch）。
+
+### 解决方案：双保险
+
+**保险 1：WebSocket message.new 直接写 messages cache**
+
+收到 `message.new` 时，无论是否为当前 peer，都写入对应 peer 的 messages query cache：
+```
+upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
+```
+这样切换到该 peer 时，TanStack Query cache 已有最新消息。
+
+**保险 2：peer stale 标记 + 切换时 reconcile**
+
+- 收到非当前 peer 的 `message.new` 时，标记该 peer 为 stale
+- 收到 `dialog.upserted` 时，也标记该 peer 为 stale
+- 用户切换到 stale peer 时，`MessagePanel` 检测到 stale 标记，触发 `force_refresh=true` 的 REST 请求
+- 后端 `force_refresh=true` 跳过缓存，直接从 Telegram 拉取最新 50 条消息
+- 拉取成功后清除 stale 标记
+
+### dialogs query 与 messages query 的一致性
+
+- dialogs cache 通过 WebSocket 实时更新（preview、unread、排序）
+- messages cache 通过 WebSocket 实时更新（当前 peer + 非当前 peer）
+- 切换 peer 时，如果 peer 是 stale，force refresh 确保 messages 与 Telegram 同步
+- 后端 ChatMessageCache 由 runtime update handler 同步写入，先于 EventBus publish
+
+### peer stale 标记
+
+存储在前端 Pinia store (`useChatStore`) 的 `stalePeers: Set<string>` 中。
+
+触发 stale 的条件：
+1. `message.new` 到达非当前 peer
+2. `dialog.upserted` 到达任何 peer
+
+清除 stale 的条件：
+1. 用户切换到该 peer 并完成 force refresh
+2. 切换账号时清空所有 stale
+
+### force_refresh/latest refresh 策略
+
+- `force_refresh=true` 只拉最近 50 条，不全量历史
+- 后端写入 ChatMessageCache 后返回
+- 如果 Telegram 不可达，返回 cache + stale/error
+- 错误不能让前端清空已有消息
+
+### 不全量刷新
+
+- 只对 stale peer 触发 force refresh
+- 非 stale peer 使用 cache-first（staleTime=30s 内不 refetch）
+- 不扫所有 peer 的 messages cache
+- 不破坏 older pagination
+
 ## Reconnect 只补偿，不影响首屏
 
 - WebSocket reconnect 成功后，invalidate 丢失事件期间的查询

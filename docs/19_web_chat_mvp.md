@@ -135,6 +135,29 @@ API Proxy 是一种 HTTPS API endpoint override 模式，适用于 Telegram HTTP
 4. Telegram 刷新失败时保留缓存数据，返回 stale=true
 5. 前端 TanStack Query staleTime=30s，避免重复请求
 
+### 非当前会话新消息处理
+
+收到非当前会话的新消息后，必须保证进入该会话时能看到最新消息。
+
+**双保险策略：**
+
+1. **WebSocket message.new 直接写 messages cache**：无论是否为当前 peer，都写入对应 peer 的 messages query cache
+2. **peer stale 标记 + 切换时 reconcile**：标记非当前 peer 为 stale，切换时触发 force_refresh
+
+**切换 peer 时的行为：**
+
+1. 先显示已有 cache（如果有）
+2. 如果 peer 是 stale，立即调用 `force_refresh=true` 拉取最新消息
+3. merge 后按 telegram_message_id 去重
+4. 不清空旧消息，不覆盖 older pages
+
+**dialog preview 与 message cache 的一致性：**
+
+- dialogs cache 通过 WebSocket 实时更新（preview、unread、排序）
+- messages cache 通过 WebSocket 实时更新（写入非当前 peer）
+- 后端 ChatMessageCache 由 runtime update handler 同步写入
+- 切换 peer 时 force refresh 确保 messages 与 Telegram 同步
+
 ### 消息缓存加密
 
 - 存储时：`crypto.EncryptString(key, text, "atria:msg:v1")`
