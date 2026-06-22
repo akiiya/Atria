@@ -571,3 +571,60 @@ if dialer, err := BuildProxyDialerFromDB(db, key); err != nil {
 - 需要 TCP 连接到 Telegram DC 地址
 - 只能通过 SOCKS5 或 HTTP CONNECT 代理
 - API Proxy（HTTPS endpoint）无法承载 MTProto 连接
+
+## Runtime update 写 ChatMessageCache
+
+### 写入时机
+
+当 runtime 收到 Telegram 新消息更新时：
+
+1. `UpdateHandler.handleNewMessage()` 被调用
+2. **同步写入** ChatMessageCache（`upsertMessageCache`）
+3. 更新 ChatPeerCache 的 preview 和 last_message_at（`updateDialogPreview`）
+4. 发布 EventBus 事件（`bus.Publish`）
+
+**关键顺序**：Cache 写入先于 EventBus publish。这意味着任何 subscriber 看到事件时，消息已持久化在 SQLite 中。
+
+### 写入内容
+
+| 字段 | 来源 |
+|------|------|
+| AccountID | runtime account ID |
+| PeerRef | mapPeerRef(msg.PeerID) |
+| TelegramMessageID | msg.ID |
+| Direction | "in" 或 "out" |
+| SenderName | 从 users 列表查找 |
+| Kind | classifyMessageKind(msg) |
+| TextEncrypted | AES-256-GCM 加密 |
+| SentAt | time.Unix(msg.Date, 0) |
+
+### 去重
+
+使用 `(account_id, peer_ref, telegram_message_id)` 复合键。如果记录已存在，更新 `text_encrypted`、`sender_name`、`kind`、`sent_at`。
+
+## EventBus 事件与 cache 的一致性
+
+### 事件 payload
+
+`message.new` 事件的 Payload 是完整的 `telegramclient.Message` 结构体，包含：
+- TelegramMessageID
+- Text（明文，未加密）
+- SentAt
+- Direction
+- SenderName
+- Kind
+- IsOutgoing
+- Status
+
+### 前端处理
+
+1. 收到 `message.new` 后，前端写入对应 peer 的 messages query cache
+2. 同时更新 dialogs cache（preview、unread、排序）
+3. 非当前 peer 标记为 stale
+
+### 如果 WebSocket 事件丢失
+
+1. 断线重连后，前端 invalidate dialogs 和当前 peer 的 messages query
+2. 切换到 stale peer 时，触发 force_refresh=true
+3. 后端 force_refresh 从 Telegram 拉取最新消息，写入 ChatMessageCache
+4. 即使 WebSocket 事件丢失，切换 peer 时也能通过 force refresh 补偿

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { fetchMessages } from '@/api/chat'
+import { useChatStore } from '@/stores/chat'
 import MessageHeader from './MessageHeader.vue'
 import MessageList from './MessageList.vue'
 import MessageComposer from './MessageComposer.vue'
@@ -10,6 +11,7 @@ import type { ChatMessage } from '@/types/chat'
 
 const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string }>()
 const queryClient = useQueryClient()
+const chat = useChatStore()
 
 const { data, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['messages', props.accountId, props.peerRef]),
@@ -18,6 +20,18 @@ const { data, isLoading, error, refetch } = useQuery({
   retry: 1,
   staleTime: 30_000,
   refetchOnWindowFocus: false,
+})
+
+// 切换到此 peer 时，如果标记为 stale，强制刷新最新消息
+onMounted(() => {
+  if (chat.isPeerStale(props.peerRef)) {
+    chat.clearPeerStale(props.peerRef)
+    // 使用 force_refresh=true 跳过缓存，直接从 Telegram 拉取最新消息
+    queryClient.fetchQuery({
+      queryKey: ['messages', props.accountId, props.peerRef],
+      queryFn: () => fetchMessages(props.peerRef, 50, undefined, true),
+    })
+  }
 })
 
 const olderPages = ref<ChatMessage[]>([])
