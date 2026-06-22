@@ -628,3 +628,46 @@ if dialer, err := BuildProxyDialerFromDB(db, key); err != nil {
 2. 切换到 stale peer 时，触发 force_refresh=true
 3. 后端 force_refresh 从 Telegram 拉取最新消息，写入 ChatMessageCache
 4. 即使 WebSocket 事件丢失，切换 peer 时也能通过 force refresh 补偿
+
+## Runtime 响应网络配置变更
+
+### 热更新机制
+
+代理配置保存后，`handleAPISaveProxy` 调用 `RuntimeManager.OnProxySettingsChanged()`：
+
+1. 从数据库重新读取代理配置
+2. 重建 dialer（`m.dialFunc`）
+3. 停止所有运行时（`StopAll()`）
+4. 返回 dialer 是否可用于 MTProto
+
+### API Proxy 下的行为
+
+如果 proxy_type=api_proxy：
+- `rebuildDialer` 返回 `available=false, err="API Proxy 不适用于 MTProto 连接"`
+- `m.dialFunc` 设为 nil（直连，但不适用于 MTProto）
+- 所有运行时被停止
+- 前端显示 warning
+
+### 切回可用代理后的行为
+
+如果从 api_proxy 切回 socks5/https：
+- `rebuildDialer` 返回 `available=true, err=nil`
+- `m.dialFunc` 设为新 dialer
+- 所有运行时被停止
+- 用户可手动重新启动 runtime
+- 新 runtime 使用新 dialer
+
+### 不清空 chat cache
+
+代理配置变更后：
+- 不清空 ChatMessageCache
+- 不清空 ChatPeerCache
+- 不删除 session
+- 不删除 account
+- 只重置 runtime/network connection 状态
+
+### REST temporary client
+
+REST temporary client 每次请求都从 DB 读取代理配置（`newChatService()` → `BuildProxyDialerFromDB()`），因此代理变更后立即生效。
+
+但当 runtime 处于 live/syncing 状态时，请求通过 runtime executor 走旧 client。代理变更后 runtime 被停止，请求会 fallback 到 temporary client，此时使用新配置。

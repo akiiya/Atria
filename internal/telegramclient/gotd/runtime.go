@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -349,5 +350,160 @@ func (m *RuntimeManagerImpl) StopAll() {
 	m.logger.Info("所有 AccountRuntime 已停止")
 }
 
+// ReloadDialer 从数据库重新读取代理配置并更新 dialFunc。
+// 返回新 dialer 是否可用（api_proxy 类型返回 false）。
+func (m *RuntimeManagerImpl) ReloadDialer(db *gorm.DB, key []byte) (available bool, err error) {
+	// 需要导入 BuildProxyDialerFromDB，但它在 server 包中
+	// 这里直接读取配置重建 dialer
+	return m.rebuildDialer(db, key)
+}
+
+// rebuildDialer 从数据库重新读取代理配置并更新 m.dialFunc。
+func (m *RuntimeManagerImpl) rebuildDialer(db *gorm.DB, key []byte) (bool, error) {
+	// 读取代理配置
+	var settings []model.SystemSetting
+	db.Where("key IN ?", []string{
+		"proxy_enabled", "proxy_type", "proxy_host", "proxy_port",
+		"proxy_username", "proxy_timeout", "proxy_password",
+	}).Find(&settings)
+
+	settingMap := make(map[string]string, len(settings))
+	for _, st := range settings {
+		settingMap[st.Key] = st.Value
+	}
+
+	// 检查代理是否启用
+	if settingMap["proxy_enabled"] != "true" && settingMap["proxy_type"] == "none" {
+		m.SetDialer(nil)
+		return true, nil
+	}
+
+	proxyType := settingMap["proxy_type"]
+	if proxyType == "none" || proxyType == "" {
+		m.SetDialer(nil)
+		return true, nil
+	}
+
+	// api_proxy 不适用于 MTProto
+	if proxyType == "api_proxy" {
+		m.SetDialer(nil)
+		return false, fmt.Errorf("API Proxy 不适用于 MTProto 连接，请使用 SOCKS5 或 HTTPS 代理")
+	}
+
+	host := settingMap["proxy_host"]
+	portStr := settingMap["proxy_port"]
+	if host == "" || portStr == "" {
+		return false, fmt.Errorf("代理配置不完整，请检查代理类型、主机和端口")
+	}
+
+	port := 0
+	fmt.Sscanf(portStr, "%d", &port)
+	if port < 1 || port > 65535 {
+		return false, fmt.Errorf("代理端口无效: %s", portStr)
+	}
+
+	timeout := 30 * time.Second
+	if t := settingMap["proxy_timeout"]; t != "" {
+		secs := 0
+		if _, err := fmt.Sscanf(t, "%d", &secs); err == nil && secs > 0 {
+			timeout = time.Duration(secs) * time.Second
+		}
+	}
+
+	username := settingMap["proxy_username"]
+
+	// 读取代理密码
+	password := ""
+	if pwdValue, ok := settingMap["proxy_password"]; ok && pwdValue != "" {
+		decrypted, err := decryptProxyPassword(key, pwdValue)
+		if err != nil {
+			m.logger.Error("解密代理密码失败", "error", err)
+			return false, fmt.Errorf("代理密码配置错误，请重新配置代理")
+		}
+		password = decrypted
+	}
+
+	// 构建 dialer（使用 network 包的工厂函数）
+	dialer := buildDialerFromConfig(proxyType, host, port, username, password, timeout)
+	m.SetDialer(dialer)
+	return true, nil
+}
+
+// OnProxySettingsChanged 代理配置变更时调用。
+// 1. 重新读取代理配置，更新 dialFunc
+// 2. 停止所有运行时（它们会用旧 dialer）
+// 3. 返回 dialer 是否可用于 MTProto
+func (m *RuntimeManagerImpl) OnProxySettingsChanged(db *gorm.DB, key []byte) (available bool, err error) {
+	// 重建 dialer
+	available, err = m.rebuildDialer(db, key)
+	if err != nil {
+		m.logger.Warn("代理配置变更：dialer 不可用", "error", err)
+	}
+
+	// 停止所有运行时，让它们用新配置重新启动
+	m.StopAll()
+
+	m.logger.Info("代理配置变更：运行时已停止，等待重新启动",
+		"dialer_available", available,
+	)
+
+	return available, err
+}
+
 // 确保 RuntimeManagerImpl 实现 telegramclient.RuntimeManager。
 var _ telegramclient.RuntimeManager = (*RuntimeManagerImpl)(nil)
+
+// decryptProxyPassword 解密代理密码。
+func decryptProxyPassword(key []byte, encrypted string) (string, error) {
+	// 使用与 proxy_helper.go 相同的加密方式
+	// crypto.DecryptString(key, ciphertext, aad)
+	// AAD: "atria:proxy:v1"
+	decrypted, err := cryptoDecryptString(key, encrypted, []byte("atria:proxy:v1"))
+	if err != nil {
+		return "", err
+	}
+	return decrypted, nil
+}
+
+// cryptoDecryptString 是 crypto.DecryptString 的引用。
+// 为了避免循环依赖，使用函数变量注入。
+var cryptoDecryptString = func(key []byte, ciphertext string, aad []byte) (string, error) {
+	return "", fmt.Errorf("cryptoDecryptString 未注入")
+}
+
+// InjectCryptoFunctions 注入加密函数，避免循环依赖。
+func InjectCryptoFunctions(
+	decryptFn func(key []byte, ciphertext string, aad []byte) (string, error),
+) {
+	cryptoDecryptString = decryptFn
+}
+
+// buildDialerFromConfig 从代理配置构建 dialer。
+func buildDialerFromConfig(proxyType, host string, port int, username, password string, timeout time.Duration) dcs.DialFunc {
+	// 使用 network 包的工厂函数
+	dialer := newDialerFromConfig(proxyType, host, port, username, password, timeout)
+	if dialer == nil {
+		return nil
+	}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, addr)
+	}
+}
+
+// newDialerFromConfig 是 network.NewDialer 的引用。
+// 为了避免循环依赖，使用函数变量注入。
+var newDialerFromConfig = func(proxyType, host string, port int, username, password string, timeout time.Duration) DialerInterface {
+	return nil
+}
+
+// DialerInterface 是 network.Dialer 的本地接口，供 server 包注入使用。
+type DialerInterface interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+// InjectNetworkFunctions 注入网络函数，避免循环依赖。
+func InjectNetworkFunctions(
+	newDialerFn func(proxyType, host string, port int, username, password string, timeout time.Duration) DialerInterface,
+) {
+	newDialerFromConfig = newDialerFn
+}

@@ -505,7 +505,21 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "代理配置已保存"})
+	// 通知 RuntimeManager 代理配置已变更
+	// 1. 重建 dialer
+	// 2. 停止所有运行时（它们会用旧 dialer）
+	available, proxyErr := s.runtimeManager.OnProxySettingsChanged(s.db, s.key)
+
+	// 构建响应
+	response := gin.H{"ok": true, "message": "代理配置已保存"}
+	if proxyErr != nil {
+		response["warning"] = proxyErr.Error()
+		response["proxy_available"] = false
+	} else {
+		response["proxy_available"] = available
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // validateAPIProxyURL 校验 API Proxy URL。

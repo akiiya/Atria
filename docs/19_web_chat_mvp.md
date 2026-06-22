@@ -66,6 +66,15 @@ API Proxy 是一种 HTTPS API endpoint override 模式，适用于 Telegram HTTP
 - 未来如果项目引入 Telegram HTTP API client，API Proxy 可用于该 client 的 base URL override
 - Cloudflare Worker 反代 Telegram HTTP API 时，可使用此配置保存 URL
 
+### 代理配置热生效
+
+代理配置保存后，运行时立即生效，不需要重启服务。
+
+- 保存 SOCKS5/HTTPS 后，runtime 停止旧连接，下次 start 使用新代理
+- 保存 API Proxy 后，runtime 立即停止，聊天页显示明确错误
+- 切回 SOCKS5/HTTPS 后，可重新启动 runtime
+- 已有聊天缓存仍可查看，不清空
+
 ## 安全日志
 
 - 不记录完整消息正文（只记录 text_len）
