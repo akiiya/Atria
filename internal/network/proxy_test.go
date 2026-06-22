@@ -212,6 +212,27 @@ func TestProxyType_Constants(t *testing.T) {
 	if ProxyTypeSOCKS5 != "socks5" {
 		t.Errorf("ProxyTypeSOCKS5 应为 socks5，实际=%s", ProxyTypeSOCKS5)
 	}
+	if ProxyTypeAPIProxy != "api_proxy" {
+		t.Errorf("ProxyTypeAPIProxy 应为 api_proxy，实际=%s", ProxyTypeAPIProxy)
+	}
+}
+
+func TestNewDialer_APIProxy_ReturnsDirect(t *testing.T) {
+	// api_proxy 类型不创建 MTProto dialer，应回落到直连
+	config := ProxyConfig{
+		Type:    ProxyTypeAPIProxy,
+		Timeout: 5 * time.Second,
+	}
+
+	dialer := NewDialer(config)
+	if dialer == nil {
+		t.Fatal("NewDialer 不应返回 nil")
+	}
+
+	// api_proxy 不是 socks5/https，应返回 directDialer
+	if _, ok := dialer.(*directDialer); !ok {
+		t.Error("api_proxy 类型应返回 directDialer（不适用于 MTProto）")
+	}
 }
 
 // contains 检查字符串是否包含子串。

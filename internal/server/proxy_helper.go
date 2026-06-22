@@ -22,6 +22,7 @@ type ProxyDialerFunc = dcs.DialFunc
 // BuildProxyDialerFromDB 从数据库读取代理配置，返回 gotd 兼容的 DialFunc。
 // 此函数可被登录流程和聊天流程复用。
 // 如果代理未启用或类型为 none，返回 nil（直连）。
+// 如果代理类型为 api_proxy，返回明确错误（api_proxy 不适用于 MTProto）。
 // 如果代理配置不完整或解密失败，返回 error。
 func BuildProxyDialerFromDB(db *gorm.DB, key []byte) (ProxyDialerFunc, error) {
 	// 批量读取所有代理配置，避免单独查询 proxy_password 触发 record not found 噪音
@@ -44,6 +45,11 @@ func BuildProxyDialerFromDB(db *gorm.DB, key []byte) (ProxyDialerFunc, error) {
 	proxyType := settingMap["proxy_type"]
 	if proxyType == "none" || proxyType == "" {
 		return nil, nil
+	}
+
+	// api_proxy 不适用于 MTProto，返回明确错误
+	if proxyType == "api_proxy" {
+		return nil, fmt.Errorf("API Proxy 不适用于 MTProto 连接，请使用 SOCKS5 或 HTTPS 代理")
 	}
 
 	host := settingMap["proxy_host"]

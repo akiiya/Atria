@@ -233,12 +233,12 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 	forceSave := c.PostForm("force_save") == "true"
 
 	// 校验
-	if proxyType != "none" && proxyType != "https" && proxyType != "socks5" {
+	if proxyType != "none" && proxyType != "https" && proxyType != "socks5" && proxyType != "api_proxy" {
 		s.redirectSettingsWithError(c, "无效的代理类型")
 		return
 	}
 
-	if proxyType != "none" {
+	if proxyType == "socks5" || proxyType == "https" {
 		if proxyHost == "" {
 			s.redirectSettingsWithError(c, "代理主机不能为空")
 			return
@@ -255,6 +255,13 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 			s.redirectSettingsWithError(c, "请先检测代理连通性")
 			return
 		}
+	}
+
+	// api_proxy 类型不需要检测确认（不适用于 MTProto）
+	if proxyType == "api_proxy" {
+		// api_proxy 通过 JSON API 保存，legacy form 不支持
+		s.redirectSettingsWithError(c, "API Proxy 请通过 JSON API 保存")
+		return
 	}
 
 	// 保存设置

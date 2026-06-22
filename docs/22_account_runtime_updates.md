@@ -536,3 +536,38 @@ REST request → ChatService → adapter
 - stale 字段标识数据时效：true=缓存（可能过期）、false=实时数据
 - Telegram refresh 失败不清空缓存
 - 不允许无限 pending（强制超时 15s）
+
+## Runtime 代理注入
+
+### 修复的 Bug
+
+在之前的版本中，`server.go` 中创建 RuntimeManagerImpl 后未调用 `SetDialer()`，导致 runtime 的 `telegram.Client` 使用直连，绕过代理配置。
+
+修复后：
+```go
+// server.go
+runtimeMgr := gotdadapter.NewRuntimeManager(db, key, bus, logger)
+runtimeMgr.SetGate(gate)
+
+// 注入代理 dialer
+if dialer, err := BuildProxyDialerFromDB(db, key); err != nil {
+    logger.Warn("Runtime dialer 初始化失败，将使用直连", "error", err)
+} else if dialer != nil {
+    runtimeMgr.SetDialer(dialer)
+}
+```
+
+### api_proxy 对 Runtime 的影响
+
+- `api_proxy` 类型不适用于 MTProto
+- `BuildProxyDialerFromDB()` 遇到 `api_proxy` 返回明确错误
+- Runtime dialer 注入失败，日志警告"将使用直连"
+- Runtime 使用直连而不是 api_proxy URL
+- 不会导致 infinite connecting
+
+### Runtime 使用 MTProto
+
+- Runtime 的 `telegram.Client` 使用 MTProto 协议
+- 需要 TCP 连接到 Telegram DC 地址
+- 只能通过 SOCKS5 或 HTTP CONNECT 代理
+- API Proxy（HTTPS endpoint）无法承载 MTProto 连接
