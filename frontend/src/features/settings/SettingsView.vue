@@ -61,6 +61,7 @@ const proxyForm = ref({
   proxy_password: '',
   proxy_timeout: '30',
   proxy_remark: '',
+  api_proxy_url: '',
 })
 const proxySaving = ref(false)
 const proxyMsg = ref('')
@@ -77,6 +78,7 @@ watch(settings, (val) => {
     proxyForm.value.proxy_username = val.proxy.username || ''
     proxyForm.value.proxy_timeout = val.proxy.timeout || '30'
     proxyForm.value.proxy_remark = val.proxy.remark || ''
+    proxyForm.value.api_proxy_url = val.proxy.api_proxy_url || ''
     // Password is never returned from API, keep empty
     proxyForm.value.proxy_password = ''
   }
@@ -213,12 +215,29 @@ function savePassword() {
             <label class="form-label">代理类型</label>
             <select v-model="proxyForm.proxy_type" class="form-input">
               <option value="none">不使用代理</option>
-              <option value="https">HTTPS 代理</option>
+              <option value="https">HTTPS 代理（HTTP CONNECT 隧道）</option>
               <option value="socks5">SOCKS5 代理</option>
+              <option value="api_proxy">API Proxy（HTTPS API endpoint）</option>
             </select>
           </div>
 
-          <div v-if="proxyForm.proxy_type !== 'none'">
+          <!-- API Proxy 模式 -->
+          <div v-if="proxyForm.proxy_type === 'api_proxy'">
+            <div class="alert alert-warning" style="margin-bottom:16px;">
+              <strong>⚠️ 重要说明：</strong>API Proxy 是 HTTPS API endpoint override，适用于 Telegram HTTP API（如 Bot API）。<br>
+              当前 Atria 的登录、聊天和 runtime 基于 MTProto 协议，<strong>不使用</strong> HTTP API。<br>
+              如果您通过 Cloudflare Worker 反代 Telegram HTTP API，此配置仅保存 URL，不会被用于 MTProto 连接。<br>
+              如需通过代理访问 MTProto，请使用 SOCKS5 或 HTTPS 代理。
+            </div>
+            <div class="form-group">
+              <label class="form-label">API Proxy URL</label>
+              <input v-model="proxyForm.api_proxy_url" type="text" class="form-input" placeholder="https://xxx.domain.com">
+              <div class="form-hint">必须使用 https:// 协议，不允许包含查询参数或锚点</div>
+            </div>
+          </div>
+
+          <!-- SOCKS5/HTTPS 模式 -->
+          <div v-if="proxyForm.proxy_type === 'socks5' || proxyForm.proxy_type === 'https'">
             <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
               <div class="form-group">
                 <label class="form-label">主机地址</label>

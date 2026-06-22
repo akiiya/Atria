@@ -41,6 +41,14 @@ func New(cfg *config.Config, db *gorm.DB, key []byte) *Server {
 	runtimeMgr := gotdadapter.NewRuntimeManager(db, key, bus, logger)
 	runtimeMgr.SetGate(gate)
 
+	// 注入代理 dialer（从数据库读取当前配置）
+	// 注意：api_proxy 类型不会创建 dialer，BuildProxyDialerFromDB 会返回明确错误
+	if dialer, err := BuildProxyDialerFromDB(db, key); err != nil {
+		logger.Warn("Runtime dialer 初始化失败，将使用直连", "error", err)
+	} else if dialer != nil {
+		runtimeMgr.SetDialer(dialer)
+	}
+
 	return &Server{
 		cfg:            cfg,
 		db:             db,

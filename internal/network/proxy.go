@@ -18,9 +18,10 @@ import (
 type ProxyType string
 
 const (
-	ProxyTypeNone   ProxyType = "none"
-	ProxyTypeHTTPS  ProxyType = "https"
-	ProxyTypeSOCKS5 ProxyType = "socks5"
+	ProxyTypeNone     ProxyType = "none"
+	ProxyTypeHTTPS    ProxyType = "https"
+	ProxyTypeSOCKS5   ProxyType = "socks5"
+	ProxyTypeAPIProxy ProxyType = "api_proxy"
 )
 
 // ProxyConfig 代理配置。

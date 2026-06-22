@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/user/atria/internal/auth"
@@ -384,13 +386,14 @@ func (s *Server) handleAPISettings(c *gin.Context) {
 	// 代理信息
 	sm := settingMap(s.db)
 	result["proxy"] = gin.H{
-		"enabled":  sm["proxy_enabled"],
-		"type":     sm["proxy_type"],
-		"host":     sm["proxy_host"],
-		"port":     sm["proxy_port"],
-		"username": sm["proxy_username"],
-		"timeout":  sm["proxy_timeout"],
-		"remark":   sm["proxy_remark"],
+		"enabled":       sm["proxy_enabled"],
+		"type":          sm["proxy_type"],
+		"host":          sm["proxy_host"],
+		"port":          sm["proxy_port"],
+		"username":      sm["proxy_username"],
+		"timeout":       sm["proxy_timeout"],
+		"remark":        sm["proxy_remark"],
+		"api_proxy_url": sm["api_proxy_url"],
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -417,6 +420,7 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 		ProxyPassword string `json:"proxy_password"`
 		ProxyTimeout  string `json:"proxy_timeout"`
 		ProxyRemark   string `json:"proxy_remark"`
+		APIProxyURL   string `json:"api_proxy_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "请求格式错误"})
@@ -424,12 +428,25 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 	}
 
 	// 校验
-	if req.ProxyType != "none" && req.ProxyType != "https" && req.ProxyType != "socks5" {
+	if req.ProxyType != "none" && req.ProxyType != "https" && req.ProxyType != "socks5" && req.ProxyType != "api_proxy" {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的代理类型"})
 		return
 	}
 
-	if req.ProxyType != "none" {
+	// api_proxy 类型校验 URL
+	if req.ProxyType == "api_proxy" {
+		if req.APIProxyURL == "" {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "API Proxy URL 不能为空"})
+			return
+		}
+		if err := validateAPIProxyURL(req.APIProxyURL); err != nil {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": err.Error()})
+			return
+		}
+	}
+
+	// socks5/https 类型校验主机和端口
+	if req.ProxyType == "socks5" || req.ProxyType == "https" {
 		if req.ProxyHost == "" {
 			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "代理主机不能为空"})
 			return
@@ -460,23 +477,76 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 
 	saveSetting("proxy_enabled", enabled, false)
 	saveSetting("proxy_type", req.ProxyType, false)
-	saveSetting("proxy_host", req.ProxyHost, false)
-	saveSetting("proxy_port", req.ProxyPort, false)
-	saveSetting("proxy_username", req.ProxyUsername, false)
-	saveSetting("proxy_timeout", req.ProxyTimeout, false)
-	saveSetting("proxy_remark", req.ProxyRemark, false)
 
-	// 只有提供了新密码才更新
-	if req.ProxyPassword != "" {
-		encryptedPassword, err := crypto.EncryptString(s.key, req.ProxyPassword, []byte("atria:proxy:v1"))
-		if err != nil {
-			slog.Error("加密代理密码失败", "error", err)
-		} else {
-			saveSetting("proxy_password", encryptedPassword, true)
+	// api_proxy 类型只保存 URL，不保存 host/port/username/password
+	if req.ProxyType == "api_proxy" {
+		normalizedURL := normalizeAPIProxyURL(req.APIProxyURL)
+		saveSetting("api_proxy_url", normalizedURL, false)
+		// 清除旧的 socks5/https 字段，避免混淆
+		saveSetting("proxy_host", "", false)
+		saveSetting("proxy_port", "", false)
+		saveSetting("proxy_username", "", false)
+		saveSetting("proxy_timeout", "", false)
+	} else {
+		saveSetting("proxy_host", req.ProxyHost, false)
+		saveSetting("proxy_port", req.ProxyPort, false)
+		saveSetting("proxy_username", req.ProxyUsername, false)
+		saveSetting("proxy_timeout", req.ProxyTimeout, false)
+		saveSetting("proxy_remark", req.ProxyRemark, false)
+
+		// 只有提供了新密码才更新
+		if req.ProxyPassword != "" {
+			encryptedPassword, err := crypto.EncryptString(s.key, req.ProxyPassword, []byte("atria:proxy:v1"))
+			if err != nil {
+				slog.Error("加密代理密码失败", "error", err)
+			} else {
+				saveSetting("proxy_password", encryptedPassword, true)
+			}
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "代理配置已保存"})
+}
+
+// validateAPIProxyURL 校验 API Proxy URL。
+func validateAPIProxyURL(rawURL string) error {
+	if len(rawURL) > 2048 {
+		return fmt.Errorf("URL 长度不能超过 2048 个字符")
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("URL 格式无效: %w", err)
+	}
+
+	if u.Scheme != "https" {
+		return fmt.Errorf("URL 必须使用 https:// 协议")
+	}
+
+	if u.Host == "" {
+		return fmt.Errorf("URL 必须包含主机名")
+	}
+
+	if u.RawQuery != "" {
+		return fmt.Errorf("URL 不允许包含查询参数")
+	}
+
+	if u.Fragment != "" {
+		return fmt.Errorf("URL 不允许包含锚点")
+	}
+
+	return nil
+}
+
+// normalizeAPIProxyURL 标准化 API Proxy URL。
+func normalizeAPIProxyURL(rawURL string) string {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return strings.TrimSpace(rawURL)
+	}
+	// 去掉末尾多余 slash
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String()
 }
 
 // handleAPISaveAPIKey 处理 POST /api/settings/api-key - 保存 API Key（JSON）。
