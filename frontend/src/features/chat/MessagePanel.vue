@@ -7,7 +7,7 @@ import MessageHeader from './MessageHeader.vue'
 import MessageList from './MessageList.vue'
 import MessageComposer from './MessageComposer.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
-import type { ChatMessage } from '@/types/chat'
+import type { ChatMessage, Dialog } from '@/types/chat'
 
 const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string }>()
 const queryClient = useQueryClient()
@@ -22,15 +22,89 @@ const { data, isLoading, error, refetch } = useQuery({
   refetchOnWindowFocus: false,
 })
 
-// 切换到此 peer 时，如果标记为 stale，强制刷新最新消息
+// 判断是否需要 latest reconcile
+function shouldReconcilePeer(peerRef: string): boolean {
+  // 1. peer 被标记为 stale
+  if (chat.isPeerStale(peerRef)) return true
+
+  // 2. messages cache 不存在或为空
+  const cached = queryClient.getQueryData(['messages', props.accountId, peerRef]) as { ok?: boolean; messages?: ChatMessage[] } | undefined
+  if (!cached?.ok || !cached.messages || cached.messages.length === 0) return true
+
+  // 3. dialog 的 last_message_at 比 messages newest 更新
+  const dialogsData = queryClient.getQueryData(['dialogs', props.accountId]) as { ok?: boolean; dialogs?: Dialog[] } | undefined
+  if (dialogsData?.ok && dialogsData.dialogs) {
+    const dialog = dialogsData.dialogs.find(d => d.peer_ref === peerRef)
+    if (dialog?.last_message_at && cached.messages.length > 0) {
+      const newestMsg = cached.messages[cached.messages.length - 1]
+      if (newestMsg?.sent_at && dialog.last_message_at > newestMsg.sent_at) return true
+    }
+    // 4. dialog unread_count > 0
+    if (dialog?.unread_count && dialog.unread_count > 0) return true
+  }
+
+  return false
+}
+
+// 防止并发 reconcile：同一 peer 同一时间只跑一个
+let reconcilingPeer: string | null = null
+
+// latest reconcile：拉取最新消息并 merge
+async function reconcileLatestForPeer(peerRef: string, _reason: string) {
+  if (reconcilingPeer === peerRef) return // 已在 reconcile
+  reconcilingPeer = peerRef
+  chat.clearPeerStale(peerRef)
+
+  try {
+    const result = await fetchMessages(peerRef, 50, undefined, true)
+    if (result.ok && result.messages && result.messages.length > 0) {
+      // merge 到当前 messages cache
+      queryClient.setQueryData(['messages', props.accountId, peerRef], (old: unknown) => {
+        const existing = old as { ok?: boolean; messages?: ChatMessage[]; older_messages?: ChatMessage[] } | undefined
+        const existingMsgs = existing?.messages || []
+        const merged = mergeByTelegramID(existingMsgs, result.messages!)
+        return {
+          ok: true,
+          messages: merged,
+          stale: false,
+          source: result.source || 'telegram',
+          has_older: result.has_older,
+          oldest_message_id: result.oldest_message_id,
+          newest_message_id: result.newest_message_id,
+        }
+      })
+    }
+  } catch {
+    // 失败时保留旧 cache，不清理
+  } finally {
+    if (reconcilingPeer === peerRef) reconcilingPeer = null
+  }
+}
+
+// 按 telegram_message_id 合并去重
+function mergeByTelegramID(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const map = new Map<string, ChatMessage>()
+  for (const msg of existing) {
+    const key = msg.telegram_message_id ? `tg:${msg.telegram_message_id}` : (msg.local_id ? `local:${msg.local_id}` : `id:${msg.id}`)
+    map.set(key, msg)
+  }
+  for (const msg of incoming) {
+    const key = msg.telegram_message_id ? `tg:${msg.telegram_message_id}` : (msg.local_id ? `local:${msg.local_id}` : `id:${msg.id}`)
+    const prev = map.get(key)
+    if (!prev || (msg.telegram_message_id && !prev.telegram_message_id)) {
+      map.set(key, msg)
+    }
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    a.sent_at < b.sent_at ? -1 : a.sent_at > b.sent_at ? 1 : 0
+  )
+}
+
+// 监听 peerRef 变化，触发 reconcile 判断
+// 不能只依赖 onMounted，因为 peerRef 变化时组件可能不重建
 onMounted(() => {
-  if (chat.isPeerStale(props.peerRef)) {
-    chat.clearPeerStale(props.peerRef)
-    // 使用 force_refresh=true 跳过缓存，直接从 Telegram 拉取最新消息
-    queryClient.fetchQuery({
-      queryKey: ['messages', props.accountId, props.peerRef],
-      queryFn: () => fetchMessages(props.peerRef, 50, undefined, true),
-    })
+  if (shouldReconcilePeer(props.peerRef)) {
+    reconcileLatestForPeer(props.peerRef, 'mount')
   }
 })
 
