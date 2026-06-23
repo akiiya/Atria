@@ -292,3 +292,32 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - Cache-first: when cache has data, it is returned immediately regardless of runtime state. When cache is empty and Telegram is unreachable, a clear error is returned within the timeout (15s).
 - Runtime status badge shows `last_error` tooltip and executor ready state for diagnostics.
 - Frontend HTTP layer enforces 30-second fetch timeout via `AbortController`.
+
+## 消息区排序规则
+
+- **左侧会话列表**：按 `last_message_at DESC`（最新会话在顶部），pinned 优先。
+- **右侧消息区**：按 `sent_at ASC`（旧消息在上，新消息在下）。
+- 两套排序完全独立，不混用。
+- 前端统一使用 `sortMessagesAsc()` 函数，使用 `Date.getTime()` 数值比较（避免 ISO 字符串精度差异导致错序）。
+- `sent_at` 相同时按 `telegram_message_id ASC` 兜底。
+- 实时新消息追加到底部（因为 sort ASC + 新消息 sent_at 最大）。
+- older pagination 加载的历史消息插入 `olderPages` 顶部，合并后仍保持正序。
+- force_refresh / reconcile merge 后仍保持正序。
+
+## Emoji 支持
+
+- 消息正文原样保留 Unicode emoji，不做替换。
+- 预览截断使用 `safeTruncateText()`，基于 `Intl.Segmenter`（grapheme cluster）或 `Array.from`（code point），不截断 surrogate pair / ZWJ / 组合序列。
+- Go 后端 `truncateText()` 使用 `[]rune` 切片，不按字节截断。
+- CSS 字体栈包含 emoji fallback：`"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"`。
+- 输入框支持原生 emoji 输入。
+- `word-break: normal` 替代 `break-word`，避免拆断 ZWJ emoji 序列。
+
+## 会话头像
+
+- 当前使用 `AvatarInitials` 组件，显示名称首字符 fallback。
+- 支持英文首字母、中文首字、数字、emoji 开头（grapheme 安全提取）。
+- 空名称显示 `?`。
+- 支持 `avatarUrl` 可选属性，有图片时显示图片，加载失败回退 fallback。
+- 后端 Dialog DTO 有 `avatar_placeholder` 字段（首字母），预留 `avatar_url` 字段。
+- 真实 Telegram 头像下载留作后续独立任务（需实现 photo 缓存和按需加载）。

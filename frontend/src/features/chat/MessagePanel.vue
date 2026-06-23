@@ -2,6 +2,7 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { fetchMessages } from '@/api/chat'
+import { sortMessagesAsc } from '@/realtime/handler'
 import { useChatStore } from '@/stores/chat'
 import MessageHeader from './MessageHeader.vue'
 import MessageList from './MessageList.vue'
@@ -95,9 +96,7 @@ function mergeByTelegramID(existing: ChatMessage[], incoming: ChatMessage[]): Ch
       map.set(key, msg)
     }
   }
-  return Array.from(map.values()).sort((a, b) =>
-    a.sent_at < b.sent_at ? -1 : a.sent_at > b.sent_at ? 1 : 0
-  )
+  return sortMessagesAsc(Array.from(map.values()))
 }
 
 // 监听 peerRef 变化，触发 reconcile 判断
@@ -134,10 +133,7 @@ const allMessages = computed(() => {
   for (const msg of recentMessages.value) {
     map.set(messageKey(msg), msg)
   }
-  return Array.from(map.values()).sort((a, b) =>
-    // 直接比较 ISO 字符串，避免创建 Date 对象
-    a.sent_at < b.sent_at ? -1 : a.sent_at > b.sent_at ? 1 : 0
-  )
+  return sortMessagesAsc(Array.from(map.values()))
 })
 
 const isStale = computed(() => data.value?.stale || false)

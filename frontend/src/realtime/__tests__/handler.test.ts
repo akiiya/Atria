@@ -3,6 +3,8 @@ import {
   handleRealtimeEvent,
   markLocalMessageFailedInMessagesCache,
   replaceLocalMessageInMessagesCache,
+  sortMessagesAsc,
+  safeTruncateText,
   upsertMessageInMessagesCache,
 } from '../handler'
 import type { RealtimeEvent } from '../ws'
@@ -579,5 +581,105 @@ describe('query patch compatibility', () => {
     }, queryClient as never, 1, 'u_456')
 
     expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+describe('sortMessagesAsc', () => {
+  it('TestMessagePanel_SortsMessagesBySentAtAsc', () => {
+    const messages = [
+      makeMessage({ id: 3, sent_at: '2026-01-01T12:00:03Z' }),
+      makeMessage({ id: 1, sent_at: '2026-01-01T12:00:01Z' }),
+      makeMessage({ id: 2, sent_at: '2026-01-01T12:00:02Z' }),
+    ]
+    const sorted = sortMessagesAsc(messages)
+    expect(sorted.map(m => m.id)).toEqual([1, 2, 3])
+  })
+
+  it('TestMessagePanel_SameTimestampSortsByTelegramMessageID', () => {
+    const messages = [
+      makeMessage({ id: 3, telegram_message_id: 3, sent_at: '2026-01-01T12:00:00Z' }),
+      makeMessage({ id: 1, telegram_message_id: 1, sent_at: '2026-01-01T12:00:00Z' }),
+      makeMessage({ id: 2, telegram_message_id: 2, sent_at: '2026-01-01T12:00:00Z' }),
+    ]
+    const sorted = sortMessagesAsc(messages)
+    expect(sorted.map(m => m.telegram_message_id)).toEqual([1, 2, 3])
+  })
+
+  it('TestMessagePanel_DifferentPrecisionSortsCorrectly', () => {
+    // Go RFC3339 可能返回不同精度的时间戳
+    // .1Z = 100ms, .123Z = 123ms → 100ms < 123ms
+    const messages = [
+      makeMessage({ id: 2, sent_at: '2026-01-01T12:00:00.1Z' }),    // 100ms
+      makeMessage({ id: 1, sent_at: '2026-01-01T12:00:00.123Z' }),  // 123ms
+    ]
+    const sorted = sortMessagesAsc(messages)
+    expect(sorted.map(m => m.id)).toEqual([2, 1])  // 100ms < 123ms，id=2 应在前
+  })
+
+  it('TestMessagePanel_DoesNotMutateOriginal', () => {
+    const original = [makeMessage({ id: 2 }), makeMessage({ id: 1 })]
+    const sorted = sortMessagesAsc(original)
+    expect(original[0].id).toBe(2)  // 原数组不变
+    expect(sorted[0].id).toBe(1)
+  })
+
+  it('TestMessagePanel_NewRealtimeMessageAppendsToBottom', () => {
+    const existing = [
+      makeMessage({ id: 1, sent_at: '2026-01-01T12:00:00Z' }),
+      makeMessage({ id: 2, sent_at: '2026-01-01T12:01:00Z' }),
+    ]
+    const newMsg = makeMessage({ id: 3, sent_at: '2026-01-01T12:02:00Z' })
+    const sorted = sortMessagesAsc([...existing, newMsg])
+    expect(sorted[sorted.length - 1].id).toBe(3)
+  })
+
+  it('TestMessagePanel_OlderMessagesPrependNotAppend', () => {
+    const recent = [
+      makeMessage({ id: 2, sent_at: '2026-01-01T12:01:00Z' }),
+      makeMessage({ id: 3, sent_at: '2026-01-01T12:02:00Z' }),
+    ]
+    const older = makeMessage({ id: 1, sent_at: '2026-01-01T12:00:00Z' })
+    const sorted = sortMessagesAsc([...recent, older])
+    expect(sorted[0].id).toBe(1)
+  })
+})
+
+describe('safeTruncateText', () => {
+  it('TestSafeTruncate_DoesNotBreakEmoji', () => {
+    const text = 'Hello 😂 World'
+    const result = safeTruncateText(text, 7)
+    // 'H','e','l','l','o',' ','😂' = 7 graphemes
+    expect(result).toBe('Hello 😂')
+  })
+
+  it('TestSafeTruncate_DoesNotBreakZWJEmoji', () => {
+    const text = '👨‍👩‍👧‍👦 Family'
+    const result = safeTruncateText(text, 2)
+    // '👨‍👩‍👧‍👦' = 1 grapheme, ' ' = 1 grapheme = 2
+    expect(result).toBe('👨‍👩‍👧‍👦 ')
+  })
+
+  it('TestSafeTruncate_DoesNotBreakFlagEmoji', () => {
+    const text = '🇺🇸 Hello'
+    const result = safeTruncateText(text, 1)
+    expect(result).toBe('🇺🇸')
+  })
+
+  it('TestSafeTruncate_DoesNotBreakSkinToneEmoji', () => {
+    const text = '👍🏽 Hello'
+    const result = safeTruncateText(text, 1)
+    expect(result).toBe('👍🏽')
+  })
+
+  it('TestSafeTruncate_ReturnsFullTextIfShorter', () => {
+    const text = 'Hi'
+    const result = safeTruncateText(text, 10)
+    expect(result).toBe('Hi')
+  })
+
+  it('TestSafeTruncate_HandlesEmptyInput', () => {
+    expect(safeTruncateText('', 10)).toBe('')
+    expect(safeTruncateText(undefined, 10)).toBe('')
+    expect(safeTruncateText(null, 10)).toBe('')
   })
 })

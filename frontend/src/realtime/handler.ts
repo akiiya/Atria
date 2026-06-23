@@ -13,6 +13,30 @@ type MessagesCache = {
 
 type MessagePatchMode = 'upsert' | 'replace-local' | 'mark-failed'
 
+/**
+ * safeTruncateText 安全截断文本，不破坏 emoji（surrogate pair / ZWJ / 组合序列）。
+ *
+ * 优先使用 Intl.Segmenter（按 grapheme cluster 分段），
+ * 不支持时 fallback 到 Array.from（按 code point 分段）。
+ */
+export function safeTruncateText(text: string | undefined | null, maxGraphemes: number): string {
+  if (!text) return ''
+  // 使用 CSS text-overflow: ellipsis 做视觉截断更安全，
+  // 但 preview 文本需要在 JS 层截断以限制数据大小。
+  // 优先使用 Intl.Segmenter
+  const IntlWithSegmenter = Intl as unknown as { Segmenter?: new (locale: string, opts: { granularity: string }) => { segment: (text: string) => IterableIterator<{ segment: string }> } }
+  if (IntlWithSegmenter.Segmenter) {
+    const segmenter = new IntlWithSegmenter.Segmenter('zh', { granularity: 'grapheme' })
+    const segments = Array.from(segmenter.segment(text))
+    if (segments.length <= maxGraphemes) return text
+    return segments.slice(0, maxGraphemes).map((s: { segment: string }) => s.segment).join('')
+  }
+  // fallback: Array.from 按 code point 分段（不拆 surrogate pair）
+  const chars = Array.from(text)
+  if (chars.length <= maxGraphemes) return text
+  return chars.slice(0, maxGraphemes).join('')
+}
+
 export function handleRealtimeEvent(
   event: RealtimeEvent,
   queryClient: QueryClient,
@@ -103,7 +127,7 @@ function handleMessageNew(
       const dialogs = [...data.dialogs]
       dialogs[idx] = {
         ...dialogs[idx],
-        last_message_preview: msg.text?.slice(0, 50) || '',
+        last_message_preview: safeTruncateText(msg.text, 50),
         last_message_at: msg.sent_at,
         unread_count: currentPeerRef === peerRef ? 0 : (dialogs[idx].unread_count || 0) + 1,
       }
@@ -125,7 +149,7 @@ function handleMessageNew(
       peer_ref: peerRef,
       peer_type: peerRef.startsWith('u_') ? 'user' : peerRef.startsWith('ch_') ? 'channel' : 'chat',
       title: msg.sender_name || peerRef,
-      last_message_preview: msg.text?.slice(0, 50) || '',
+      last_message_preview: safeTruncateText(msg.text, 50),
       last_message_at: msg.sent_at,
       unread_count: currentPeerRef === peerRef ? 0 : 1,
     }
@@ -184,7 +208,7 @@ function handleMessageEdited(
       if (d.peer_ref === event.peer_ref) {
         return {
           ...d,
-          last_message_preview: msg.text?.slice(0, 50) || d.last_message_preview,
+          last_message_preview: safeTruncateText(msg.text, 50) || d.last_message_preview,
         }
       }
       return d
@@ -446,8 +470,28 @@ function isConservativeOutgoingMatch(existing: ChatMessage, incoming: ChatMessag
   return Number.isFinite(delta) && delta <= 30_000
 }
 
-function sortMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
-  return [...messages].sort(
-    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
-  )
+/**
+ * sortMessagesAsc 按 sent_at 正序排列消息。
+ *
+ * 排序规则：
+ * 1. sent_at 升序（使用 Date.getTime() 比较，避免 ISO 字符串精度差异导致错序）
+ * 2. sent_at 相同时，telegram_message_id 升序
+ * 3. telegram_message_id 缺失时，id 升序
+ *
+ * 不改变原数组引用。
+ */
+export function sortMessagesAsc(messages: ChatMessage[]): ChatMessage[] {
+  return [...messages].sort((a, b) => {
+    const aTime = new Date(a.sent_at).getTime()
+    const bTime = new Date(b.sent_at).getTime()
+    if (aTime !== bTime) return aTime - bTime
+
+    // sent_at 相同，用 telegram_message_id 兜底
+    const aID = a.telegram_message_id || a.id || 0
+    const bID = b.telegram_message_id || b.id || 0
+    return aID - bID
+  })
 }
+
+// 向后兼容别名
+const sortMessagesByTime = sortMessagesAsc

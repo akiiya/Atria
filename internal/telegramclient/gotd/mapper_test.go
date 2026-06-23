@@ -295,3 +295,26 @@ func TestTruncateText(t *testing.T) {
 		t.Error("长文本应截断")
 	}
 }
+
+func TestTruncateText_CJK(t *testing.T) {
+	// CJK 字符每个占 3 字节，旧实现按字节截断会乱码
+	result := truncateText("你好世界测试", 4)
+	if result != "你好世界..." {
+		t.Errorf("期望 '你好世界...'，实际 '%s'", result)
+	}
+}
+
+func TestTruncateText_Emoji(t *testing.T) {
+	// emoji 可能占多个字节，旧实现可能截断 surrogate pair
+	result := truncateText("😂🥹👍❤️", 2)
+	if result != "😂🥹..." {
+		t.Errorf("期望 '😂🥹...'，实际 '%s'", result)
+	}
+}
+
+func TestTruncateText_Mixed(t *testing.T) {
+	result := truncateText("Hello你好😂世界", 5)
+	if result != "Hello..." {
+		t.Errorf("期望 'Hello...'，实际 '%s'", result)
+	}
+}

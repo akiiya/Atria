@@ -90,7 +90,7 @@
   border-radius: 18px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  word-break: normal;
   line-height: 1.5;
   font-size: 14px;
   position: relative;
@@ -108,7 +108,7 @@
   border-bottom-left-radius: 6px;
 }
 .message-sender { font-size: 12px; font-weight: 600; color: var(--color-primary); margin-bottom: 4px; }
-.message-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.message-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
 .message-text a { color: inherit; text-decoration: underline; }
 .message-bubble.outgoing .message-text a { color: #fff; }
 .message-meta { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 4px; }
