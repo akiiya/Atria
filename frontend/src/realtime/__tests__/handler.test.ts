@@ -733,3 +733,54 @@ describe('getFirstGrapheme', () => {
     expect(getFirstGrapheme(null)).toBe('?')
   })
 })
+
+describe('dialog upsert dedup', () => {
+  let queryClient: ReturnType<typeof createMockQueryClient>
+
+  beforeEach(() => {
+    queryClient = createMockQueryClient()
+  })
+
+  it('TestDialogUpsert_DoesNotDuplicateSamePeerRef', () => {
+    // 初始有一个 dialog
+    queryClient._cache.set(
+      JSON.stringify(['dialogs', 1]),
+      { ok: true, dialogs: [makeDialog({ peer_ref: 'u_100', title: 'Alice' })] }
+    )
+
+    // dialog.upserted 更新同一 peer_ref
+    handleRealtimeEvent({
+      type: 'dialog.upserted',
+      event_id: 'evt_dup',
+      account_id: 1,
+      peer_ref: 'u_100',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: makeDialog({ peer_ref: 'u_100', title: 'Alice Updated' }),
+    }, queryClient as never, 1, 'u_100')
+
+    const cached = queryClient.getQueryData(['dialogs', 1]) as { dialogs: Dialog[] }
+    expect(cached.dialogs).toHaveLength(1)
+    expect(cached.dialogs[0].title).toBe('Alice Updated')
+  })
+
+  it('TestDialogUpsert_IgnoresEmptyPeerRef', () => {
+    queryClient._cache.set(
+      JSON.stringify(['dialogs', 1]),
+      { ok: true, dialogs: [makeDialog({ peer_ref: 'u_100' })] }
+    )
+
+    // 空 peer_ref 的 dialog.upserted 应被忽略
+    handleRealtimeEvent({
+      type: 'dialog.upserted',
+      event_id: 'evt_empty',
+      account_id: 1,
+      peer_ref: '',
+      created_at: '2026-01-01T12:00:00Z',
+      payload: makeDialog({ peer_ref: '', title: 'Ghost' }),
+    }, queryClient as never, 1, 'u_100')
+
+    const cached = queryClient.getQueryData(['dialogs', 1]) as { dialogs: Dialog[] }
+    expect(cached.dialogs).toHaveLength(1)
+    expect(cached.dialogs[0].title).not.toBe('Ghost')
+  })
+})

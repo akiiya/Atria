@@ -82,7 +82,26 @@ watch(() => account.currentAccountId, (id) => {
 }, { immediate: true })
 
 // Use computed to reactively derive dialogs from query data
-const dialogs = computed(() => dialogsData.value?.dialogs || [])
+// 防御性去重：按 peer_ref 去重，保留最新条目（防止后端返回重复）
+const dialogs = computed(() => {
+  const raw = dialogsData.value?.dialogs || []
+  const seen = new Map<string, typeof raw[0]>()
+  for (const d of raw) {
+    if (!d.peer_ref) continue // 跳过无 peer_ref 的幽灵记录
+    const existing = seen.get(d.peer_ref)
+    if (!existing) {
+      seen.set(d.peer_ref, d)
+    } else {
+      // 保留 last_message_at 更新的条目
+      const existingTime = existing.last_message_at || ''
+      const newTime = d.last_message_at || ''
+      if (newTime > existingTime) {
+        seen.set(d.peer_ref, d)
+      }
+    }
+  }
+  return Array.from(seen.values())
+})
 
 // Find the currently selected dialog for title display
 const selectedDialog = computed(() => {

@@ -309,7 +309,7 @@ function handleDialogUpserted(
   accountId: number
 ): void {
   const dlg = event.payload as Dialog | undefined
-  if (!dlg) return
+  if (!dlg || !dlg.peer_ref) return // 忽略空 peer_ref 的幽灵 dialog
 
   queryClient.setQueryData(['dialogs', accountId], (old: unknown) => {
     const data = old as { ok: boolean; dialogs: Dialog[] } | undefined

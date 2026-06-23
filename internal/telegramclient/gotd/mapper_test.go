@@ -16,7 +16,7 @@ func TestMapMessage_TextMessage(t *testing.T) {
 		Message: "Hello world",
 	}
 
-	result := mapMessage(m)
+	result := mapMessage(m, "u_1")
 
 	if result.TelegramMessageID != 123 {
 		t.Errorf("期望 ID 123，实际 %d", result.TelegramMessageID)
@@ -33,6 +33,9 @@ func TestMapMessage_TextMessage(t *testing.T) {
 	if result.Direction != telegramclient.MessageDirectionOut {
 		t.Errorf("期望方向 out，实际 %s", result.Direction)
 	}
+	if result.PeerRef != "u_1" {
+		t.Errorf("期望 PeerRef u_1，实际 %s", result.PeerRef)
+	}
 }
 
 func TestMapMessage_IncomingMessage(t *testing.T) {
@@ -43,7 +46,7 @@ func TestMapMessage_IncomingMessage(t *testing.T) {
 		Message: "Hi there",
 	}
 
-	result := mapMessage(m)
+	result := mapMessage(m, "u_1")
 
 	if result.IsOutgoing {
 		t.Error("期望 IsOutgoing=false")
@@ -60,7 +63,7 @@ func TestMapMessage_UnsupportedMessage(t *testing.T) {
 		Message: "", // 空文本，无 media
 	}
 
-	result := mapMessage(m)
+	result := mapMessage(m, "u_1")
 
 	if result.Kind != telegramclient.MessageKindUnsupported {
 		t.Errorf("期望 kind unsupported，实际 %s", result.Kind)

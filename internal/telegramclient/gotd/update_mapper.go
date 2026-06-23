@@ -11,7 +11,8 @@ import (
 // mapUpdateNewMessage 将 tg.UpdateNewMessage 映射为中立 Message 和 UpdateEvent。
 // 不记录 message body 到日志。
 func mapUpdateNewMessage(msg *tg.Message, users []tg.UserClass) (telegramclient.Message, telegramclient.UpdateEvent) {
-	neutralMsg := mapMessage(msg)
+	peerRef := mapPeerRef(msg.PeerID)
+	neutralMsg := mapMessage(msg, peerRef)
 
 	// 查找发送者名称
 	if !msg.Out && msg.FromID != nil {
@@ -25,7 +26,6 @@ func mapUpdateNewMessage(msg *tg.Message, users []tg.UserClass) (telegramclient.
 		}
 	}
 
-	peerRef := mapPeerRef(msg.PeerID)
 	event := telegramclient.UpdateEvent{
 		EventID:   fmt.Sprintf("msg_%s_%d", peerRef, msg.ID),
 		Type:      telegramclient.EventMessageNew,
@@ -39,8 +39,8 @@ func mapUpdateNewMessage(msg *tg.Message, users []tg.UserClass) (telegramclient.
 
 // mapUpdateNewChannelMessage 将频道消息映射为中立 Message 和 UpdateEvent。
 func mapUpdateNewChannelMessage(msg *tg.Message, users []tg.UserClass) (telegramclient.Message, telegramclient.UpdateEvent) {
-	neutralMsg := mapMessage(msg)
 	peerRef := mapPeerRef(msg.PeerID)
+	neutralMsg := mapMessage(msg, peerRef)
 
 	event := telegramclient.UpdateEvent{
 		EventID:   fmt.Sprintf("chmsg_%s_%d", peerRef, msg.ID),
@@ -55,8 +55,8 @@ func mapUpdateNewChannelMessage(msg *tg.Message, users []tg.UserClass) (telegram
 
 // mapUpdateEditMessage 将编辑消息映射为中立 Message 和 UpdateEvent。
 func mapUpdateEditMessage(msg *tg.Message) (telegramclient.Message, telegramclient.UpdateEvent) {
-	neutralMsg := mapMessage(msg)
 	peerRef := mapPeerRef(msg.PeerID)
+	neutralMsg := mapMessage(msg, peerRef)
 
 	now := time.Now()
 	neutralMsg.EditedAt = &now
