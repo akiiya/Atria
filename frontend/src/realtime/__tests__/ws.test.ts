@@ -82,4 +82,39 @@ describe('RealtimeClient', () => {
     // This is a structural test
     expect(client.getState()).toBe('disconnected')
   })
+
+  it('TestWebSocketClient_CloseSetsDisconnected', () => {
+    const onStateChange = vi.fn()
+    const client = new RealtimeClient({
+      onEvent: vi.fn(),
+      onStateChange,
+    })
+
+    // 初始状态已经是 disconnected，close 不会触发 onStateChange（相同状态跳过）
+    client.close()
+    expect(client.getState()).toBe('disconnected')
+    // 因为 setState 检测到状态未变，不会调用 onStateChange
+    // 这是正确行为：避免不必要的重渲染
+  })
+
+  it('TestWebSocketClient_MultipleCloseCallsAreIdempotent', () => {
+    const client = new RealtimeClient({
+      onEvent: vi.fn(),
+    })
+
+    client.close()
+    client.close()
+    expect(client.getState()).toBe('disconnected')
+  })
+
+  it('TestWebSocketClient_ConnectAfterCloseDoesNotReconnect', () => {
+    const client = new RealtimeClient({
+      onEvent: vi.fn(),
+    })
+
+    client.close()
+    // connect() after close() should be a no-op (closed=true)
+    client.connect()
+    expect(client.getState()).toBe('disconnected')
+  })
 })
