@@ -236,7 +236,7 @@ REST request → gotd Adapter → runtime executor → runtime client → Telegr
 - gotd raw payloads must be mapped inside `internal/telegramclient/gotd` before reaching EventBus, WebSocket, REST DTOs, or frontend Query patch code.
 - Future TDLib runtime must publish the same neutral `UpdateEvent` values, so ChatService, WebSocket serialization, and frontend Query patch code should not need structural changes.
 
-## gotd/MTProto 与 HTTP API Proxy 的边界
+## gotd/MTProto 与 HTTP API 的边界
 
 ### 协议差异
 
@@ -248,23 +248,4 @@ REST request → gotd Adapter → runtime executor → runtime client → Telegr
 | 认证方式 | MTProto 密钥交换 | Bot Token |
 | 代理方式 | SOCKS5 / HTTP CONNECT 隧道 | HTTPS API endpoint |
 
-### API Proxy 不应进入 gotd Dialer
-
-- `api_proxy_url` 是 HTTPS API endpoint override
-- gotd 需要 TCP 连接到 Telegram DC，不是 HTTPS API
-- `BuildProxyDialerFromDB()` 遇到 `api_proxy` 类型时返回明确错误
-- gotd/MTProto 链路不会尝试使用 `api_proxy_url`
-
-### 未来 TDLib 下的处理
-
-如果未来引入 TDLib：
-- TDLib 可能支持自定义 DC 地址或 API endpoint
-- 届时可以将 `api_proxy_url` 用于 TDLib 的配置
-- 但当前 gotd 实现不支持此功能
-
-### HTTP API Client 的未来扩展
-
-如果项目未来引入 Telegram HTTP API client（如 Bot API）：
-- 可以将 `api_proxy_url` 作为该 client 的 base URL
-- 该 client 独立于 gotd/MTProto 链路
-- 不影响现有登录、聊天、runtime 功能
+当前 Atria 全部使用 MTProto（gotd/td），不存在 Telegram HTTP API client。HTTP API endpoint override（API Proxy）已从配置选项中移除。

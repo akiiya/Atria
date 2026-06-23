@@ -61,11 +61,12 @@ const proxyForm = ref({
   proxy_password: '',
   proxy_timeout: '30',
   proxy_remark: '',
-  api_proxy_url: '',
 })
 const proxySaving = ref(false)
 const proxyMsg = ref('')
 const proxyWarning = ref('')
+const proxyLegacyInvalid = ref(false)
+const proxyLegacyMessage = ref('')
 
 // Sync proxy form from settings data when it loads
 watch(settings, (val) => {
@@ -79,25 +80,40 @@ watch(settings, (val) => {
     proxyForm.value.proxy_username = val.proxy.username || ''
     proxyForm.value.proxy_timeout = val.proxy.timeout || '30'
     proxyForm.value.proxy_remark = val.proxy.remark || ''
-    proxyForm.value.api_proxy_url = val.proxy.api_proxy_url || ''
+    // 检测 legacy api_proxy 配置
+    if (val.proxy.type === 'api_proxy') {
+      proxyLegacyInvalid.value = true
+      proxyLegacyMessage.value = val.proxy.legacy_message || 'API Proxy 已移除，请重新选择代理类型'
+    } else {
+      proxyLegacyInvalid.value = false
+      proxyLegacyMessage.value = ''
+    }
     // Password is never returned from API, keep empty
     proxyForm.value.proxy_password = ''
   }
 }, { immediate: true })
 
 function saveProxy() {
+  // 前端拦截：不允许保存 api_proxy
+  if (proxyForm.value.proxy_type === 'api_proxy') {
+    proxyMsg.value = 'API Proxy 已移除，请选择 SOCKS5 或 HTTPS CONNECT 代理'
+    return
+  }
+
   proxySaving.value = true
   proxyMsg.value = ''
   proxyWarning.value = ''
   apiPost<any>('/api/settings/proxy', proxyForm.value).then(data => {
     if (data.ok) {
       proxyMsg.value = '代理配置已保存，运行时正在重新加载'
-      // 显示后端返回的 warning（如 API Proxy 不适用于 MTProto）
+      // 显示后端返回的 warning
       if (data.warning) {
         proxyWarning.value = data.warning
       }
+      // 保存成功后清除 legacy 状态
+      proxyLegacyInvalid.value = false
+      proxyLegacyMessage.value = ''
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      // 刷新 runtime status，让聊天页感知代理变化
       queryClient.invalidateQueries({ queryKey: ['runtime-status'] })
     } else {
       proxyMsg.value = data.message || '保存失败'
@@ -210,12 +226,16 @@ function savePassword() {
         </div>
       </div>
 
-      <!-- API 网络代理 -->
+      <!-- 网络代理 -->
       <div class="card" style="margin-bottom:16px;" id="api-proxy">
-        <div class="card-header"><h3 class="card-title">🌐 API 网络代理</h3></div>
+        <div class="card-header"><h3 class="card-title">🌐 网络代理</h3></div>
         <div class="card-body">
           <div class="alert alert-info" style="margin-bottom:16px;">
-            <strong>💡 说明：</strong>代理配置仅用于 Telegram MTProto API 连接，不影响 Web 界面访问。
+            <strong>💡 说明：</strong>代理配置仅用于 Telegram MTProto 连接（登录、聊天、runtime），不影响 Web 界面访问。
+          </div>
+          <div v-if="proxyLegacyInvalid" class="alert alert-warning" style="margin-bottom:16px;">
+            <strong>⚠️ 代理配置已失效：</strong>{{ proxyLegacyMessage || 'API Proxy 已移除，请重新选择代理类型。' }}<br>
+            请选择 SOCKS5 或 HTTPS CONNECT 代理并保存。
           </div>
           <div v-if="proxyMsg" :class="['alert', proxyMsg.includes('失败') ? 'alert-error' : 'alert-success']">{{ proxyMsg }}</div>
           <div v-if="proxyWarning" class="alert alert-warning" style="margin-bottom:16px;">{{ proxyWarning }}</div>
@@ -226,23 +246,7 @@ function savePassword() {
               <option value="none">不使用代理</option>
               <option value="https">HTTPS 代理（HTTP CONNECT 隧道）</option>
               <option value="socks5">SOCKS5 代理</option>
-              <option value="api_proxy">API Proxy（HTTPS API endpoint）</option>
             </select>
-          </div>
-
-          <!-- API Proxy 模式 -->
-          <div v-if="proxyForm.proxy_type === 'api_proxy'">
-            <div class="alert alert-warning" style="margin-bottom:16px;">
-              <strong>⚠️ 重要说明：</strong>API Proxy 是 HTTPS API endpoint override，适用于 Telegram HTTP API（如 Bot API）。<br>
-              当前 Atria 的登录、聊天和 runtime 基于 MTProto 协议，<strong>不使用</strong> HTTP API。<br>
-              如果您通过 Cloudflare Worker 反代 Telegram HTTP API，此配置仅保存 URL，不会被用于 MTProto 连接。<br>
-              如需通过代理访问 MTProto，请使用 SOCKS5 或 HTTPS 代理。
-            </div>
-            <div class="form-group">
-              <label class="form-label">API Proxy URL</label>
-              <input v-model="proxyForm.api_proxy_url" type="text" class="form-input" placeholder="https://xxx.domain.com">
-              <div class="form-hint">必须使用 https:// 协议，不允许包含查询参数或锚点</div>
-            </div>
           </div>
 
           <!-- SOCKS5/HTTPS 模式 -->

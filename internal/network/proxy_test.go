@@ -212,15 +212,13 @@ func TestProxyType_Constants(t *testing.T) {
 	if ProxyTypeSOCKS5 != "socks5" {
 		t.Errorf("ProxyTypeSOCKS5 应为 socks5，实际=%s", ProxyTypeSOCKS5)
 	}
-	if ProxyTypeAPIProxy != "api_proxy" {
-		t.Errorf("ProxyTypeAPIProxy 应为 api_proxy，实际=%s", ProxyTypeAPIProxy)
-	}
 }
 
-func TestNewDialer_APIProxy_ReturnsDirect(t *testing.T) {
-	// api_proxy 类型不创建 MTProto dialer，应回落到直连
+func TestProxyType_APIProxy_Removed(t *testing.T) {
+	// api_proxy 已移除，ProxyTypeAPIProxy 常量不再存在
+	// 如果旧数据库残留 api_proxy，应由 BuildProxyDialerFromDB 处理为 legacy invalid
 	config := ProxyConfig{
-		Type:    ProxyTypeAPIProxy,
+		Type:    ProxyType("api_proxy"),
 		Timeout: 5 * time.Second,
 	}
 
@@ -229,9 +227,9 @@ func TestNewDialer_APIProxy_ReturnsDirect(t *testing.T) {
 		t.Fatal("NewDialer 不应返回 nil")
 	}
 
-	// api_proxy 不是 socks5/https，应返回 directDialer
+	// api_proxy 不是 socks5/https，应返回 directDialer（default case）
 	if _, ok := dialer.(*directDialer); !ok {
-		t.Error("api_proxy 类型应返回 directDialer（不适用于 MTProto）")
+		t.Error("未知类型应返回 directDialer")
 	}
 }
 

@@ -232,8 +232,13 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 	testConfirmed := c.PostForm("test_result_confirmed") == "true"
 	forceSave := c.PostForm("force_save") == "true"
 
-	// 校验
-	if proxyType != "none" && proxyType != "https" && proxyType != "socks5" && proxyType != "api_proxy" {
+	// 校验：api_proxy 已移除
+	if proxyType == "api_proxy" {
+		s.redirectSettingsWithError(c, "API Proxy 已移除，请使用 SOCKS5 或 HTTPS CONNECT 代理")
+		return
+	}
+
+	if proxyType != "none" && proxyType != "https" && proxyType != "socks5" {
 		s.redirectSettingsWithError(c, "无效的代理类型")
 		return
 	}
@@ -255,13 +260,6 @@ func (s *Server) handlePostSettingsProxy(c *gin.Context) {
 			s.redirectSettingsWithError(c, "请先检测代理连通性")
 			return
 		}
-	}
-
-	// api_proxy 类型不需要检测确认（不适用于 MTProto）
-	if proxyType == "api_proxy" {
-		// api_proxy 通过 JSON API 保存，legacy form 不支持
-		s.redirectSettingsWithError(c, "API Proxy 请通过 JSON API 保存")
-		return
 	}
 
 	// 保存设置

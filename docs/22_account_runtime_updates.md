@@ -557,13 +557,14 @@ if dialer, err := BuildProxyDialerFromDB(db, key); err != nil {
 }
 ```
 
-### api_proxy 对 Runtime 的影响
+### Legacy api_proxy 处理
 
-- `api_proxy` 类型不适用于 MTProto
-- `BuildProxyDialerFromDB()` 遇到 `api_proxy` 返回明确错误
-- Runtime dialer 注入失败，日志警告"将使用直连"
-- Runtime 使用直连而不是 api_proxy URL
-- 不会导致 infinite connecting
+API Proxy 已从配置选项中移除。如果旧数据库中已保存 `proxy_type=api_proxy`：
+- `BuildProxyDialerFromDB()` 返回明确错误："API Proxy 已移除"
+- Runtime 不会创建 gotd client
+- Runtime status 显示 `proxy_config_invalid`
+- 不会 fallback 到直连
+- 用户需要重新选择 SOCKS5 / HTTPS CONNECT / none
 
 ### Runtime 使用 MTProto
 
@@ -640,22 +641,24 @@ if dialer, err := BuildProxyDialerFromDB(db, key); err != nil {
 3. 停止所有运行时（`StopAll()`）
 4. 返回 dialer 是否可用于 MTProto
 
-### API Proxy 下的行为
+### Legacy api_proxy 下的行为
 
-如果 proxy_type=api_proxy：
-- `rebuildDialer` 返回 `available=false, err="API Proxy 不适用于 MTProto 连接"`
-- `m.dialFunc` 设为 nil（直连，但不适用于 MTProto）
+如果旧数据库中残留 `proxy_type=api_proxy`：
+- `rebuildDialer` 返回 `available=false, err="API Proxy 已移除"`
+- `m.dialFunc` 设为 nil
 - 所有运行时被停止
 - 前端显示 warning
+- 不会 fallback 到直连
 
-### 切回可用代理后的行为
+### 切换代理后的行为
 
-如果从 api_proxy 切回 socks5/https：
+保存有效代理（socks5/https/none）后：
 - `rebuildDialer` 返回 `available=true, err=nil`
 - `m.dialFunc` 设为新 dialer
 - 所有运行时被停止
 - 用户可手动重新启动 runtime
 - 新 runtime 使用新 dialer
+- 同时清除 legacy `api_proxy_url` 字段
 
 ### 不清空 chat cache
 

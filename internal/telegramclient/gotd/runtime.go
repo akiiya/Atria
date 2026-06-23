@@ -384,10 +384,10 @@ func (m *RuntimeManagerImpl) rebuildDialer(db *gorm.DB, key []byte) (bool, error
 		return true, nil
 	}
 
-	// api_proxy 不适用于 MTProto
+	// api_proxy 已移除，旧数据库中可能残留此配置
 	if proxyType == "api_proxy" {
 		m.SetDialer(nil)
-		return false, fmt.Errorf("API Proxy 不适用于 MTProto 连接，请使用 SOCKS5 或 HTTPS 代理")
+		return false, fmt.Errorf("API Proxy 已移除，不适用于 MTProto 连接，请在设置中重新选择 SOCKS5 或 HTTPS CONNECT 代理")
 	}
 
 	host := settingMap["proxy_host"]
