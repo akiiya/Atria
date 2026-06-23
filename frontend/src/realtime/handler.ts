@@ -189,15 +189,36 @@ function handleMessageDeleted(
   const messageIds = payload?.telegram_message_ids || payload?.message_ids || []
   if (messageIds.length === 0) return
 
-  if (currentPeerRef && event.peer_ref === currentPeerRef) {
-    patchMessagesQuery(queryClient, accountId, currentPeerRef, (old) =>
-      patchMessageCollections(old, (messages) =>
-        messages.filter((m) => {
-          const id = telegramMessageID(m)
-          return !id || !messageIds.includes(id)
-        })
-      )
+  const peerRef = event.peer_ref
+
+  // peer_ref 为空时（私聊删除无法定位 peer），invalidate dialogs 让前端刷新
+  if (!peerRef) {
+    queryClient.invalidateQueries({ queryKey: ['dialogs', accountId] })
+    if (currentPeerRef) {
+      try {
+        const chat = useChatStore()
+        chat.markPeerStale(currentPeerRef)
+      } catch { /* store 未初始化 */ }
+    }
+    return
+  }
+
+  // 从对应 peer 的 messages cache 中移除已删除消息
+  patchMessagesQuery(queryClient, accountId, peerRef, (old) =>
+    patchMessageCollections(old, (messages) =>
+      messages.filter((m) => {
+        const id = telegramMessageID(m)
+        return !id || !messageIds.includes(id)
+      })
     )
+  )
+
+  // 非当前 peer 标记 stale，确保切换时 reconcile
+  if (currentPeerRef && peerRef !== currentPeerRef) {
+    try {
+      const chat = useChatStore()
+      chat.markPeerStale(peerRef)
+    } catch { /* store 未初始化 */ }
   }
 }
 

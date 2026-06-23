@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/gotd/td/tg"
 	"github.com/user/atria/internal/crypto"
@@ -168,24 +169,42 @@ func (h *UpdateHandler) handleEditMessage(ctx context.Context, u *tg.UpdateEditM
 }
 
 // handleDeleteMessages 处理删除消息。
+// UpdateDeleteMessages 不包含 peer 信息，需要从 ChatMessageCache 反查 peer_ref。
 func (h *UpdateHandler) handleDeleteMessages(ctx context.Context, u *tg.UpdateDeleteMessages) error {
-	// 从 IDs 中提取消息 ID
 	msgIDs := make([]int, 0, len(u.Messages))
 	for _, id := range u.Messages {
 		msgIDs = append(msgIDs, id)
 	}
 
+	// 从 ChatMessageCache 反查 peer_ref（按 peer 分组）
+	peerMsgMap := h.resolvePeerRefsForMessages(msgIDs)
+
 	// 删除缓存
 	h.deleteMessageCache(msgIDs)
 
-	// 发布事件（peerRef 为空，因为 UpdateDeleteMessages 不包含 peer 信息）
-	event := mapUpdateDeleteMessages("", msgIDs)
-	event.AccountID = h.accountID
-	h.bus.Publish(h.accountID, event)
+	// 更新受影响 peer 的 dialog preview
+	for peerRef, ids := range peerMsgMap {
+		h.updateDialogPreviewAfterDelete(peerRef, ids)
+	}
+
+	// 按 peer 发布删除事件
+	if len(peerMsgMap) > 0 {
+		for peerRef, ids := range peerMsgMap {
+			event := mapUpdateDeleteMessages(peerRef, ids)
+			event.AccountID = h.accountID
+			h.bus.Publish(h.accountID, event)
+		}
+	} else {
+		// 无法定位 peer，发布空 peer_ref 事件，前端会 invalidate dialogs
+		event := mapUpdateDeleteMessages("", msgIDs)
+		event.AccountID = h.accountID
+		h.bus.Publish(h.accountID, event)
+	}
 
 	h.logger.Info("消息删除处理完成",
 		"account_id", h.accountID,
 		"count", len(msgIDs),
+		"resolved_peers", len(peerMsgMap),
 	)
 
 	return nil
@@ -202,6 +221,9 @@ func (h *UpdateHandler) handleDeleteChannelMessages(ctx context.Context, u *tg.U
 
 	// 删除缓存
 	h.deleteMessageCache(msgIDs)
+
+	// 更新 dialog preview
+	h.updateDialogPreviewAfterDelete(peerRef, msgIDs)
 
 	// 发布事件
 	event := mapUpdateDeleteMessages(peerRef, msgIDs)
@@ -286,6 +308,110 @@ func (h *UpdateHandler) deleteMessageCache(msgIDs []int) {
 	}
 	h.db.Where("account_id = ? AND telegram_message_id IN ?", h.accountID, msgIDs).
 		Delete(&model.ChatMessageCache{})
+}
+
+// resolvePeerRefsForMessages 从 ChatMessageCache 反查消息对应的 peer_ref。
+// 返回 map[peerRef][]telegramMessageID。
+func (h *UpdateHandler) resolvePeerRefsForMessages(msgIDs []int) map[string][]int {
+	if len(msgIDs) == 0 {
+		return nil
+	}
+
+	var cached []model.ChatMessageCache
+	h.db.Where("account_id = ? AND telegram_message_id IN ?", h.accountID, msgIDs).
+		Select("peer_ref", "telegram_message_id").
+		Find(&cached)
+
+	if len(cached) == 0 {
+		return nil
+	}
+
+	result := make(map[string][]int)
+	for _, c := range cached {
+		if c.PeerRef != "" {
+			result[c.PeerRef] = append(result[c.PeerRef], c.TelegramMessageID)
+		}
+	}
+	return result
+}
+
+// updateDialogPreviewAfterDelete 删除消息后更新 dialog preview。
+// 查询该 peer 最新未删除消息，更新 ChatPeerCache preview。
+func (h *UpdateHandler) updateDialogPreviewAfterDelete(peerRef string, deletedIDs []int) {
+	if peerRef == "" {
+		return
+	}
+
+	// 查询该 peer 最新一条消息
+	var latest model.ChatMessageCache
+	err := h.db.Where("account_id = ? AND peer_ref = ?", h.accountID, peerRef).
+		Order("telegram_message_id DESC").
+		First(&latest).Error
+
+	if err != nil {
+		// 没有剩余消息，清空 preview
+		h.db.Model(&model.ChatPeerCache{}).
+			Where("account_id = ? AND peer_ref = ?", h.accountID, peerRef).
+			Updates(map[string]any{
+				"last_message_preview": "",
+				"last_message_at":      nil,
+			})
+		// 发布 dialog.upserted 通知前端
+		h.publishDialogUpdated(peerRef)
+		return
+	}
+
+	// 解密 preview 文本
+	preview := ""
+	if latest.TextEncrypted != "" {
+		text, err := crypto.DecryptString(h.key, latest.TextEncrypted, []byte("atria:msg:v1"))
+		if err == nil {
+			preview = truncateText(text, 50)
+		}
+	}
+
+	h.db.Model(&model.ChatPeerCache{}).
+		Where("account_id = ? AND peer_ref = ?", h.accountID, peerRef).
+		Updates(map[string]any{
+			"last_message_preview": preview,
+			"last_message_at":      &latest.SentAt,
+		})
+
+	h.publishDialogUpdated(peerRef)
+}
+
+// publishDialogUpdated 发布 dialog.upserted 事件通知前端刷新。
+func (h *UpdateHandler) publishDialogUpdated(peerRef string) {
+	var cache model.ChatPeerCache
+	if err := h.db.Where("account_id = ? AND peer_ref = ?", h.accountID, peerRef).
+		First(&cache).Error; err != nil {
+		return
+	}
+
+	dlg := telegramclient.Dialog{
+		PeerRef:            cache.PeerRef,
+		PeerType:           telegramclient.PeerType(cache.PeerType),
+		PeerID:             cache.PeerID,
+		Title:              cache.Title,
+		Username:           cache.Username,
+		LastMessagePreview: cache.LastMessagePreview,
+		UnreadCount:        cache.UnreadCount,
+		IsPinned:           cache.IsPinned,
+		IsMuted:            cache.IsMuted,
+	}
+	if cache.LastMessageAt != nil {
+		dlg.LastMessageAt = *cache.LastMessageAt
+	}
+
+	event := telegramclient.UpdateEvent{
+		EventID:   fmt.Sprintf("dlg_upd_%s_%d", peerRef, time.Now().UnixNano()),
+		Type:      telegramclient.EventDialogUpserted,
+		PeerRef:   peerRef,
+		Payload:   dlg,
+		CreatedAt: time.Now(),
+	}
+	event.AccountID = h.accountID
+	h.bus.Publish(h.accountID, event)
 }
 
 // updateDialogPreview 更新 ChatPeerCache 的最后消息预览。
