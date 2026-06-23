@@ -353,3 +353,13 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - Migration 10 清理 `PeerRef=""` 的幽灵记录。
 - Migration 10 将 `ChatPeerCache` 唯一索引从全局改为 `(account_id, peer_ref)` 复合索引。
 - 启动时自动执行迁移，无需手动干预。
+
+## 实时状态反馈
+
+- 后端服务断开时，badge 不能继续显示绿色"实时更新中"。
+- Badge 综合 WebSocket 连接状态 + runtime 状态判断。
+- 只有 WS connected + runtime live 时才显示绿色。
+- 断线时保留本地缓存（dialogs/messages 不清空）。
+- 刷新按钮点击时，如果后端不可达，应显示明确错误。
+- 服务恢复后自动重连并恢复正确状态。
+- 详见 `docs/23_websocket_realtime_push.md`。

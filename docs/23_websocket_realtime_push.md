@@ -319,3 +319,37 @@ upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
 - 前端 `ChatView` 对 dialogs 按 `peer_ref` 防御性去重。
 - `message.new` 缺少 dialog 时构造的 minimal dialog 使用 canonical `peer_ref`，后续 REST dialog 可正确合并。
 - 不允许 unknown peer 生成错误临时 peer_ref 导致重复会话。
+
+## 实时状态 Badge 语义
+
+Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
+
+### 状态显示规则
+
+| 条件 | Badge 文案 | CSS 类 |
+|------|-----------|--------|
+| WS connected + runtime live | 绿色：实时更新中 | `runtime-live` |
+| WS connecting 或 runtime connecting | 灰色：正在连接 | `runtime-connecting` |
+| WS reconnecting | 黄色：正在重连 | `runtime-connecting` |
+| WS disconnected + HTTP fetch 失败 | 红色：服务已断开 | `runtime-error` |
+| WS disconnected + runtime 已知 | 灰色：连接已断开 | `runtime-stopped` |
+| runtime syncing | 灰色：正在同步 | `runtime-connecting` |
+| runtime degraded | 红色：同步异常 | `runtime-error` |
+| runtime offline | 灰色：连接断开 | `runtime-error` |
+| runtime stopped | 灰色：未启动 | `runtime-stopped` |
+
+### 关键规则
+
+- 只有同时满足 WS connected + runtime live 才显示绿色"实时更新中"。
+- WebSocket 断开/重连时，即使 runtime 旧状态为 live，也必须显示非绿色。
+- HTTP runtime status fetch 失败时，不保留旧 live 状态（`runtimeFetchError` 强制降级）。
+- 断线时保留 dialogs/messages 缓存，不清空列表。
+
+### 检测机制
+
+- HTTP runtime status 轮询：30 秒间隔
+- `refetchOnWindowFocus: true`：切回标签时立即检查
+- `refetchOnReconnect: true`：网络恢复时立即检查
+- `visibilitychange` 监听：页面可见时触发 refetch
+- `online/offline` 监听：网络状态变化时触发 refetch
+- WebSocket `onclose`/`onerror`：立即更新连接状态
