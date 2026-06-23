@@ -353,3 +353,37 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 - `visibilitychange` 监听：页面可见时触发 refetch
 - `online/offline` 监听：网络状态变化时触发 refetch
 - WebSocket `onclose`/`onerror`：立即更新连接状态
+
+## 服务恢复后 Runtime 自动恢复
+
+后端服务重启后，RuntimeManager 内存状态丢失，runtime 变为 stopped。前端需要自动触发 runtime start。
+
+### ensureRuntimeStarted(reason)
+
+统一的 runtime 自动恢复入口，带 8 秒防抖。
+
+触发时机：
+1. 账号变化时（account_change）
+2. runtime 状态变为 stopped/offline 时（state_change）
+3. WebSocket 从 reconnecting 恢复到 connected 时（ws_reconnect）
+4. 页面从隐藏变为可见时（visibility）
+5. 网络从离线恢复为在线时（network_online）
+6. 用户点击刷新按钮时（force_refresh）
+
+执行条件：
+- 当前有 accountId
+- 没有 in-flight start（startMutation.isPending）
+- runtime 状态为 stopped 或 offline
+- 距离上次尝试超过 8 秒
+
+不自动启动的例外：
+- proxy_config_invalid：代理配置无效
+- login_required：账号未登录
+- session_missing：session 缺失
+- 其他 error 状态
+
+### Badge 状态
+
+- start in-flight 时显示"正在恢复实时更新"（黄色）
+- start 成功后 refetch status → runtime live → 绿色
+- start 失败后显示明确错误

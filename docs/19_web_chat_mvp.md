@@ -362,4 +362,7 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - 断线时保留本地缓存（dialogs/messages 不清空）。
 - 刷新按钮点击时，如果后端不可达，应显示明确错误。
 - 服务恢复后自动重连并恢复正确状态。
+- 后端服务重启后，前端自动触发 runtime start，无需刷新浏览器。
+- `ensureRuntimeStarted` 统一入口，带 8 秒防抖，防止重复 start。
+- proxy_config_invalid / login_required / session_missing 不自动恢复。
 - 详见 `docs/23_websocket_realtime_push.md`。
