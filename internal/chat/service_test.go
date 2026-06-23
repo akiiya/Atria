@@ -1161,3 +1161,169 @@ func TestTruncateText_Mixed(t *testing.T) {
 		t.Errorf("期望 'Hello...'，实际 '%s'", result)
 	}
 }
+
+// ===== getInitial 测试 =====
+
+func TestGetInitial_FlagEmoji(t *testing.T) {
+	// 🇺🇸 是两个 regional indicator (U+1F1FA U+1F1F8)
+	result := getInitial("🇺🇸US GV-Pruse")
+	if result != "🇺🇸" {
+		t.Errorf("期望 🇺🇸，实际 %q (len=%d)", result, len([]rune(result)))
+	}
+}
+
+func TestGetInitial_FlagEmojiNoText(t *testing.T) {
+	result := getInitial("🇺🇸")
+	if result != "🇺🇸" {
+		t.Errorf("期望 🇺🇸，实际 %q", result)
+	}
+}
+
+func TestGetInitial_OtherFlag(t *testing.T) {
+	result := getInitial("🇯🇵日本語")
+	if result != "🇯🇵" {
+		t.Errorf("期望 🇯🇵，实际 %q", result)
+	}
+}
+
+func TestGetInitial_EmojiWithVariationSelector(t *testing.T) {
+	// ❤️ = U+2764 U+FE0F
+	result := getInitial("❤️ Red Heart")
+	if result != "❤️" {
+		t.Errorf("期望 ❤️，实际 %q (runes=%v)", result, []rune(result))
+	}
+}
+
+func TestGetInitial_ZWJFamily(t *testing.T) {
+	// 👨‍👩‍👧‍👦 = U+1F468 U+200D U+1F469 U+200D U+1F466 U+200D U+1F466
+	result := getInitial("👨‍👩‍👧‍👦 Family")
+	if result != "👨‍👩‍👧‍👦" {
+		t.Errorf("期望 👨‍👩‍👧‍👦，实际 %q (runes=%v)", result, []rune(result))
+	}
+}
+
+func TestGetInitial_EmojiWithSkinTone(t *testing.T) {
+	// 👍🏽 = U+1F44D U+1F3FD
+	result := getInitial("👍🏽 Thumbs Up")
+	if result != "👍🏽" {
+		t.Errorf("期望 👍🏽，实际 %q (runes=%v)", result, []rune(result))
+	}
+}
+
+func TestGetInitial_Chinese(t *testing.T) {
+	result := getInitial("中文测试")
+	if result != "中" {
+		t.Errorf("期望 中，实际 %q", result)
+	}
+}
+
+func TestGetInitial_English(t *testing.T) {
+	result := getInitial("Alice")
+	if result != "A" {
+		t.Errorf("期望 A，实际 %q", result)
+	}
+}
+
+func TestGetInitial_Number(t *testing.T) {
+	result := getInitial("123Test")
+	if result != "1" {
+		t.Errorf("期望 1，实际 %q", result)
+	}
+}
+
+func TestGetInitial_Empty(t *testing.T) {
+	if getInitial("") != "?" {
+		t.Error("空字符串应返回 ?")
+	}
+}
+
+func TestGetInitial_RegularEmoji(t *testing.T) {
+	result := getInitial("😂 Laughing")
+	if result != "😂" {
+		t.Errorf("期望 😂，实际 %q", result)
+	}
+}
+
+// ===== Dialog Title UTF-8 保留测试 =====
+
+func TestDialogTitle_PreservesFlagEmoji(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	fake := &FakeAdapter{
+		Dialogs: []telegramclient.Dialog{
+			{PeerRef: "u_1", PeerType: telegramclient.PeerTypeUser, Title: "🇺🇸US GV-Pruse", PeerID: 1, AccessHash: 12345},
+		},
+	}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.ListDialogs(context.Background(), account.ID, 20, true)
+	if err != nil {
+		t.Fatalf("ListDialogs 失败: %s", err)
+	}
+	if len(result.Dialogs) != 1 {
+		t.Fatalf("期望 1 个对话，实际 %d", len(result.Dialogs))
+	}
+	if result.Dialogs[0].Title != "🇺🇸US GV-Pruse" {
+		t.Errorf("期望 title '🇺🇸US GV-Pruse'，实际 %q", result.Dialogs[0].Title)
+	}
+}
+
+func TestDialogTitle_PreservesEmojiInCache(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	// 直接写入带 emoji 的 peer cache
+	now := time.Now()
+	db.Create(&model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_1", PeerType: "user", PeerID: 1,
+		Title: "😂Test Emoji", LastMessageAt: &now,
+	})
+
+	svc := NewChatService(db, testKey, nil, slog.Default())
+
+	result, err := svc.ListDialogs(context.Background(), account.ID, 20, false)
+	if err != nil {
+		t.Fatalf("ListDialogs 失败: %s", err)
+	}
+	if len(result.Dialogs) != 1 {
+		t.Fatalf("期望 1 个对话，实际 %d", len(result.Dialogs))
+	}
+	if result.Dialogs[0].Title != "😂Test Emoji" {
+		t.Errorf("期望 title '😂Test Emoji'，实际 %q", result.Dialogs[0].Title)
+	}
+}
+
+func TestDialogTitle_AvatarPlaceholderUsesGraphemeSafeInitial(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	fake := &FakeAdapter{
+		Dialogs: []telegramclient.Dialog{
+			{PeerRef: "u_1", PeerType: telegramclient.PeerTypeUser, Title: "🇺🇸US GV-Pruse", PeerID: 1, AccessHash: 12345},
+			{PeerRef: "u_2", PeerType: telegramclient.PeerTypeUser, Title: "👨‍👩‍👧‍👦Family", PeerID: 2, AccessHash: 12346},
+			{PeerRef: "u_3", PeerType: telegramclient.PeerTypeUser, Title: "😂Laughing", PeerID: 3, AccessHash: 12347},
+		},
+	}
+	svc := NewChatService(db, testKey, fake, slog.Default())
+
+	result, err := svc.ListDialogs(context.Background(), account.ID, 20, true)
+	if err != nil {
+		t.Fatalf("ListDialogs 失败: %s", err)
+	}
+
+	tests := map[string]string{
+		"u_1": "🇺🇸",
+		"u_2": "👨‍👩‍👧‍👦",
+		"u_3": "😂",
+	}
+	for _, dlg := range result.Dialogs {
+		expected, ok := tests[dlg.PeerRef]
+		if !ok {
+			continue
+		}
+		if dlg.AvatarPlaceholder != expected {
+			t.Errorf("peer %s: 期望 avatar_placeholder %q，实际 %q", dlg.PeerRef, expected, dlg.AvatarPlaceholder)
+		}
+	}
+}

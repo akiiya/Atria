@@ -12,21 +12,35 @@ const imgError = ref(false)
 const showImage = computed(() => props.avatarUrl && !imgError.value)
 
 /**
+ * 检测 code point 是否为 Regional Indicator (U+1F1E6..U+1F1FF)。
+ * 国旗 emoji 由两个连续的 Regional Indicator 组成。
+ */
+function isRegionalIndicator(cp: string): boolean {
+  const code = cp.codePointAt(0)
+  return code !== undefined && code >= 0x1F1E6 && code <= 0x1F1FF
+}
+
+/**
  * 从文本中安全提取首个 grapheme cluster（不拆 emoji / surrogate pair / ZWJ）。
  */
 const initialChar = computed(() => {
   const t = props.text || ''
   if (!t) return '?'
-  // 优先使用 Intl.Segmenter
+  // 优先使用 Intl.Segmenter（最准确的 grapheme 分段）
   const IntlWithSegmenter = Intl as unknown as { Segmenter?: new (locale: string, opts: { granularity: string }) => { segment: (text: string) => IterableIterator<{ segment: string }> } }
   if (IntlWithSegmenter.Segmenter) {
     const segmenter = new IntlWithSegmenter.Segmenter('zh', { granularity: 'grapheme' })
     const first = segmenter.segment(t)[Symbol.iterator]().next()
     if (!first.done && first.value) return first.value.segment
   }
-  // fallback: Array.from 按 code point
+  // fallback: Array.from 按 code point，额外检测 regional indicator pair
   const chars = Array.from(t)
-  return chars[0] || '?'
+  if (chars.length === 0) return '?'
+  // 国旗 emoji：两个连续 regional indicator
+  if (isRegionalIndicator(chars[0]) && chars.length > 1 && isRegionalIndicator(chars[1])) {
+    return chars[0] + chars[1]
+  }
+  return chars[0]
 })
 
 const pixelSize = computed(() => props.size || 40)

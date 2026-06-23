@@ -810,12 +810,16 @@ func (e *ChatError) Error() string {
 
 // mapNeutralDialogToChatDialog 将中立 Dialog DTO 转换为 chat 包内部 Dialog。
 func mapNeutralDialogToChatDialog(d telegramclient.Dialog) Dialog {
+	avatar := d.AvatarText
+	if avatar == "" {
+		avatar = getInitial(d.Title)
+	}
 	return Dialog{
 		PeerRef:            d.PeerRef,
 		PeerType:           PeerType(d.PeerType),
 		Title:              d.Title,
 		Username:           d.Username,
-		AvatarPlaceholder:  d.AvatarText,
+		AvatarPlaceholder:  avatar,
 		LastMessagePreview: d.LastMessagePreview,
 		UnreadCount:        d.UnreadCount,
 		IsPinned:           d.IsPinned,
@@ -869,13 +873,61 @@ func buildDisplayName(firstName, lastName string) string {
 	return name
 }
 
-// getInitial 获取名称首字母。
+// getInitial 获取名称首字符（grapheme 安全）。
+//
+// 正确处理：
+//   - 国旗 emoji（regional indicator pair，如 🇺🇸）
+//   - 基本 emoji + variation selector（如 ❤️）
+//   - ZWJ 序列（如 👨‍👩‍👧‍👦）
+//   - 普通字母、数字、CJK
 func getInitial(name string) string {
 	if name == "" {
 		return "?"
 	}
 	r := []rune(name)
-	return strings.ToUpper(string(r[0]))
+	if len(r) == 0 {
+		return "?"
+	}
+
+	// Regional Indicator Pair（国旗 emoji）：U+1F1E6..U+1F1FF
+	// 两个连续 regional indicator 组成一个国旗
+	if isRegionalIndicator(r[0]) && len(r) > 1 && isRegionalIndicator(r[1]) {
+		return string(r[:2])
+	}
+
+	// emoji + variation selector (U+FE0F) 或 ZWJ 序列
+	end := 1
+	for end < len(r) {
+		// Variation Selector (U+FE0E, U+FE0F)
+		if isVariationSelector(r[end]) {
+			end++
+			continue
+		}
+		// ZWJ (U+200D) + 后续字符
+		if r[end] == 0x200D && end+1 < len(r) {
+			end += 2 // 跳过 ZWJ 和下一个字符
+			continue
+		}
+		// Skin Tone Modifier (U+1F3FB..U+1F3FF)
+		if isSkinToneModifier(r[end]) {
+			end++
+			continue
+		}
+		break
+	}
+	return string(r[:end])
+}
+
+func isRegionalIndicator(r rune) bool {
+	return r >= 0x1F1E6 && r <= 0x1F1FF
+}
+
+func isVariationSelector(r rune) bool {
+	return r == 0xFE0E || r == 0xFE0F
+}
+
+func isSkinToneModifier(r rune) bool {
+	return r >= 0x1F3FB && r <= 0x1F3FF
 }
 
 // sortMessagesByTime 按 sent_at 正序排列消息。

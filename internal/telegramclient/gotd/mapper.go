@@ -185,13 +185,45 @@ func buildDisplayName(firstName, lastName string) string {
 	return name
 }
 
-// getInitial 获取名称首字母。
+// getInitial 获取名称首字符（grapheme 安全）。
+//
+// 正确处理国旗 emoji、ZWJ 序列、variation selector 等。
 func getInitial(name string) string {
 	if name == "" {
 		return "?"
 	}
 	r := []rune(name)
-	return string([]rune{r[0]})
+	if len(r) == 0 {
+		return "?"
+	}
+
+	// Regional Indicator Pair（国旗 emoji）
+	if isRegionalIndicator(r[0]) && len(r) > 1 && isRegionalIndicator(r[1]) {
+		return string(r[:2])
+	}
+
+	// emoji + variation selector / ZWJ 序列 / skin tone
+	end := 1
+	for end < len(r) {
+		if r[end] == 0xFE0E || r[end] == 0xFE0F { // Variation Selector
+			end++
+			continue
+		}
+		if r[end] == 0x200D && end+1 < len(r) { // ZWJ
+			end += 2
+			continue
+		}
+		if r[end] >= 0x1F3FB && r[end] <= 0x1F3FF { // Skin Tone
+			end++
+			continue
+		}
+		break
+	}
+	return string(r[:end])
+}
+
+func isRegionalIndicator(r rune) bool {
+	return r >= 0x1F1E6 && r <= 0x1F1FF
 }
 
 // truncateText 截断文本（rune 安全，不会截断多字节字符或 emoji）。

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
+  getFirstGrapheme,
   handleRealtimeEvent,
   markLocalMessageFailedInMessagesCache,
   replaceLocalMessageInMessagesCache,
@@ -681,5 +682,54 @@ describe('safeTruncateText', () => {
     expect(safeTruncateText('', 10)).toBe('')
     expect(safeTruncateText(undefined, 10)).toBe('')
     expect(safeTruncateText(null, 10)).toBe('')
+  })
+})
+
+describe('getFirstGrapheme', () => {
+  it('TestGetFirstGrapheme_FlagEmoji', () => {
+    expect(getFirstGrapheme('🇺🇸US GV-Pruse')).toBe('🇺🇸')
+  })
+
+  it('TestGetFirstGrapheme_FlagEmojiOnly', () => {
+    expect(getFirstGrapheme('🇺🇸')).toBe('🇺🇸')
+  })
+
+  it('TestGetFirstGrapheme_OtherFlag', () => {
+    expect(getFirstGrapheme('🇯🇵日本語')).toBe('🇯🇵')
+  })
+
+  it('TestGetFirstGrapheme_EmojiWithSkinTone', () => {
+    expect(getFirstGrapheme('👍🏽 Thumbs Up')).toBe('👍🏽')
+  })
+
+  it('TestGetFirstGrapheme_ZWJFamily', () => {
+    expect(getFirstGrapheme('👨‍👩‍👧‍👦 Family')).toBe('👨‍👩‍👧‍👦')
+  })
+
+  it('TestGetFirstGrapheme_HeartVariationSelector', () => {
+    // ❤️ = U+2764 U+FE0F
+    expect(getFirstGrapheme('❤️ Red Heart')).toBe('❤️')
+  })
+
+  it('TestGetFirstGrapheme_Chinese', () => {
+    expect(getFirstGrapheme('中文测试')).toBe('中')
+  })
+
+  it('TestGetFirstGrapheme_English', () => {
+    expect(getFirstGrapheme('Alice')).toBe('A')
+  })
+
+  it('TestGetFirstGrapheme_Number', () => {
+    expect(getFirstGrapheme('123Test')).toBe('1')
+  })
+
+  it('TestGetFirstGrapheme_RegularEmoji', () => {
+    expect(getFirstGrapheme('😂 Laughing')).toBe('😂')
+  })
+
+  it('TestGetFirstGrapheme_Empty', () => {
+    expect(getFirstGrapheme('')).toBe('?')
+    expect(getFirstGrapheme(undefined)).toBe('?')
+    expect(getFirstGrapheme(null)).toBe('?')
   })
 })
