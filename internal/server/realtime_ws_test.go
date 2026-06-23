@@ -258,6 +258,45 @@ func TestRealtimeEvent_DialogUpsertedSerialization(t *testing.T) {
 	}
 }
 
+func TestRealtimeEvent_DialogUpsertedPreservesEmojiTitle(t *testing.T) {
+	now := time.Now()
+	event := telegramclient.UpdateEvent{
+		EventID:   "evt_dlg_emoji",
+		AccountID: 1,
+		Type:      telegramclient.EventDialogUpserted,
+		PeerRef:   "u_789",
+		CreatedAt: now,
+		Payload: telegramclient.Dialog{
+			PeerRef:            "u_789",
+			PeerType:           telegramclient.PeerTypeUser,
+			Title:              "🇺🇸US GV-Pruse",
+			Username:           "usgv",
+			LastMessagePreview: "Hello!",
+			LastMessageAt:      now,
+			UnreadCount:        1,
+		},
+	}
+
+	payload := sanitizePayload(event)
+	if payload == nil {
+		t.Fatal("payload 不应为 nil")
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("JSON 序列化失败: %s", err)
+	}
+
+	body := string(data)
+	if !strings.Contains(body, "🇺🇸US GV-Pruse") {
+		t.Errorf("payload 应保留完整 emoji title，实际: %s", body)
+	}
+	// 确保 access_hash 未泄露
+	if strings.Contains(body, "access_hash") {
+		t.Error("payload 不应包含 access_hash")
+	}
+}
+
 func TestRealtimeEvent_NoAccessHash(t *testing.T) {
 	// 验证 sanitizePayload 不会暴露 access_hash
 	event := telegramclient.UpdateEvent{

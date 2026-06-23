@@ -14,15 +14,43 @@ type MessagesCache = {
 type MessagePatchMode = 'upsert' | 'replace-local' | 'mark-failed'
 
 /**
+ * 检测 code point 是否为 Regional Indicator (U+1F1E6..U+1F1FF)。
+ */
+function isRegionalIndicator(cp: string): boolean {
+  const code = cp.codePointAt(0)
+  return code !== undefined && code >= 0x1F1E6 && code <= 0x1F1FF
+}
+
+/**
+ * 获取文本的首个 grapheme cluster（不拆 emoji / surrogate pair / ZWJ / 国旗）。
+ *
+ * 优先使用 Intl.Segmenter，fallback 检测 regional indicator pair。
+ */
+export function getFirstGrapheme(text: string | undefined | null): string {
+  if (!text) return '?'
+  const IntlWithSegmenter = Intl as unknown as { Segmenter?: new (locale: string, opts: { granularity: string }) => { segment: (text: string) => IterableIterator<{ segment: string }> } }
+  if (IntlWithSegmenter.Segmenter) {
+    const segmenter = new IntlWithSegmenter.Segmenter('zh', { granularity: 'grapheme' })
+    const first = segmenter.segment(text)[Symbol.iterator]().next()
+    if (!first.done && first.value) return first.value.segment
+  }
+  // fallback: Array.from 按 code point，额外检测 regional indicator pair
+  const chars = Array.from(text)
+  if (chars.length === 0) return '?'
+  if (isRegionalIndicator(chars[0]) && chars.length > 1 && isRegionalIndicator(chars[1])) {
+    return chars[0] + chars[1]
+  }
+  return chars[0]
+}
+
+/**
  * safeTruncateText 安全截断文本，不破坏 emoji（surrogate pair / ZWJ / 组合序列）。
  *
  * 优先使用 Intl.Segmenter（按 grapheme cluster 分段），
- * 不支持时 fallback 到 Array.from（按 code point 分段）。
+ * 不支持时 fallback 到 Array.from + regional indicator 检测。
  */
 export function safeTruncateText(text: string | undefined | null, maxGraphemes: number): string {
   if (!text) return ''
-  // 使用 CSS text-overflow: ellipsis 做视觉截断更安全，
-  // 但 preview 文本需要在 JS 层截断以限制数据大小。
   // 优先使用 Intl.Segmenter
   const IntlWithSegmenter = Intl as unknown as { Segmenter?: new (locale: string, opts: { granularity: string }) => { segment: (text: string) => IterableIterator<{ segment: string }> } }
   if (IntlWithSegmenter.Segmenter) {
@@ -31,10 +59,24 @@ export function safeTruncateText(text: string | undefined | null, maxGraphemes: 
     if (segments.length <= maxGraphemes) return text
     return segments.slice(0, maxGraphemes).map((s: { segment: string }) => s.segment).join('')
   }
-  // fallback: Array.from 按 code point 分段（不拆 surrogate pair）
+  // fallback: Array.from 按 code point，合并 regional indicator pair 为单个 grapheme
   const chars = Array.from(text)
-  if (chars.length <= maxGraphemes) return text
-  return chars.slice(0, maxGraphemes).join('')
+  const graphemes: string[] = []
+  let i = 0
+  while (i < chars.length && graphemes.length < maxGraphemes) {
+    // 国旗 emoji：两个连续 regional indicator
+    if (isRegionalIndicator(chars[i]) && i + 1 < chars.length && isRegionalIndicator(chars[i + 1])) {
+      graphemes.push(chars[i] + chars[i + 1])
+      i += 2
+    } else {
+      graphemes.push(chars[i])
+      i++
+    }
+  }
+  if (graphemes.length >= maxGraphemes && i < chars.length) {
+    return graphemes.join('')
+  }
+  return text
 }
 
 export function handleRealtimeEvent(

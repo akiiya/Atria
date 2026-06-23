@@ -20,7 +20,7 @@ function formatTime(iso: string | undefined): string {
 
 <template>
   <div :class="['dialog-item', { selected }]" @click="$emit('click')">
-    <AvatarInitials :text="dialog.avatar_placeholder || dialog.title" />
+    <AvatarInitials :text="dialog.title || dialog.avatar_placeholder" />
     <div class="dialog-info">
       <div class="dialog-title-row">
         <span class="dialog-title">{{ dialog.title }}</span>

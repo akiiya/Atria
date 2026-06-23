@@ -287,6 +287,73 @@ func TestGetInitial(t *testing.T) {
 	}
 }
 
+func TestGetInitial_FlagEmoji(t *testing.T) {
+	// 🇺🇸 是两个 regional indicator (U+1F1FA U+1F1F8)
+	result := getInitial("🇺🇸US GV-Pruse")
+	if result != "🇺🇸" {
+		t.Errorf("期望 🇺🇸，实际 %q (len=%d)", result, len([]rune(result)))
+	}
+}
+
+func TestGetInitial_FlagEmojiNoText(t *testing.T) {
+	result := getInitial("🇺🇸")
+	if result != "🇺🇸" {
+		t.Errorf("期望 🇺🇸，实际 %q", result)
+	}
+}
+
+func TestGetInitial_OtherFlag(t *testing.T) {
+	result := getInitial("🇯🇵日本語")
+	if result != "🇯🇵" {
+		t.Errorf("期望 🇯🇵，实际 %q", result)
+	}
+}
+
+func TestGetInitial_EmojiWithVariationSelector(t *testing.T) {
+	// ❤️ = U+2764 U+FE0F
+	result := getInitial("❤️ Red Heart")
+	if result != "❤️" {
+		t.Errorf("期望 ❤️，实际 %q (runes=%v)", result, []rune(result))
+	}
+}
+
+func TestGetInitial_ZWJFamily(t *testing.T) {
+	// 👨‍👩‍👧‍👦 = U+1F468 U+200D U+1F469 U+200D U+1F466 U+200D U+1F466
+	result := getInitial("👨‍👩‍👧‍👦 Family")
+	if result != "👨‍👩‍👧‍👦" {
+		t.Errorf("期望 👨‍👩‍👧‍👦，实际 %q (runes=%v)", result, []rune(result))
+	}
+}
+
+func TestGetInitial_EmojiWithSkinTone(t *testing.T) {
+	// 👍🏽 = U+1F44D U+1F3FD
+	result := getInitial("👍🏽 Thumbs Up")
+	if result != "👍🏽" {
+		t.Errorf("期望 👍🏽，实际 %q (runes=%v)", result, []rune(result))
+	}
+}
+
+func TestGetInitial_Chinese(t *testing.T) {
+	result := getInitial("中文测试")
+	if result != "中" {
+		t.Errorf("期望 中，实际 %q", result)
+	}
+}
+
+func TestGetInitial_Number(t *testing.T) {
+	result := getInitial("123Test")
+	if result != "1" {
+		t.Errorf("期望 1，实际 %q", result)
+	}
+}
+
+func TestGetInitial_RegularEmoji(t *testing.T) {
+	result := getInitial("😂 Laughing")
+	if result != "😂" {
+		t.Errorf("期望 😂，实际 %q", result)
+	}
+}
+
 func TestTruncateText(t *testing.T) {
 	if truncateText("short", 10) != "short" {
 		t.Error("短文本不应截断")
