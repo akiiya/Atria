@@ -50,16 +50,23 @@ watch(isLoading, (loading) => {
 })
 
 // Runtime status query
-const { data: runtimeData, refetch: refetchRuntime } = useQuery({
+// refetchOnWindowFocus: true → 切回标签时立即检查状态（防止 stale live）
+// refetchInterval: 30_000 → 缩短轮询间隔，更快发现服务断开
+const { data: runtimeData, refetch: refetchRuntime, isError: runtimeFetchError } = useQuery({
   queryKey: computed(() => ['runtime-status', account.currentAccountId]),
   queryFn: fetchRuntimeStatus,
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
-  refetchInterval: 60_000, // 每 60 秒刷新一次
-  refetchOnWindowFocus: false,
+  refetchInterval: 30_000,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
 })
 
-const runtimeState = computed(() => (runtimeData.value?.state || 'stopped') as RuntimeState)
+const runtimeState = computed(() => {
+  // HTTP fetch 失败 → 服务可能不可达，不保留旧 live 状态
+  if (runtimeFetchError.value) return 'offline' as RuntimeState
+  return (runtimeData.value?.state || 'stopped') as RuntimeState
+})
 
 // Auto-start runtime when stopped
 const startMutation = useMutation({
@@ -184,10 +191,49 @@ watch(wsState, (state, oldState) => {
 onUnmounted(() => {
   disconnectWebSocket()
   clearSlowTimer()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('online', onNetworkChange)
+  window.removeEventListener('offline', onNetworkChange)
 })
 
+// 页面可见性变化时立即检查状态
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible' && account.currentAccountId) {
+    refetchRuntime()
+    if (wsState.value === 'disconnected' || wsState.value === 'error') {
+      connectWebSocket()
+    }
+  }
+}
+
+// 网络状态变化时立即检查
+function onNetworkChange() {
+  if (account.currentAccountId) {
+    refetchRuntime()
+    if (navigator.onLine && (wsState.value === 'disconnected' || wsState.value === 'error')) {
+      connectWebSocket()
+    }
+  }
+}
+
+document.addEventListener('visibilitychange', onVisibilityChange)
+window.addEventListener('online', onNetworkChange)
+window.addEventListener('offline', onNetworkChange)
+
 // Runtime state display
+// 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性
 const runtimeLabel = computed(() => {
+  // WebSocket 断开/重连中 → 不能显示"实时更新中"
+  if (wsState.value === 'reconnecting') return '正在重连'
+  if (wsState.value === 'connecting') return '正在连接'
+  if (wsState.value === 'disconnected' || wsState.value === 'error') {
+    // WS 断开 + runtime fetch 也失败 → 服务不可达
+    if (runtimeFetchError.value || runtimeState.value === 'offline') return '服务已断开'
+    // WS 断开但 runtime 状态已知 → 连接断开
+    return '连接已断开'
+  }
+
+  // WebSocket 已连接 → 看 runtime 状态
   switch (runtimeState.value) {
     case 'connecting': return '正在连接'
     case 'syncing': return '正在同步'
@@ -207,10 +253,22 @@ const runtimeTooltip = computed(() => {
   if (execReady === false && runtimeState.value !== 'stopped') {
     parts.push('执行器未就绪')
   }
+  // WS 断开时附加提示
+  if (wsState.value === 'reconnecting') parts.push('WebSocket 重连中')
+  if (wsState.value === 'error') parts.push('WebSocket 连接异常')
   return parts.join(' · ') || ''
 })
 
 const runtimeClass = computed(() => {
+  // WebSocket 重连/连接中 → 黄色
+  if (wsState.value === 'reconnecting' || wsState.value === 'connecting') return 'runtime-connecting'
+  // WebSocket 断开/错误 → 红色或灰色
+  if (wsState.value === 'disconnected' || wsState.value === 'error') {
+    if (runtimeFetchError.value) return 'runtime-error'
+    return 'runtime-stopped'
+  }
+
+  // WebSocket 已连接 → 看 runtime 状态
   switch (runtimeState.value) {
     case 'live': return 'runtime-live'
     case 'connecting':
