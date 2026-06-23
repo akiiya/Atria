@@ -100,19 +100,19 @@ func mapMessages(result tg.MessagesMessagesClass) []telegramclient.Message {
 	case *tg.MessagesChannelMessages:
 		for _, msg := range m.Messages {
 			if m2, ok := msg.(*tg.Message); ok {
-				messages = append(messages, mapMessage(m2))
+				messages = append(messages, mapMessage(m2, mapPeerRef(m2.PeerID)))
 			}
 		}
 	case *tg.MessagesMessages:
 		for _, msg := range m.Messages {
 			if m2, ok := msg.(*tg.Message); ok {
-				messages = append(messages, mapMessage(m2))
+				messages = append(messages, mapMessage(m2, mapPeerRef(m2.PeerID)))
 			}
 		}
 	case *tg.MessagesMessagesSlice:
 		for _, msg := range m.Messages {
 			if m2, ok := msg.(*tg.Message); ok {
-				messages = append(messages, mapMessage(m2))
+				messages = append(messages, mapMessage(m2, mapPeerRef(m2.PeerID)))
 			}
 		}
 	}
@@ -121,10 +121,12 @@ func mapMessages(result tg.MessagesMessagesClass) []telegramclient.Message {
 }
 
 // mapMessage 将 gotd Message 映射为中立 Message DTO。
-func mapMessage(m *tg.Message) telegramclient.Message {
+// peerRef 由调用方从 msg.PeerID 通过 mapPeerRef 生成后传入。
+func mapMessage(m *tg.Message, peerRef string) telegramclient.Message {
 	msg := telegramclient.Message{
 		ID:                fmt.Sprintf("%d", m.ID),
 		TelegramMessageID: m.ID,
+		PeerRef:           peerRef,
 		SentAt:            time.Unix(int64(m.Date), 0),
 		IsOutgoing:        m.Out,
 		Status:            telegramclient.MessageStatusSent,

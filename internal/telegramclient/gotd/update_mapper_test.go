@@ -39,6 +39,10 @@ func TestGotdUpdateMapper_NewMessageToNeutralEvent(t *testing.T) {
 	if event.PeerRef != "u_456" {
 		t.Errorf("期望 PeerRef=u_456，实际 %s", event.PeerRef)
 	}
+	// 验证 message payload 的 PeerRef 与 event 一致（修复前此字段为空）
+	if neutralMsg.PeerRef != event.PeerRef {
+		t.Errorf("消息 PeerRef 应与 event 一致，期望 %s，实际 %s", event.PeerRef, neutralMsg.PeerRef)
+	}
 }
 
 func TestGotdUpdateMapper_NewChannelMessageToNeutralEvent(t *testing.T) {
@@ -61,6 +65,9 @@ func TestGotdUpdateMapper_NewChannelMessageToNeutralEvent(t *testing.T) {
 	if event.PeerRef != "ch_100" {
 		t.Errorf("期望 PeerRef=ch_100，实际 %s", event.PeerRef)
 	}
+	if neutralMsg.PeerRef != event.PeerRef {
+		t.Errorf("消息 PeerRef 应与 event 一致，期望 %s，实际 %s", event.PeerRef, neutralMsg.PeerRef)
+	}
 }
 
 func TestGotdUpdateMapper_EditMessageToNeutralEvent(t *testing.T) {
@@ -81,6 +88,12 @@ func TestGotdUpdateMapper_EditMessageToNeutralEvent(t *testing.T) {
 	}
 	if event.Type != telegramclient.EventMessageEdited {
 		t.Errorf("期望 EventMessageEdited，实际 %s", event.Type)
+	}
+	if event.PeerRef != "u_123" {
+		t.Errorf("期望 PeerRef=u_123，实际 %s", event.PeerRef)
+	}
+	if neutralMsg.PeerRef != event.PeerRef {
+		t.Errorf("消息 PeerRef 应与 event 一致，期望 %s，实际 %s", event.PeerRef, neutralMsg.PeerRef)
 	}
 }
 

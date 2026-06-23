@@ -73,6 +73,13 @@ func init() {
 		Description: "为 chat_peer_cache 和 chat_message_cache 补齐复合索引，优化缓存查询性能",
 		Run:         migration009AddChatCacheIndexes,
 	})
+
+	Register(Migration{
+		Version:     10,
+		Name:        "fix_peer_cache_unique_index_and_phantom_records",
+		Description: "修复 chat_peer_cache 唯一索引为 per-account 复合索引，并清理 PeerRef 为空的幽灵记录",
+		Run:         migration010FixPeerCacheIndexAndPhantoms,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -380,5 +387,52 @@ func migration009AddChatCacheIndexes(db *gorm.DB, _ []byte) error {
 	}
 
 	slog.Info("迁移 9: 聊天缓存索引补齐完成")
+	return nil
+}
+
+// migration010FixPeerCacheIndexAndPhantoms 修复 chat_peer_cache 唯一索引并清理幽灵记录。
+//
+// 背景：
+//   - 旧版本 ChatPeerCache.PeerRef 有全局 uniqueIndex，不同账号无法缓存同一 peer
+//   - mapMessage 未设置 PeerRef，导致 updateDialogPreview 创建 PeerRef="" 的幽灵记录
+//   - 幽灵记录导致 ListDialogs 返回重复会话
+//
+// 修复步骤：
+//  1. 删除 PeerRef="" 的幽灵记录
+//  2. 删除关联的 PeerRef="" 消息缓存
+//  3. 重建唯一索引为 (account_id, peer_ref) 复合索引
+//
+// 幂等：使用 IF NOT EXISTS / IF EXISTS 保护。
+func migration010FixPeerCacheIndexAndPhantoms(db *gorm.DB, _ []byte) error {
+	// 1. 清理 PeerRef="" 的幽灵 peer 缓存记录
+	result := db.Where("peer_ref = '' OR peer_ref IS NULL").Delete(&model.ChatPeerCache{})
+	if result.Error != nil {
+		return fmt.Errorf("清理幽灵 peer 记录失败: %w", result.Error)
+	}
+	if result.RowsAffected > 0 {
+		slog.Warn("迁移 10: 清理幽灵 peer 记录", "count", result.RowsAffected)
+	}
+
+	// 2. 清理 PeerRef="" 的幽灵消息缓存
+	result = db.Exec("DELETE FROM chat_message_cache WHERE peer_ref = '' OR peer_ref IS NULL")
+	if result.Error != nil {
+		return fmt.Errorf("清理幽灵消息记录失败: %w", result.Error)
+	}
+	if result.RowsAffected > 0 {
+		slog.Warn("迁移 10: 清理幽灵消息记录", "count", result.RowsAffected)
+	}
+
+	// 3. 删除旧的全局唯一索引（如果存在）
+	// SQLite 不支持 DROP INDEX IF EXISTS，但我们可以尝试删除并忽略错误
+	if err := db.Exec("DROP INDEX IF EXISTS uni_chat_peer_cache_peer_ref").Error; err != nil {
+		slog.Warn("迁移 10: 删除旧索引（可能不存在）", "error", err)
+	}
+
+	// 4. 创建 per-account 复合唯一索引
+	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_peer_account_unique ON chat_peer_cache (account_id, peer_ref)").Error; err != nil {
+		return fmt.Errorf("创建 per-account 唯一索引失败: %w", err)
+	}
+
+	slog.Info("迁移 10: chat_peer_cache 索引修复完成")
 	return nil
 }

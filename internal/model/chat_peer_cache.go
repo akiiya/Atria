@@ -4,10 +4,11 @@ import "time"
 
 // ChatPeerCache 缓存 Telegram peer 信息，用于聊天 API 调用。
 // access_hash 加密保存，peer_ref 为不透明引用。
+// 唯一约束为 (AccountID, PeerRef) 复合索引，允许不同账号缓存同一 peer。
 type ChatPeerCache struct {
 	ID                  uint       `gorm:"primaryKey" json:"-"`
-	AccountID           uint       `gorm:"index;not null" json:"-"`
-	PeerRef             string     `gorm:"uniqueIndex;size:64;not null" json:"peer_ref"`
+	AccountID           uint       `gorm:"uniqueIndex:idx_peer_account;not null" json:"-"`
+	PeerRef             string     `gorm:"uniqueIndex:idx_peer_account;size:64;not null" json:"peer_ref"`
 	PeerType            string     `gorm:"size:16;not null" json:"peer_type"` // user, chat, channel
 	PeerID              int64      `gorm:"index;not null" json:"peer_id"`
 	AccessHashEncrypted string     `gorm:"size:512" json:"-"` // AES-256-GCM 加密，chat 类型可为空
