@@ -366,3 +366,25 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - `ensureRuntimeStarted` 统一入口，带 8 秒防抖，防止重复 start。
 - proxy_config_invalid / login_required / session_missing 不自动恢复。
 - 详见 `docs/23_websocket_realtime_push.md`。
+
+## 消息气泡 Sender Label
+
+- 私聊（peer_type=user）：不显示 sender label，即使 sender_name 非空。
+- 群聊/频道（peer_type=chat/channel）：incoming 消息且 sender_name 非空时显示 sender label。
+- outgoing 消息：不显示 sender label。
+- 判断逻辑：`showSenderLabel = !is_outgoing && sender_name && peerType !== 'user'`
+
+## 消息区滚动行为
+
+- 切换会话时默认滚到底部（最新消息）。
+- peerRef 变化时重置 isInitialLoad，确保 scrollToBottom 触发。
+- scrollToBottom 使用 requestAnimationFrame 确保 DOM 渲染完成。
+- 实时新消息：nearBottom 时自动滚底，不在底部时显示"有新消息"提示。
+- older pagination：保持 scroll anchor，不跳到底。
+- deleted/edited：不触发滚动。
+
+## 滚动条样式
+
+- 消息区和会话列表使用深色半透明滚动条。
+- 宽度 6px，hover 时增强可见性。
+- 支持 ::-webkit-scrollbar（Chrome/Edge/Safari）和 scrollbar-width/scrollbar-color（Firefox）。

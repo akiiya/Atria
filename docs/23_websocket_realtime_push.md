@@ -387,3 +387,11 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 - start in-flight 时显示"正在恢复实时更新"（黄色）
 - start 成功后 refetch status → runtime live → 绿色
 - start 失败后显示明确错误
+
+## 实时消息滚动策略
+
+- 当前会话 nearBottom 时：自动滚到底部。
+- 当前会话不在底部时：显示"有新消息"提示，不强制滚动。
+- 非当前会话：只更新 preview/cache，不影响当前滚动。
+- deleted/edited：不触发滚动。
+- sender label：仅群聊/频道的 incoming 消息显示，私聊不显示。
