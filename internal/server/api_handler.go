@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/user/atria/internal/auth"
@@ -385,15 +383,25 @@ func (s *Server) handleAPISettings(c *gin.Context) {
 
 	// 代理信息
 	sm := settingMap(s.db)
+	proxyType := sm["proxy_type"]
+
+	// 检测 legacy api_proxy 配置
+	proxyValid := proxyType != "api_proxy"
+	proxyLegacyMessage := ""
+	if !proxyValid {
+		proxyLegacyMessage = "API Proxy 已移除，不适用于 MTProto 连接，请重新选择 SOCKS5 或 HTTPS CONNECT 代理"
+	}
+
 	result["proxy"] = gin.H{
-		"enabled":       sm["proxy_enabled"],
-		"type":          sm["proxy_type"],
-		"host":          sm["proxy_host"],
-		"port":          sm["proxy_port"],
-		"username":      sm["proxy_username"],
-		"timeout":       sm["proxy_timeout"],
-		"remark":        sm["proxy_remark"],
-		"api_proxy_url": sm["api_proxy_url"],
+		"enabled":        sm["proxy_enabled"],
+		"type":           proxyType,
+		"host":           sm["proxy_host"],
+		"port":           sm["proxy_port"],
+		"username":       sm["proxy_username"],
+		"timeout":        sm["proxy_timeout"],
+		"remark":         sm["proxy_remark"],
+		"proxy_valid":    proxyValid,
+		"legacy_message": proxyLegacyMessage,
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -420,29 +428,26 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 		ProxyPassword string `json:"proxy_password"`
 		ProxyTimeout  string `json:"proxy_timeout"`
 		ProxyRemark   string `json:"proxy_remark"`
-		APIProxyURL   string `json:"api_proxy_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "请求格式错误"})
 		return
 	}
 
-	// 校验
-	if req.ProxyType != "none" && req.ProxyType != "https" && req.ProxyType != "socks5" && req.ProxyType != "api_proxy" {
-		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的代理类型"})
+	// 校验：api_proxy 已移除
+	if req.ProxyType == "api_proxy" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          false,
+			"code":        "proxy_type_removed",
+			"message":     "API Proxy 已移除，当前 Telegram 登录/聊天基于 MTProto，请使用 SOCKS5 或 HTTPS CONNECT 代理",
+			"proxy_valid": false,
+		})
 		return
 	}
 
-	// api_proxy 类型校验 URL
-	if req.ProxyType == "api_proxy" {
-		if req.APIProxyURL == "" {
-			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "API Proxy URL 不能为空"})
-			return
-		}
-		if err := validateAPIProxyURL(req.APIProxyURL); err != nil {
-			c.JSON(http.StatusOK, gin.H{"ok": false, "message": err.Error()})
-			return
-		}
+	if req.ProxyType != "none" && req.ProxyType != "https" && req.ProxyType != "socks5" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的代理类型"})
+		return
 	}
 
 	// socks5/https 类型校验主机和端口
@@ -478,30 +483,23 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 	saveSetting("proxy_enabled", enabled, false)
 	saveSetting("proxy_type", req.ProxyType, false)
 
-	// api_proxy 类型只保存 URL，不保存 host/port/username/password
-	if req.ProxyType == "api_proxy" {
-		normalizedURL := normalizeAPIProxyURL(req.APIProxyURL)
-		saveSetting("api_proxy_url", normalizedURL, false)
-		// 清除旧的 socks5/https 字段，避免混淆
-		saveSetting("proxy_host", "", false)
-		saveSetting("proxy_port", "", false)
-		saveSetting("proxy_username", "", false)
-		saveSetting("proxy_timeout", "", false)
-	} else {
-		saveSetting("proxy_host", req.ProxyHost, false)
-		saveSetting("proxy_port", req.ProxyPort, false)
-		saveSetting("proxy_username", req.ProxyUsername, false)
-		saveSetting("proxy_timeout", req.ProxyTimeout, false)
-		saveSetting("proxy_remark", req.ProxyRemark, false)
+	// 保存有效代理配置，同时清除 legacy api_proxy_url
+	saveSetting("proxy_host", req.ProxyHost, false)
+	saveSetting("proxy_port", req.ProxyPort, false)
+	saveSetting("proxy_username", req.ProxyUsername, false)
+	saveSetting("proxy_timeout", req.ProxyTimeout, false)
+	saveSetting("proxy_remark", req.ProxyRemark, false)
 
-		// 只有提供了新密码才更新
-		if req.ProxyPassword != "" {
-			encryptedPassword, err := crypto.EncryptString(s.key, req.ProxyPassword, []byte("atria:proxy:v1"))
-			if err != nil {
-				slog.Error("加密代理密码失败", "error", err)
-			} else {
-				saveSetting("proxy_password", encryptedPassword, true)
-			}
+	// 清除 legacy api_proxy_url（如有）
+	saveSetting("api_proxy_url", "", false)
+
+	// 只有提供了新密码才更新
+	if req.ProxyPassword != "" {
+		encryptedPassword, err := crypto.EncryptString(s.key, req.ProxyPassword, []byte("atria:proxy:v1"))
+		if err != nil {
+			slog.Error("加密代理密码失败", "error", err)
+		} else {
+			saveSetting("proxy_password", encryptedPassword, true)
 		}
 	}
 
@@ -520,47 +518,6 @@ func (s *Server) handleAPISaveProxy(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
-}
-
-// validateAPIProxyURL 校验 API Proxy URL。
-func validateAPIProxyURL(rawURL string) error {
-	if len(rawURL) > 2048 {
-		return fmt.Errorf("URL 长度不能超过 2048 个字符")
-	}
-
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("URL 格式无效: %w", err)
-	}
-
-	if u.Scheme != "https" {
-		return fmt.Errorf("URL 必须使用 https:// 协议")
-	}
-
-	if u.Host == "" {
-		return fmt.Errorf("URL 必须包含主机名")
-	}
-
-	if u.RawQuery != "" {
-		return fmt.Errorf("URL 不允许包含查询参数")
-	}
-
-	if u.Fragment != "" {
-		return fmt.Errorf("URL 不允许包含锚点")
-	}
-
-	return nil
-}
-
-// normalizeAPIProxyURL 标准化 API Proxy URL。
-func normalizeAPIProxyURL(rawURL string) string {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return strings.TrimSpace(rawURL)
-	}
-	// 去掉末尾多余 slash
-	u.Path = strings.TrimRight(u.Path, "/")
-	return u.String()
 }
 
 // handleAPISaveAPIKey 处理 POST /api/settings/api-key - 保存 API Key（JSON）。

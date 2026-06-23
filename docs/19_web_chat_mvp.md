@@ -52,28 +52,21 @@ peer_ref 是服务端生成的不透明引用，不暴露 access_hash 明文。
 proxy_password 缺失时视为空密码，不打印 record not found 噪音日志。
 proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 
-### API Proxy 模式
-
-API Proxy 是一种 HTTPS API endpoint override 模式，适用于 Telegram HTTP API（如 Bot API）。
-
-**重要限制：**
-- 当前 Atria 的登录、聊天和 runtime 基于 MTProto 协议（gotd/td），不使用 HTTP API
-- API Proxy 不适用于 MTProto 连接，不能替代 SOCKS5 或 HTTPS 代理
-- 如果选择 API Proxy 模式，MTProto 链路将返回明确错误："API Proxy 不适用于 MTProto 连接"
-- 如需通过代理访问 MTProto，请使用 SOCKS5 或 HTTPS（HTTP CONNECT 隧道）代理
-
-**适用场景：**
-- 未来如果项目引入 Telegram HTTP API client，API Proxy 可用于该 client 的 base URL override
-- Cloudflare Worker 反代 Telegram HTTP API 时，可使用此配置保存 URL
-
 ### 代理配置热生效
 
 代理配置保存后，运行时立即生效，不需要重启服务。
 
 - 保存 SOCKS5/HTTPS 后，runtime 停止旧连接，下次 start 使用新代理
-- 保存 API Proxy 后，runtime 立即停止，聊天页显示明确错误
-- 切回 SOCKS5/HTTPS 后，可重新启动 runtime
+- 切换代理后无需重启服务
 - 已有聊天缓存仍可查看，不清空
+
+### Legacy API Proxy 处理
+
+如果旧数据库中已保存 `proxy_type=api_proxy`（API Proxy 已移除）：
+- 聊天页显示明确错误，不无限 skeleton
+- Runtime status 显示 `proxy_config_invalid`
+- 已有缓存仍可查看
+- 用户需要在设置中重新选择 SOCKS5 / HTTPS CONNECT / none
 
 ## 安全日志
 
