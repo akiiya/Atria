@@ -33,7 +33,20 @@
   font-size: 14px; outline: none;
 }
 .dialog-search-input:focus { border-color: var(--color-primary); }
-.dialog-scroll-container { flex: 1; overflow-y: auto; }
+.dialog-scroll-container {
+  flex: 1; overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+}
+.dialog-scroll-container::-webkit-scrollbar { width: 6px; }
+.dialog-scroll-container::-webkit-scrollbar-track { background: transparent; }
+.dialog-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 3px;
+}
+.dialog-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.38);
+}
 
 /* Dialog item */
 .dialog-item {
@@ -77,7 +90,22 @@
 }
 
 /* Message list */
-.message-scroll-container { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+.message-scroll-container {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px;
+  /* 深色滚动条 - Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+}
+/* 深色滚动条 - Chrome/Edge/Safari */
+.message-scroll-container::-webkit-scrollbar { width: 6px; }
+.message-scroll-container::-webkit-scrollbar-track { background: transparent; }
+.message-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 3px;
+}
+.message-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.38);
+}
 
 /* Message row - each message in its own block */
 .message-row { display: flex; margin: 8px 0; }

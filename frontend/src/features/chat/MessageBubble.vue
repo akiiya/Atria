@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import type { ChatMessage } from '@/types/chat'
+import type { ChatMessage, PeerType } from '@/types/chat'
 import MediaMessage from './MediaMessage.vue'
 
-const props = defineProps<{ message: ChatMessage }>()
+const props = defineProps<{ message: ChatMessage; peerType?: PeerType }>()
+
+// 是否显示 sender label：仅群聊/频道的 incoming 消息显示
+const showSenderLabel = !props.message.is_outgoing
+  && !!props.message.sender_name
+  && props.peerType !== 'user'
 
 function escapeHtml(str: string): string {
   const div = document.createElement('div')
@@ -27,7 +32,7 @@ const isMedia = ['photo', 'document', 'sticker', 'video', 'voice', 'audio'].incl
 
 <template>
   <div :class="['message-bubble', message.is_outgoing ? 'outgoing' : 'incoming']">
-    <div v-if="!message.is_outgoing && message.sender_name" class="message-sender">
+    <div v-if="showSenderLabel" class="message-sender">
       {{ message.sender_name }}
     </div>
     <MediaMessage v-if="isMedia" :message="message" />

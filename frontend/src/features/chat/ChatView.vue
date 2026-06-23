@@ -368,6 +368,7 @@ const runtimeClass = computed(() => {
         :peer-ref="chat.selectedPeerRef"
         :account-id="account.currentAccountId"
         :dialog-title="selectedDialog?.title || ''"
+        :peer-type="selectedDialog?.peer_type"
         :key="chat.selectedPeerRef"
       />
       <div v-else class="chat-main-empty">
