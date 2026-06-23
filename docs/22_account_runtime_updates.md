@@ -698,3 +698,37 @@ Runtime mapper 与 ListDialogs mapper 必须共享 peer_ref 规范。
 - 唯一索引为 `(account_id, peer_ref)` 复合索引。
 - 允许不同账号缓存同一 peer。
 - 不允许同一账号下存在重复 peer_ref。
+
+## 服务重启后 Runtime 自动恢复
+
+### 问题
+
+RuntimeManager 是内存中的结构体，服务重启后状态丢失。已登录账号的 runtime 变为 stopped，前端需要自动触发 start。
+
+### 恢复策略
+
+采用"前端 ensure + 后端幂等 start"组合：
+
+1. 前端 `ensureRuntimeStarted(reason)` 在多个触发点调用
+2. 后端 `POST /api/accounts/:id/runtime/start` 是幂等的
+3. 如果 runtime 已 live，返回当前 status，不重复启动
+4. 如果 runtime connecting，返回 connecting status，不重复启动
+
+### 前端触发时机
+
+- 账号变化时
+- runtime 状态变为 stopped/offline 时
+- WebSocket 重连成功时
+- 页面可见时
+- 网络恢复时
+- 用户点击刷新按钮时
+
+### 不自动恢复的场景
+
+- proxy_config_invalid：代理配置无效，需用户手动修复
+- login_required：账号未登录，需用户手动登录
+- session_missing：session 缺失，需用户手动处理
+
+### 多账号策略
+
+当前只恢复当前 selected account。不自动启动所有 enabled accounts，避免意外资源消耗。
