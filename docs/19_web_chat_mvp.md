@@ -321,3 +321,35 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 - 支持 `avatarUrl` 可选属性，有图片时显示图片，加载失败回退 fallback。
 - 后端 Dialog DTO 有 `avatar_placeholder` 字段（首字母），预留 `avatar_url` 字段。
 - 真实 Telegram 头像下载留作后续独立任务（需实现 photo 缓存和按需加载）。
+
+## 会话唯一性（Canonical Peer Ref）
+
+会话列表必须以 canonical `peer_ref` 保证唯一性，同一 Telegram 会话不允许显示多个条目。
+
+### peer_ref 格式
+
+| Telegram 类型 | 格式 | 示例 |
+|--------------|------|------|
+| User | `u_<telegram_user_id>` | `u_12345` |
+| Chat (basic group) | `c_<telegram_chat_id>` | `c_67890` |
+| Channel/Supergroup | `ch_<telegram_channel_id>` | `ch_11111` |
+
+### 一致性要求
+
+- Runtime mapper、ListDialogs mapper、message.new、dialog.upserted、delete update 必须使用同一 `mapPeerRef` 规则。
+- `mapMessage()` 必须设置 `PeerRef`，确保 `upsertMessageCache` 和 `updateDialogPreview` 使用正确的 peer_ref。
+- 不允许同一个 Telegram peer 生成不同格式的 peer_ref。
+- 不允许用 username/title/access_hash 作为 peer_ref。
+
+### 前端去重
+
+- 前端 `ChatView.vue` 对 dialogs 按 `peer_ref` 防御性去重。
+- `handleDialogUpserted` 忽略 `peer_ref` 为空的幽灵 dialog。
+- 手动刷新和实时 upsert 使用同一 peer_ref 匹配逻辑。
+- 不按 title 去重（不同会话可能同名）。
+
+### 旧缓存修复
+
+- Migration 10 清理 `PeerRef=""` 的幽灵记录。
+- Migration 10 将 `ChatPeerCache` 唯一索引从全局改为 `(account_id, peer_ref)` 复合索引。
+- 启动时自动执行迁移，无需手动干预。

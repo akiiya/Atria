@@ -674,3 +674,27 @@ API Proxy 已从配置选项中移除。如果旧数据库中已保存 `proxy_ty
 REST temporary client 每次请求都从 DB 读取代理配置（`newChatService()` → `BuildProxyDialerFromDB()`），因此代理变更后立即生效。
 
 但当 runtime 处于 live/syncing 状态时，请求通过 runtime executor 走旧 client。代理变更后 runtime 被停止，请求会 fallback 到 temporary client，此时使用新配置。
+
+## Canonical Peer Ref 一致性
+
+Runtime mapper 与 ListDialogs mapper 必须共享 peer_ref 规范。
+
+### 规则
+
+- `mapPeerRef()` 是唯一的 peer_ref 生成函数，所有代码路径必须使用。
+- `mapMessage()` 必须设置 `PeerRef`，确保 `upsertMessageCache` 和 `updateDialogPreview` 使用正确的 peer_ref。
+- Runtime update 的 `event.PeerRef` 和 `msg.PeerRef` 必须一致。
+- `publishDialogUpdated(peerRef)` 使用的 peerRef 必须与 ListDialogs 返回的 peerRef 一致。
+
+### Unknown Peer Fallback
+
+- 收到未知 peer 的消息时，`updateDialogPreview` 可自动创建 ChatPeerCache 记录。
+- 创建的记录 `Title` 使用 `msg.SenderName`（发送者名称），后续 ListDialogs 会用正确的 title 覆盖。
+- 不得生成空 peer_ref 的幽灵记录。
+- 不得生成重复会话。
+
+### ChatPeerCache 索引
+
+- 唯一索引为 `(account_id, peer_ref)` 复合索引。
+- 允许不同账号缓存同一 peer。
+- 不允许同一账号下存在重复 peer_ref。
