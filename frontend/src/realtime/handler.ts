@@ -88,52 +88,67 @@ function handleMessageNew(
   const msg = normalizeMessage(event.payload as Partial<ChatMessage> | undefined, event.peer_ref)
   if (!msg) return
 
-  // 1. 始终更新 dialogs cache（preview、unread、排序）
+  const peerRef = event.peer_ref
+  if (!peerRef) return
+
+  // 1. 更新 dialogs cache（preview、unread、排序）
+  // 如果 dialog 不存在，插入新 dialog
   queryClient.setQueryData(['dialogs', accountId], (old: unknown) => {
     const data = old as { ok: boolean; dialogs: Dialog[] } | undefined
     if (!data?.ok || !data.dialogs) return old
 
-    const dialogs = data.dialogs.map((d) => {
-      if (d.peer_ref === event.peer_ref) {
-        return {
-          ...d,
-          last_message_preview: msg.text?.slice(0, 50) || '',
-          last_message_at: msg.sent_at,
-          unread_count: currentPeerRef === event.peer_ref ? 0 : (d.unread_count || 0) + 1,
+    const idx = data.dialogs.findIndex((d) => d.peer_ref === peerRef)
+    if (idx >= 0) {
+      // 更新已有 dialog
+      const dialogs = [...data.dialogs]
+      dialogs[idx] = {
+        ...dialogs[idx],
+        last_message_preview: msg.text?.slice(0, 50) || '',
+        last_message_at: msg.sent_at,
+        unread_count: currentPeerRef === peerRef ? 0 : (dialogs[idx].unread_count || 0) + 1,
+      }
+      // 排序：移动到 pinned 之后的顶部
+      if (idx > 0 && !dialogs[idx].is_pinned) {
+        const [updated] = dialogs.splice(idx, 1)
+        let insertIdx = 0
+        for (let i = 0; i < dialogs.length; i++) {
+          if (dialogs[i].is_pinned) insertIdx = i + 1
+          else break
         }
+        dialogs.splice(insertIdx, 0, updated)
       }
-      return d
-    })
-
-    const updatedIdx = dialogs.findIndex((d) => d.peer_ref === event.peer_ref)
-    if (updatedIdx > 0 && !dialogs[updatedIdx].is_pinned) {
-      const [updated] = dialogs.splice(updatedIdx, 1)
-      let insertIdx = 0
-      for (let i = 0; i < dialogs.length; i++) {
-        if (dialogs[i].is_pinned) insertIdx = i + 1
-        else break
-      }
-      dialogs.splice(insertIdx, 0, updated)
+      return { ...data, dialogs }
     }
 
+    // dialog 不存在，插入新 dialog
+    const newDialog: Dialog = {
+      peer_ref: peerRef,
+      peer_type: peerRef.startsWith('u_') ? 'user' : peerRef.startsWith('ch_') ? 'channel' : 'chat',
+      title: msg.sender_name || peerRef,
+      last_message_preview: msg.text?.slice(0, 50) || '',
+      last_message_at: msg.sent_at,
+      unread_count: currentPeerRef === peerRef ? 0 : 1,
+    }
+    // 插入到 pinned 之后的顶部
+    let insertIdx = 0
+    for (let i = 0; i < data.dialogs.length; i++) {
+      if (data.dialogs[i].is_pinned) insertIdx = i + 1
+      else break
+    }
+    const dialogs = [...data.dialogs]
+    dialogs.splice(insertIdx, 0, newDialog)
     return { ...data, dialogs }
   })
 
-  // 2. 始终写入对应 peer 的 messages cache（不仅是当前 peer）
-  // 这样切换到该 peer 时，TanStack Query cache 已有最新消息
-  const peerRef = event.peer_ref
-  if (peerRef) {
-    upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
+  // 2. 写入对应 peer 的 messages cache
+  upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
 
-    // 3. 非当前 peer 标记 stale，确保切换时触发 latest reconcile
-    if (currentPeerRef && peerRef !== currentPeerRef) {
-      try {
-        const chat = useChatStore()
-        chat.markPeerStale(peerRef)
-      } catch {
-        // store 未初始化时忽略
-      }
-    }
+  // 3. 非当前 peer 标记 stale
+  if (currentPeerRef && peerRef !== currentPeerRef) {
+    try {
+      const chat = useChatStore()
+      chat.markPeerStale(peerRef)
+    } catch { /* store 未初始化 */ }
   }
 }
 

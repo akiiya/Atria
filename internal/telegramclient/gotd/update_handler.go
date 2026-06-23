@@ -103,8 +103,11 @@ func (h *UpdateHandler) handleNewMessage(ctx context.Context, u *tg.UpdateNewMes
 	h.upsertMessageCache(neutralMsg)
 	h.updateDialogPreview(neutralMsg)
 
-	// 发布事件
+	// 发布 message.new 事件
 	h.bus.Publish(h.accountID, event)
+
+	// 发布 dialog.upserted 事件（让前端实时新增/更新会话）
+	h.publishDialogUpdated(event.PeerRef)
 
 	h.logger.Info("新消息处理完成",
 		"account_id", h.accountID,
@@ -130,8 +133,11 @@ func (h *UpdateHandler) handleNewChannelMessage(ctx context.Context, u *tg.Updat
 	h.upsertMessageCache(neutralMsg)
 	h.updateDialogPreview(neutralMsg)
 
-	// 发布事件
+	// 发布 message.new 事件
 	h.bus.Publish(h.accountID, event)
+
+	// 发布 dialog.upserted 事件
+	h.publishDialogUpdated(event.PeerRef)
 
 	h.logger.Info("频道新消息处理完成",
 		"account_id", h.accountID,
@@ -414,16 +420,63 @@ func (h *UpdateHandler) publishDialogUpdated(peerRef string) {
 	h.bus.Publish(h.accountID, event)
 }
 
-// updateDialogPreview 更新 ChatPeerCache 的最后消息预览。
+// updateDialogPreview 更新或创建 ChatPeerCache 的最后消息预览。
+// 如果 peer 不存在，自动创建（upsert）。
 func (h *UpdateHandler) updateDialogPreview(msg telegramclient.Message) {
 	preview := truncateText(msg.Text, 50)
 
-	h.db.Model(&model.ChatPeerCache{}).
+	// 先尝试更新
+	result := h.db.Model(&model.ChatPeerCache{}).
 		Where("account_id = ? AND peer_ref = ?", h.accountID, msg.PeerRef).
 		Updates(map[string]any{
 			"last_message_preview": preview,
 			"last_message_at":      &msg.SentAt,
 		})
+
+	if result.RowsAffected > 0 {
+		return
+	}
+
+	// peer 不存在，创建新记录
+	peerType, peerID := decodePeerRef(msg.PeerRef)
+	cache := model.ChatPeerCache{
+		AccountID:          h.accountID,
+		PeerRef:            msg.PeerRef,
+		PeerType:           peerType,
+		PeerID:             peerID,
+		Title:              msg.SenderName,
+		LastMessagePreview: preview,
+		LastMessageAt:      &msg.SentAt,
+		UnreadCount:        1,
+	}
+	if err := h.db.Create(&cache).Error; err != nil {
+		h.logger.Warn("创建 ChatPeerCache 失败",
+			"error", err,
+			"peer_ref", msg.PeerRef,
+		)
+	}
+}
+
+// decodePeerRef 从 peer_ref 解析 peer 类型和 ID。
+func decodePeerRef(ref string) (string, int64) {
+	if len(ref) < 3 {
+		return "", 0
+	}
+	switch ref[:2] {
+	case "u_":
+		var id int64
+		fmt.Sscanf(ref, "u_%d", &id)
+		return "user", id
+	case "c_":
+		var id int64
+		fmt.Sscanf(ref, "c_%d", &id)
+		return "chat", id
+	case "ch":
+		var id int64
+		fmt.Sscanf(ref, "ch_%d", &id)
+		return "channel", id
+	}
+	return "", 0
 }
 
 // 确保 UpdateHandler 实现 telegram.UpdateHandler。
