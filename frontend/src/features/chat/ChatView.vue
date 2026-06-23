@@ -76,17 +76,42 @@ const startMutation = useMutation({
   },
 })
 
-// Watch for account changes and check runtime
+// ensureRuntimeStarted：统一的 runtime 自动恢复入口
+// 带防抖，防止短时间内重复调用
+let lastStartAttempt = 0
+const START_DEBOUNCE_MS = 8_000
+
+function ensureRuntimeStarted(reason: string) {
+  const id = account.currentAccountId
+  if (!id) return
+  if (startMutation.isPending.value) return // 已有 in-flight start
+
+  // 只在 runtime 需要启动时调用
+  const state = runtimeState.value
+  if (state !== 'stopped' && state !== 'offline') return
+
+  // 防抖：距离上次尝试超过 TTL
+  const now = Date.now()
+  if (now - lastStartAttempt < START_DEBOUNCE_MS) return
+  lastStartAttempt = now
+
+  console.info('[runtime] ensureRuntimeStarted', { reason, state })
+  startMutation.mutate()
+}
+
+// 1. 账号变化时启动
 watch(() => account.currentAccountId, (id) => {
   if (id) {
-    // 延迟检查 runtime 状态，等待 status query 完成
-    setTimeout(() => {
-      if (runtimeState.value === 'stopped' && !startMutation.isPending.value) {
-        startMutation.mutate()
-      }
-    }, 500)
+    setTimeout(() => ensureRuntimeStarted('account_change'), 500)
   }
 }, { immediate: true })
+
+// 2. runtime 状态变化时自动恢复（后端重启后 status 返回 stopped/offline）
+watch(runtimeState, (state) => {
+  if (state === 'stopped' || state === 'offline') {
+    ensureRuntimeStarted('state_change')
+  }
+})
 
 // Use computed to reactively derive dialogs from query data
 // 防御性去重：按 peer_ref 去重，保留最新条目（防止后端返回重复）
@@ -131,6 +156,7 @@ function selectDialog(ref: string) {
 // 强制刷新：跳过缓存，直接请求 Telegram
 function forceRefresh() {
   startSlowTimer()
+  ensureRuntimeStarted('force_refresh')
   // 用 force_refresh=true 重写 queryFn 触发后端跳过缓存
   queryClient.fetchQuery({
     queryKey: ['dialogs', account.currentAccountId],
@@ -176,7 +202,7 @@ watch(() => account.currentAccountId, (id) => {
   }
 }, { immediate: true })
 
-// 断线重连后补状态
+// 断线重连后补状态 + 自动恢复 runtime
 watch(wsState, (state, oldState) => {
   if (state === 'connected' && oldState === 'reconnecting') {
     // 重连成功，invalidate 查询以补偿断线期间丢失的事件
@@ -185,6 +211,8 @@ watch(wsState, (state, oldState) => {
       queryClient.invalidateQueries({ queryKey: ['messages', account.currentAccountId, chat.selectedPeerRef] })
     }
     queryClient.invalidateQueries({ queryKey: ['runtime-status', account.currentAccountId] })
+    // WS 重连后自动恢复 runtime（延迟等待 status refetch 完成）
+    setTimeout(() => ensureRuntimeStarted('ws_reconnect'), 1000)
   }
 })
 
@@ -196,22 +224,27 @@ onUnmounted(() => {
   window.removeEventListener('offline', onNetworkChange)
 })
 
-// 页面可见性变化时立即检查状态
+// 页面可见性变化时立即检查状态 + 恢复 runtime
 function onVisibilityChange() {
   if (document.visibilityState === 'visible' && account.currentAccountId) {
     refetchRuntime()
     if (wsState.value === 'disconnected' || wsState.value === 'error') {
       connectWebSocket()
     }
+    // 延迟等待 refetch 完成后 ensure
+    setTimeout(() => ensureRuntimeStarted('visibility'), 1000)
   }
 }
 
-// 网络状态变化时立即检查
+// 网络状态变化时立即检查 + 恢复 runtime
 function onNetworkChange() {
   if (account.currentAccountId) {
     refetchRuntime()
     if (navigator.onLine && (wsState.value === 'disconnected' || wsState.value === 'error')) {
       connectWebSocket()
+    }
+    if (navigator.onLine) {
+      setTimeout(() => ensureRuntimeStarted('network_online'), 1000)
     }
   }
 }
@@ -232,6 +265,9 @@ const runtimeLabel = computed(() => {
     // WS 断开但 runtime 状态已知 → 连接断开
     return '连接已断开'
   }
+
+  // runtime start 正在进行中 → 正在恢复
+  if (startMutation.isPending.value) return '正在恢复实时更新'
 
   // WebSocket 已连接 → 看 runtime 状态
   switch (runtimeState.value) {
@@ -267,6 +303,9 @@ const runtimeClass = computed(() => {
     if (runtimeFetchError.value) return 'runtime-error'
     return 'runtime-stopped'
   }
+
+  // runtime start 正在进行中 → 黄色
+  if (startMutation.isPending.value) return 'runtime-connecting'
 
   // WebSocket 已连接 → 看 runtime 状态
   switch (runtimeState.value) {
