@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import type { ChatMessage } from '@/types/chat'
+import type { ChatMessage, PeerType } from '@/types/chat'
 import MessageBubble from './MessageBubble.vue'
 import ServiceMessage from './ServiceMessage.vue'
 import DateDivider from './DateDivider.vue'
@@ -10,6 +10,8 @@ const props = defineProps<{
   hasOlder: boolean
   loadingOlder: boolean
   olderError: string | null
+  peerType?: PeerType
+  peerRef?: string
 }>()
 
 const emit = defineEmits<{ 'load-older': [] }>()
@@ -18,6 +20,12 @@ const scrollParent = ref<HTMLElement | null>(null)
 const showNewMessageHint = ref(false)
 const isInitialLoad = ref(true)
 
+// 切换会话时重置滚动状态，确保新会话滚到底部
+watch(() => props.peerRef, () => {
+  isInitialLoad.value = true
+  showNewMessageHint.value = false
+})
+
 // 检查是否接近底部（200px 阈值）
 function isNearBottom(): boolean {
   if (!scrollParent.value) return true
@@ -25,10 +33,13 @@ function isNearBottom(): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 200
 }
 
-// 滚动到底部
+// 滚动到底部（使用 requestAnimationFrame 确保 DOM 已渲染）
 function scrollToBottom() {
   if (!scrollParent.value) return
-  scrollParent.value.scrollTop = scrollParent.value.scrollHeight
+  requestAnimationFrame(() => {
+    if (!scrollParent.value) return
+    scrollParent.value.scrollTop = scrollParent.value.scrollHeight
+  })
 }
 
 // 监听消息变化
@@ -120,7 +131,7 @@ function messageKey(msg: ChatMessage, idx: number): string {
     <template v-for="(msg, idx) in messages" :key="messageKey(msg, idx)">
       <DateDivider v-if="isNewDay(idx)" :date="msg.sent_at" />
       <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
-      <MessageBubble v-else :message="msg" />
+      <MessageBubble v-else :message="msg" :peer-type="peerType" />
     </template>
 
     <!-- 新消息提示 -->

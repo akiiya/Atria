@@ -8,9 +8,9 @@ import MessageHeader from './MessageHeader.vue'
 import MessageList from './MessageList.vue'
 import MessageComposer from './MessageComposer.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
-import type { ChatMessage, Dialog } from '@/types/chat'
+import type { ChatMessage, Dialog, PeerType } from '@/types/chat'
 
-const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string }>()
+const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string; peerType?: PeerType }>()
 const queryClient = useQueryClient()
 const chat = useChatStore()
 
@@ -216,6 +216,8 @@ function handleSent() {
         :has-older="hasOlder"
         :loading-older="loadingOlder"
         :older-error="olderError"
+        :peer-type="peerType"
+        :peer-ref="peerRef"
         @load-older="loadOlder"
       />
     </div>
