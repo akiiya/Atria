@@ -194,10 +194,11 @@ func getInitial(name string) string {
 	return string([]rune{r[0]})
 }
 
-// truncateText 截断文本。
+// truncateText 截断文本（rune 安全，不会截断多字节字符或 emoji）。
 func truncateText(text string, maxLen int) string {
-	if len(text) <= maxLen {
+	runes := []rune(text)
+	if len(runes) <= maxLen {
 		return text
 	}
-	return text[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }

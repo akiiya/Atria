@@ -300,3 +300,13 @@ upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
 - source 字段标识数据来源：cache/telegram/mixed
 - stale 字段标识数据时效：true=缓存（可能过期）、false=实时数据
 - Telegram refresh 失败不清空缓存
+
+## 消息区排序一致性
+
+- `message.new` 合并后必须保持 `sent_at ASC` 排序。
+- `message.deleted` / `message.edited` 不得破坏排序（只 filter/map，不重新排序）。
+- 新 dialog 插入只影响 DialogList DESC 排序，不影响 MessagePanel ASC。
+- peer switch reconcile merge 后仍保持 ASC。
+- 统一使用 `sortMessagesAsc()` 排序函数。
+- `sent_at` 相同时按 `telegram_message_id ASC` 兜底。
+- 预览文本截断使用 `safeTruncateText()`，不破坏 emoji。
