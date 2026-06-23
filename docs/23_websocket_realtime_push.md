@@ -310,3 +310,12 @@ upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
 - 统一使用 `sortMessagesAsc()` 排序函数。
 - `sent_at` 相同时按 `telegram_message_id ASC` 兜底。
 - 预览文本截断使用 `safeTruncateText()`，不破坏 emoji。
+
+## 会话唯一性
+
+- `dialog.upserted` 必须使用 canonical `peer_ref`（与 ListDialogs 一致）。
+- `message.new` 的 message payload 必须携带正确的 `PeerRef`（由 `mapMessage` 设置）。
+- 前端 `handleDialogUpserted` 忽略 `peer_ref` 为空的 dialog。
+- 前端 `ChatView` 对 dialogs 按 `peer_ref` 防御性去重。
+- `message.new` 缺少 dialog 时构造的 minimal dialog 使用 canonical `peer_ref`，后续 REST dialog 可正确合并。
+- 不允许 unknown peer 生成错误临时 peer_ref 导致重复会话。
