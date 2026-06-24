@@ -38,14 +38,14 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
 }
-.dialog-scroll-container::-webkit-scrollbar { width: 6px; }
+.dialog-scroll-container::-webkit-scrollbar { width: 5px; }
 .dialog-scroll-container::-webkit-scrollbar-track { background: transparent; }
 .dialog-scroll-container::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.22);
-  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
 }
-.dialog-scroll-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.38);
+.dialog-scroll-container:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.32);
 }
 
 /* Dialog item */
@@ -89,22 +89,27 @@
   color: var(--text-secondary);
 }
 
-/* Message list */
+/* Message list — 唯一主滚动容器 */
 .message-scroll-container {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px;
+  scrollbar-gutter: stable;
   /* 深色滚动条 - Firefox */
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
 }
 /* 深色滚动条 - Chrome/Edge/Safari */
-.message-scroll-container::-webkit-scrollbar { width: 6px; }
+.message-scroll-container::-webkit-scrollbar { width: 5px; }
 .message-scroll-container::-webkit-scrollbar-track { background: transparent; }
 .message-scroll-container::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.22);
-  border-radius: 3px;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.message-scroll-container:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
 }
 .message-scroll-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.38);
+  background: rgba(148, 163, 184, 0.5);
 }
 
 /* Message row - each message in its own block */
