@@ -388,7 +388,17 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 - start 成功后 refetch status → runtime live → 绿色
 - start 失败后显示明确错误
 
-## 实时消息滚动策略
+## 实时消息滚动策略（Latest-Window 模式）
+
+采用 latest-window 消息加载：打开会话只渲染最近一页，上滑分页加载历史。
+
+### Visible Window 结构
+
+- `recentMessages`：latest page（来自 API / TanStack Query cache，peer switch 时自动更新）
+- `olderPages`：用户上滑加载的历史页（独立管理，peer switch 时清空）
+- `allMessages` = olderPages + recentMessages，按 sent_at ASC，去重
+
+### 滚动策略
 
 - scroll intent 状态机控制滚动行为：
   - stick-to-bottom：切换会话/初始加载/reconcile 后，保持到底部直到布局稳定
@@ -402,3 +412,10 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 - sender label：仅群聊/频道的 incoming 消息显示，私聊不显示。
 - scheduleScrollToBottom 使用 nextTick → 双 rAF 确保 DOM 完成布局。
 - ResizeObserver 补偿 scrollHeight 二次变化（字体加载、emoji 渲染等）。
+
+### Realtime 与 Visible Window
+
+- message.new：append 到 recentMessages（如果 peer 匹配）
+- message.deleted：从 recentMessages 和 olderPages 中移除
+- message.edited：patch recentMessages 和 olderPages
+- 非当前 peer：不影响 visible window，只更新 dialog preview/cache

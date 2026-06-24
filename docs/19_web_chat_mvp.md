@@ -99,23 +99,29 @@ proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 - 不做自动后台同步
 - 不做浏览器长期正文缓存（IndexedDB/localStorage）
 
-### 消息历史分段加载策略
+### 消息历史分段加载策略（Latest-Window 模式）
 
-首屏加载：
-1. 首次打开会话，请求 `GET /api/chats/:peer_ref/messages?limit=50`
-2. 优先读本地 cache 最近 50 条
-3. cache 不足时通过 adapter 拉 Telegram 最近 50 条
-4. 返回给前端按时间正序
-5. 前端滚到底部
+打开会话时只渲染最近一页消息，不渲染完整历史。用户上滑时才分页加载更早消息。
 
-向上加载更早消息：
-1. 用户距离 message-list 顶部小于 300px 时触发预加载
+首屏加载（latest page）：
+1. 打开会话，请求 `GET /api/chats/:peer_ref/messages?limit=50`
+2. 后端返回最新 50 条（ORDER BY telegram_message_id DESC LIMIT 50，再反转为 ASC）
+3. 前端只渲染这 50 条作为 visible window
+4. 切换会话时清空 olderPages，只保留 latest page
+5. 默认定位到最新消息底部
+
+向上加载更早消息（older pagination）：
+1. 用户上滑接近顶部时触发
 2. 请求 `GET /api/chats/:peer_ref/messages?before_id=xxx&limit=50`
-3. 后端优先从 cache 查 `telegram_message_id < before_id` 的消息
-4. cache 不足时通过 adapter.LoadOlderMessages 拉 Telegram
-5. 拉到后写入 ChatMessageCache
-6. 前端插入到现有 messages 顶部
-7. 滚动锚点保持，视图不跳动
+3. 后端返回 before_id 之前的消息
+4. 前端 prepend 到 olderPages
+5. 滚动锚点保持，视图不跳动
+6. 没有更多历史时停止请求
+
+Visible Window 结构：
+- `recentMessages`：latest page（来自 API / TanStack Query cache）
+- `olderPages`：用户上滑加载的历史页（独立管理，peer switch 时清空）
+- `allMessages` = olderPages + recentMessages，按 sent_at ASC，去重
 
 边界状态：
 - `has_older=true` 表示还可能有更早历史
