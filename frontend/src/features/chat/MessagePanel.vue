@@ -172,16 +172,24 @@ const isStale = computed(() => data.value?.stale || false)
 
 // ── Older Pagination ──
 async function loadOlder() {
-  if (loadingOlder.value || !hasOlder.value) return
+  if (loadingOlder.value || !hasOlder.value) {
+    console.info('[loadOlder] blocked', { loading: loadingOlder.value, hasOlder: hasOlder.value })
+    return
+  }
 
   const oldestMsg = allMessages.value[0]
-  if (!oldestMsg) return
+  if (!oldestMsg) {
+    console.info('[loadOlder] no oldest message')
+    return
+  }
 
+  console.info('[loadOlder] starting', { peer: props.peerRef, beforeId: messagePaginationID(oldestMsg), allCount: allMessages.value.length })
   loadingOlder.value = true
   olderError.value = null
 
   try {
     const result = await fetchMessages(props.peerRef, LOAD_OLDER_LIMIT, messagePaginationID(oldestMsg))
+    console.info('[loadOlder] result', { ok: result.ok, count: result.messages?.length, hasOlder: result.has_older })
     if (result.ok && result.messages) {
       if (result.messages.length === 0) {
         hasOlder.value = false
