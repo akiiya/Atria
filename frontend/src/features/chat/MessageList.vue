@@ -253,12 +253,21 @@ function messageKey(msg: ChatMessage, idx: number): string {
 // ── Wheel fallback：无滚动条时，用户上滑（deltaY<0）仍触发 loadOlder ──
 // column-reverse: 向上滚动 = deltaY < 0 = 想看更旧消息
 function handleWheel(e: WheelEvent) {
+  const el = scrollParent.value
+  if (!el) return
+  const max = getMaxScrollTop()
+  console.info('[wheel]', {
+    deltaY: e.deltaY,
+    scrollTop: Math.round(el.scrollTop),
+    maxScroll: Math.round(max),
+    hasOlder: props.hasOlder,
+    loadingOlder: props.loadingOlder,
+    messagesCount: props.messages.length,
+  })
   if (e.deltaY < 0 && props.hasOlder && !props.loadingOlder) {
-    const el = scrollParent.value
-    if (!el) return
-    const max = getMaxScrollTop()
     // 无滚动条（max=0）或已在最旧位置附近 → 触发加载
     if (max === 0 || el.scrollTop > max - 300) {
+      console.info('[wheel] → triggering loadOlder')
       // 记录滚动位置
       shouldPreserveOlderPosition.value = true
       olderScrollData = {
