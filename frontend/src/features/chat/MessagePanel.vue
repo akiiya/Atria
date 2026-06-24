@@ -18,7 +18,7 @@ const chat = useChatStore()
 const INITIAL_LATEST_LIMIT = 20
 const LOAD_OLDER_LIMIT = 30
 
-const { data, isLoading, error, refetch } = useQuery({
+const { data, isLoading, isFetching, error, refetch } = useQuery({
   queryKey: computed(() => ['messages', props.accountId, props.peerRef]),
   queryFn: () => fetchMessages(props.peerRef, INITIAL_LATEST_LIMIT),
   enabled: computed(() => !!props.peerRef && !!props.accountId),
@@ -226,8 +226,8 @@ function handleSent() {
       :peer-ref="peerRef"
       :title="dialogTitle || ''"
       :account-id="accountId"
-      :syncing="isLoading"
-      :stale="isStale"
+      :syncing="isFetching"
+      :stale="isStale && isFetching"
       @refresh="refetch()"
     />
 
@@ -248,7 +248,7 @@ function handleSent() {
       <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
     </div>
     <div v-else class="message-body">
-      <div v-if="isStale && isLoading" class="message-stale-hint">正在刷新...</div>
+      <div v-if="isStale && isFetching" class="message-stale-hint">正在刷新...</div>
       <MessageList
         ref="messageListRef"
         :messages="visibleMessages"
