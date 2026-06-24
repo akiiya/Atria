@@ -250,6 +250,27 @@ function messageKey(msg: ChatMessage, idx: number): string {
   return `id:${msg.id}:${idx}`
 }
 
+// ── Wheel fallback：无滚动条时，用户上滑（deltaY<0）仍触发 loadOlder ──
+// column-reverse: 向上滚动 = deltaY < 0 = 想看更旧消息
+function handleWheel(e: WheelEvent) {
+  if (e.deltaY < 0 && props.hasOlder && !props.loadingOlder) {
+    const el = scrollParent.value
+    if (!el) return
+    const max = getMaxScrollTop()
+    // 无滚动条（max=0）或已在最旧位置附近 → 触发加载
+    if (max === 0 || el.scrollTop > max - 300) {
+      // 记录滚动位置
+      shouldPreserveOlderPosition.value = true
+      olderScrollData = {
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      }
+      scrollIntent.value = 'preserve-position'
+      emit('load-older')
+    }
+  }
+}
+
 // ── 清理 ──
 onBeforeUnmount(() => {
   scrollTaskToken++
@@ -266,7 +287,7 @@ onBeforeUnmount(() => {
     - 新消息 append 到数组末尾 → 自动显示在视口底部
     - 旧消息 prepend 到数组头部 → 用户向上滚动可见
   -->
-  <div ref="scrollParent" class="message-scroll-container" @scroll="handleScroll">
+  <div ref="scrollParent" class="message-scroll-container" @scroll="handleScroll" @wheel="handleWheel">
     <div v-if="messages.length === 0" class="message-empty">
       暂无消息
     </div>

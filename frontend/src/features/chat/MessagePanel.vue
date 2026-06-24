@@ -60,10 +60,17 @@ async function reconcileLatestForPeer(peerRef: string, _reason: string) {
       queryClient.setQueryData(['messages', props.accountId, peerRef], (old: unknown) => {
         const existing = old as { ok?: boolean; messages?: ChatMessage[] } | undefined
         const existingMsgs = existing?.messages || []
-        const merged = mergeByTelegramID(existingMsgs, result.messages!)
+        // Replace cache with fresh data, but preserve pending optimistic messages
+        const pendingMsgs = existingMsgs.filter(m => m.pending)
+        const freshMsgs = result.messages!
+        const merged = mergeByTelegramID(pendingMsgs, freshMsgs)
+        // Cap cache to prevent unbounded growth
+        const capped = merged.length > INITIAL_LATEST_LIMIT
+          ? sortMessagesAsc(merged).slice(-INITIAL_LATEST_LIMIT)
+          : merged
         return {
           ok: true,
-          messages: merged,
+          messages: capped,
           stale: false,
           source: result.source || 'telegram',
           has_older: result.has_older,
@@ -151,8 +158,14 @@ const visibleCap = ref(INITIAL_LATEST_LIMIT)
 
 const visibleMessages = computed(() => {
   const all = allMessages.value
-  if (all.length <= visibleCap.value) return all
-  return all.slice(-visibleCap.value)
+  const cap = visibleCap.value
+  if (all.length <= cap) {
+    console.info('[visibleMessages]', { peer: props.peerRef, allCount: all.length, cap, rendered: all.length })
+    return all
+  }
+  const sliced = all.slice(-cap)
+  console.info('[visibleMessages]', { peer: props.peerRef, allCount: all.length, cap, rendered: sliced.length })
+  return sliced
 })
 
 const isStale = computed(() => data.value?.stale || false)
