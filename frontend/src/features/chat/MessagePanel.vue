@@ -14,6 +14,7 @@ const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: st
 const queryClient = useQueryClient()
 const chat = useChatStore()
 
+// ── Latest Page：只从 API 获取最近 N 条 ──
 const { data, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['messages', props.accountId, props.peerRef]),
   queryFn: () => fetchMessages(props.peerRef, 50),
@@ -25,14 +26,11 @@ const { data, isLoading, error, refetch } = useQuery({
 
 // 判断是否需要 latest reconcile
 function shouldReconcilePeer(peerRef: string): boolean {
-  // 1. peer 被标记为 stale
   if (chat.isPeerStale(peerRef)) return true
 
-  // 2. messages cache 不存在或为空
   const cached = queryClient.getQueryData(['messages', props.accountId, peerRef]) as { ok?: boolean; messages?: ChatMessage[] } | undefined
   if (!cached?.ok || !cached.messages || cached.messages.length === 0) return true
 
-  // 3. dialog 的 last_message_at 比 messages newest 更新
   const dialogsData = queryClient.getQueryData(['dialogs', props.accountId]) as { ok?: boolean; dialogs?: Dialog[] } | undefined
   if (dialogsData?.ok && dialogsData.dialogs) {
     const dialog = dialogsData.dialogs.find(d => d.peer_ref === peerRef)
@@ -40,28 +38,24 @@ function shouldReconcilePeer(peerRef: string): boolean {
       const newestMsg = cached.messages[cached.messages.length - 1]
       if (newestMsg?.sent_at && dialog.last_message_at > newestMsg.sent_at) return true
     }
-    // 4. dialog unread_count > 0
     if (dialog?.unread_count && dialog.unread_count > 0) return true
   }
 
   return false
 }
 
-// 防止并发 reconcile：同一 peer 同一时间只跑一个
 let reconcilingPeer: string | null = null
 
-// latest reconcile：拉取最新消息并 merge
 async function reconcileLatestForPeer(peerRef: string, _reason: string) {
-  if (reconcilingPeer === peerRef) return // 已在 reconcile
+  if (reconcilingPeer === peerRef) return
   reconcilingPeer = peerRef
   chat.clearPeerStale(peerRef)
 
   try {
     const result = await fetchMessages(peerRef, 50, undefined, true)
     if (result.ok && result.messages && result.messages.length > 0) {
-      // merge 到当前 messages cache
       queryClient.setQueryData(['messages', props.accountId, peerRef], (old: unknown) => {
-        const existing = old as { ok?: boolean; messages?: ChatMessage[]; older_messages?: ChatMessage[] } | undefined
+        const existing = old as { ok?: boolean; messages?: ChatMessage[] } | undefined
         const existingMsgs = existing?.messages || []
         const merged = mergeByTelegramID(existingMsgs, result.messages!)
         return {
@@ -76,13 +70,12 @@ async function reconcileLatestForPeer(peerRef: string, _reason: string) {
       })
     }
   } catch {
-    // 失败时保留旧 cache，不清理
+    // 失败时保留旧 cache
   } finally {
     if (reconcilingPeer === peerRef) reconcilingPeer = null
   }
 }
 
-// 按 telegram_message_id 合并去重
 function mergeByTelegramID(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const map = new Map<string, ChatMessage>()
   for (const msg of existing) {
@@ -99,19 +92,30 @@ function mergeByTelegramID(existing: ChatMessage[], incoming: ChatMessage[]): Ch
   return sortMessagesAsc(Array.from(map.values()))
 }
 
-// 监听 peerRef 变化，触发 reconcile 判断
-// 不能只依赖 onMounted，因为 peerRef 变化时组件可能不重建
 onMounted(() => {
   if (shouldReconcilePeer(props.peerRef)) {
     reconcileLatestForPeer(props.peerRef, 'mount')
   }
 })
 
+// ── Visible Window 状态 ──
+// recentMessages：最新一页（来自 API / TanStack Query cache）
+// olderPages：用户上滑加载的历史页（独立管理，不从 query cache 恢复）
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 const olderPages = ref<ChatMessage[]>([])
 const hasOlder = ref(true)
 const loadingOlder = ref(false)
 const olderError = ref<string | null>(null)
+
+const recentMessages = computed(() => data.value?.messages || [])
+
+// peer switch 时清空 olderPages，确保只显示 latest page
+watch(() => props.peerRef, () => {
+  olderPages.value = []
+  hasOlder.value = true
+  loadingOlder.value = false
+  olderError.value = null
+})
 
 function messageKey(msg: ChatMessage): string {
   if (msg.telegram_message_id) return `tg:${msg.telegram_message_id}`
@@ -123,12 +127,10 @@ function messagePaginationID(msg: ChatMessage): number {
   return msg.telegram_message_id || msg.id
 }
 
-const recentMessages = computed(() => data.value?.messages || [])
-const olderMessages = computed(() => data.value?.older_messages || olderPages.value)
-
+// allVisibleMessages = olderPages + recentMessages，按 sent_at ASC
 const allMessages = computed(() => {
   const map = new Map<string, ChatMessage>()
-  for (const msg of olderMessages.value) {
+  for (const msg of olderPages.value) {
     map.set(messageKey(msg), msg)
   }
   for (const msg of recentMessages.value) {
@@ -139,20 +141,13 @@ const allMessages = computed(() => {
 
 const isStale = computed(() => data.value?.stale || false)
 
-watch(() => props.peerRef, () => {
-  olderPages.value = []
-  hasOlder.value = true
-  loadingOlder.value = false
-  olderError.value = null
-})
-
+// ── Older Pagination ──
 async function loadOlder() {
   if (loadingOlder.value || !hasOlder.value) return
 
   const oldestMsg = allMessages.value[0]
   if (!oldestMsg) return
 
-  // 记录滚动位置，用于 older pagination anchor
   messageListRef.value?.prepareOlderAnchor()
 
   loadingOlder.value = true
@@ -170,12 +165,7 @@ async function loadOlder() {
           hasOlder.value = false
         } else {
           olderPages.value = [...newMsgs, ...olderPages.value]
-          hasOlder.value = result.has_older ?? true
-          queryClient.setQueryData(['messages', props.accountId, props.peerRef], (old: unknown) => {
-            const cached = old as Record<string, unknown> | undefined
-            if (!cached) return old
-            return { ...cached, older_messages: olderPages.value }
-          })
+          hasOlder.value = result.has_older ?? (result.messages.length >= 50)
         }
       }
     } else {
@@ -187,7 +177,6 @@ async function loadOlder() {
     loadingOlder.value = false
   }
 
-  // 恢复滚动位置
   messageListRef.value?.restoreOlderAnchor()
 }
 
