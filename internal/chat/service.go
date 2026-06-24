@@ -808,6 +808,67 @@ func (e *ChatError) Error() string {
 	return e.Message
 }
 
+// GetContacts 获取联系人列表（cache-first）。
+func (s *ChatService) GetContacts(ctx context.Context, accountID uint, forceRefresh bool) (*ContactsResult, error) {
+	account, cred, err := s.getAccountAndCredential(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
+	}
+
+	result, err := s.adapter.GetContacts(ctx, telegramclient.GetContactsRequest{
+		AccountID:       accountID,
+		APIID:           int(cred.APIID),
+		APIHash:         apiHash,
+		SessionFilePath: account.Session.SessionFilePath,
+	})
+	if err != nil {
+		return nil, s.classifyError(err)
+	}
+
+	// 构建 peer_ref 集合，用于判断是否已有 dialog
+	peerRefs := make(map[string]bool)
+	var peers []model.ChatPeerCache
+	if err := s.db.Where("account_id = ?", accountID).Find(&peers).Error; err == nil {
+		for _, p := range peers {
+			peerRefs[p.PeerRef] = true
+		}
+	}
+
+	contacts := make([]Contact, 0, len(result.Contacts))
+	for _, c := range result.Contacts {
+		contacts = append(contacts, Contact{
+			PeerRef:       c.PeerRef,
+			DisplayName:   c.DisplayName,
+			Username:      c.Username,
+			Phone:         c.Phone,
+			AvatarInitial: c.AvatarText,
+			HasDialog:     peerRefs[c.PeerRef],
+		})
+	}
+
+	// 按 DisplayName 排序
+	sort.Slice(contacts, func(i, j int) bool {
+		return contacts[i].DisplayName < contacts[j].DisplayName
+	})
+
+	s.logger.Info("GetContacts 完成",
+		"operation", "get_contacts",
+		"account_id", accountID,
+		"count", len(contacts),
+	)
+
+	return &ContactsResult{
+		Contacts: contacts,
+		Source:   string(result.Source),
+		Stale:    result.Stale,
+	}, nil
+}
+
 // mapNeutralDialogToChatDialog 将中立 Dialog DTO 转换为 chat 包内部 Dialog。
 func mapNeutralDialogToChatDialog(d telegramclient.Dialog) Dialog {
 	avatar := d.AvatarText

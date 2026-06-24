@@ -4,11 +4,11 @@ import { useRouter, useRoute } from 'vue-router'
 const router = useRouter()
 const route = useRoute()
 
-const navItems = [
+const navItems: Array<{ path: string; icon: string; label: string; disabled?: boolean; badge?: string }> = [
   { path: '/dashboard', icon: '🏠', label: '仪表盘' },
   { path: '/accounts', icon: '📱', label: '账号会话' },
   { path: '/chats', icon: '💬', label: '聊天' },
-  { path: '/contacts', icon: '👥', label: '联系人', disabled: true, badge: '开发中' },
+  { path: '/contacts', icon: '👥', label: '联系人' },
   { path: '/audit', icon: '📋', label: '审计日志' },
 ]
 

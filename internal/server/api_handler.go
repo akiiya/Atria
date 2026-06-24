@@ -103,6 +103,53 @@ func (s *Server) handleAPIDashboardStats(c *gin.Context) {
 	})
 }
 
+// handleAPIContacts 返回联系人列表 JSON。
+func (s *Server) handleAPIContacts(c *gin.Context) {
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":       false,
+			"code":     "no_current_account",
+			"message":  "请先接入 Telegram 账号",
+			"contacts": []interface{}{},
+		})
+		return
+	}
+
+	forceRefresh := c.Query("force_refresh") == "true"
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	chatSvc := s.newChatService()
+	result, err := chatSvc.GetContacts(ctx, selectedID, forceRefresh)
+	if err != nil {
+		errMsg := s.classifyChatError(err)
+		errCode := "telegram_error"
+		if chatErr, ok := err.(*chat.ChatError); ok {
+			errCode = chatErr.Code
+		}
+		if c.Request.Context().Err() != nil {
+			errCode = "request_timeout"
+			errMsg = "请求超时，请稍后重试"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"ok":       false,
+			"code":     errCode,
+			"message":  errMsg,
+			"contacts": []interface{}{},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":       true,
+		"contacts": result.Contacts,
+		"source":   result.Source,
+		"stale":    result.Stale,
+	})
+}
+
 // handleAPIDialogs 返回聊天会话列表 JSON。
 func (s *Server) handleAPIDialogs(c *gin.Context) {
 	selectedID := s.resolveCurrentAccountID(c)

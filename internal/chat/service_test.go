@@ -1294,6 +1294,50 @@ func TestDialogTitle_PreservesEmojiInCache(t *testing.T) {
 	}
 }
 
+func TestGetContacts_ReturnsContactsWithHasDialog(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	adapter := &FakeAdapter{
+		Contacts: []telegramclient.Contact{
+			{PeerRef: "u_100", PeerType: telegramclient.PeerTypeUser, DisplayName: "Alice", Username: "alice", Phone: "13800138000", AccessHash: 100, PeerID: 100},
+			{PeerRef: "u_200", PeerType: telegramclient.PeerTypeUser, DisplayName: "Bob", Username: "bob", Phone: "13900139000", AccessHash: 200, PeerID: 200},
+		},
+	}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	// 创建 peer cache 记录（模拟已有 dialog）
+	db.Create(&model.ChatPeerCache{
+		AccountID: account.ID, PeerRef: "u_100", PeerType: "user", PeerID: 100, Title: "Alice",
+	})
+
+	result, err := svc.GetContacts(context.Background(), account.ID, true)
+	if err != nil {
+		t.Fatalf("GetContacts failed: %v", err)
+	}
+	if len(result.Contacts) != 2 {
+		t.Fatalf("expected 2 contacts, got %d", len(result.Contacts))
+	}
+
+	// Alice 应该 has_dialog=true
+	alice := result.Contacts[0]
+	if alice.PeerRef != "u_100" {
+		t.Errorf("expected u_100, got %s", alice.PeerRef)
+	}
+	if !alice.HasDialog {
+		t.Error("Alice should have dialog")
+	}
+
+	// Bob 应该 has_dialog=false
+	bob := result.Contacts[1]
+	if bob.PeerRef != "u_200" {
+		t.Errorf("expected u_200, got %s", bob.PeerRef)
+	}
+	if bob.HasDialog {
+		t.Error("Bob should not have dialog")
+	}
+}
+
 func TestDialogTitle_AvatarPlaceholderUsesGraphemeSafeInitial(t *testing.T) {
 	db := setupTestDB(t)
 	account := createTestAccount(t, db)

@@ -2,6 +2,7 @@ package gotd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gotd/td/tg"
@@ -226,6 +227,39 @@ func getInitial(name string) string {
 
 func isRegionalIndicator(r rune) bool {
 	return r >= 0x1F1E6 && r <= 0x1F1FF
+}
+
+// mapContacts 将 gotd User 列表映射为中立 Contact DTO 列表。
+// 只映射非 bot、非 deleted 的用户。
+func mapContacts(users []tg.UserClass) []telegramclient.Contact {
+	var contacts []telegramclient.Contact
+	for _, u := range users {
+		user, ok := u.(*tg.User)
+		if !ok || user.Deleted || user.Bot {
+			continue
+		}
+		contacts = append(contacts, telegramclient.Contact{
+			PeerRef:     fmt.Sprintf("u_%d", user.ID),
+			PeerType:    telegramclient.PeerTypeUser,
+			DisplayName: buildDisplayName(user.FirstName, user.LastName),
+			Username:    user.Username,
+			Phone:       maskPhone(user.Phone),
+			AvatarText:  getInitial(buildDisplayName(user.FirstName, user.LastName)),
+			AccessHash:  user.AccessHash,
+			PeerID:      user.ID,
+		})
+	}
+	return contacts
+}
+
+// maskPhone 对手机号进行脱敏处理。
+// 保留前 3 位和后 2 位，中间用 * 替代。
+// 例如：13800138000 → 138******00
+func maskPhone(phone string) string {
+	if len(phone) <= 5 {
+		return phone
+	}
+	return phone[:3] + strings.Repeat("*", len(phone)-5) + phone[len(phone)-2:]
 }
 
 // truncateText 截断文本（rune 安全，不会截断多字节字符或 emoji）。
