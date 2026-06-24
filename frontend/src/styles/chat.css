@@ -92,6 +92,7 @@
 /* Message list — 唯一主滚动容器 */
 .message-scroll-container {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px;
+  display: flex; flex-direction: column;
   scrollbar-gutter: stable;
   /* 深色滚动条 - Firefox */
   scrollbar-width: thin;
@@ -111,6 +112,9 @@
 .message-scroll-container::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.5);
 }
+
+/* 消息列表锚定：消息不足一屏时靠底部显示 */
+.message-list-anchor { margin-top: auto; }
 
 /* Message row - each message in its own block */
 .message-row { display: flex; margin: 8px 0; }

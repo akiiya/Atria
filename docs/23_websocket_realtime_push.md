@@ -268,7 +268,7 @@ upsertMessageInMessagesCache(queryClient, accountId, peerRef, msg)
 
 ### force_refresh/latest refresh 策略
 
-- `force_refresh=true` 只拉最近 50 条，不全量历史
+- `force_refresh=true` 只拉最近 20 条（INITIAL_LATEST_LIMIT），不全量历史
 - 后端写入 ChatMessageCache 后返回
 - 如果 Telegram 不可达，返回 cache + stale/error
 - 错误不能让前端清空已有消息
@@ -392,11 +392,22 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 
 采用 latest-window 消息加载：打开会话只渲染最近一页，上滑分页加载历史。
 
+**常量：**
+- `INITIAL_LATEST_LIMIT = 20`：首屏加载消息数
+- `LOAD_OLDER_LIMIT = 30`：每次上滑加载历史消息数
+
 ### Visible Window 结构
 
 - `recentMessages`：latest page（来自 API / TanStack Query cache，peer switch 时自动更新）
 - `olderPages`：用户上滑加载的历史页（独立管理，peer switch 时清空）
 - `allMessages` = olderPages + recentMessages，按 sent_at ASC，去重
+
+### CSS 底部锚定
+
+- `.message-scroll-container` 使用 `display: flex; flex-direction: column`
+- `.message-list-anchor` 使用 `margin-top: auto`，消息不足一屏时靠底部显示
+- 消息超过一屏时 `margin-top: auto` 自动变为 0，不影响正常滚动
+- 不依赖 `scrollToBottom` 修完整历史渲染
 
 ### 滚动策略
 
@@ -404,6 +415,8 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
   - stick-to-bottom：切换会话/初始加载/reconcile 后，保持到底部直到布局稳定
   - preserve-position：older pagination 保持阅读位置
   - manual：用户手动控制（上滑看历史）
+- 消息不足一屏时：CSS `margin-top: auto` 使消息靠底部显示，不出现突兀滚动条。
+- 消息超过一屏时：`scheduleScrollToBottom` 定位到底部。
 - 当前会话 nearBottom 时：自动滚到底部。
 - 当前会话不在底部时：显示"有新消息"提示，不强制滚动。
 - 用户滚回底部时：恢复 stick-to-bottom 模式。
@@ -412,6 +425,7 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 - sender label：仅群聊/频道的 incoming 消息显示，私聊不显示。
 - scheduleScrollToBottom 使用 nextTick → 双 rAF 确保 DOM 完成布局。
 - ResizeObserver 补偿 scrollHeight 二次变化（字体加载、emoji 渲染等）。
+- older pagination anchor 由 MessageList 内部管理（handleScroll 触发时记录位置，消息变化后恢复）。
 
 ### Realtime 与 Visible Window
 

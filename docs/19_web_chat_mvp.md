@@ -103,25 +103,36 @@ proxy_password 解密失败时返回 proxy_config_invalid，不静默直连。
 
 打开会话时只渲染最近一页消息，不渲染完整历史。用户上滑时才分页加载更早消息。
 
+**常量定义：**
+- `INITIAL_LATEST_LIMIT = 20`：首屏加载消息数
+- `LOAD_OLDER_LIMIT = 30`：每次上滑加载历史消息数
+
 首屏加载（latest page）：
-1. 打开会话，请求 `GET /api/chats/:peer_ref/messages?limit=50`
-2. 后端返回最新 50 条（ORDER BY telegram_message_id DESC LIMIT 50，再反转为 ASC）
-3. 前端只渲染这 50 条作为 visible window
+1. 打开会话，请求 `GET /api/chats/:peer_ref/messages?limit=20`
+2. 后端返回最新 20 条（ORDER BY telegram_message_id DESC LIMIT 20，再反转为 ASC）
+3. 前端只渲染这 20 条作为 visible window
 4. 切换会话时清空 olderPages，只保留 latest page
 5. 默认定位到最新消息底部
+6. 消息不足一屏时，通过 CSS `margin-top: auto` 靠底部显示，不出现突兀滚动条
+7. 消息超过一屏时，通过 `scheduleScrollToBottom` 定位到底部
 
 向上加载更早消息（older pagination）：
 1. 用户上滑接近顶部时触发
-2. 请求 `GET /api/chats/:peer_ref/messages?before_id=xxx&limit=50`
+2. 请求 `GET /api/chats/:peer_ref/messages?before_id=xxx&limit=30`
 3. 后端返回 before_id 之前的消息
 4. 前端 prepend 到 olderPages
-5. 滚动锚点保持，视图不跳动
+5. 滚动锚点保持，视图不跳动（MessageList 内部管理 anchor）
 6. 没有更多历史时停止请求
 
 Visible Window 结构：
 - `recentMessages`：latest page（来自 API / TanStack Query cache）
 - `olderPages`：用户上滑加载的历史页（独立管理，peer switch 时清空）
 - `allMessages` = olderPages + recentMessages，按 sent_at ASC，去重
+
+CSS 底部锚定：
+- `.message-scroll-container` 使用 `display: flex; flex-direction: column`
+- `.message-list-anchor` 使用 `margin-top: auto`，消息不足一屏时靠底部显示
+- 消息超过一屏时 `margin-top: auto` 自动变为 0，不影响正常滚动
 
 边界状态：
 - `has_older=true` 表示还可能有更早历史
@@ -186,7 +197,7 @@ Visible Window 结构：
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `limit` | int | 50 | 消息数量，最大 100 |
+| `limit` | int | 20 | 消息数量，最大 100（首屏 20，older pagination 30） |
 | `before_id` | int | 0 | 加载此 ID 之前的消息，0 表示最近消息 |
 | `prefer_cache` | bool | true | 优先从缓存读取 |
 
@@ -383,12 +394,14 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 ## 消息区滚动行为
 
 - 切换会话时默认滚到底部（最新消息）。
+- 消息不足一屏时，CSS `margin-top: auto` 使消息靠底部显示，不出现突兀滚动条。
+- 消息超过一屏时，`scheduleScrollToBottom` 定位到底部。
 - scroll intent 状态机：stick-to-bottom / preserve-position / manual。
 - scheduleScrollToBottom：nextTick → 双 rAF 确保 DOM 完成布局。
 - ResizeObserver stick-to-bottom：补偿字体加载、emoji 渲染、reconcile merge 导致的 scrollHeight 变化。
 - token 取消机制：旧 peer 的滚动任务不会影响新 peer。
 - 实时新消息：nearBottom 时自动滚底，不在底部时显示"有新消息"提示。
-- older pagination：prepareOlderAnchor/restoreOlderAnchor 保持阅读位置。
+- older pagination：MessageList 内部管理 anchor，handleScroll 触发时记录位置，消息变化后恢复。
 - deleted/edited：不触发滚动。
 - message-scroll-container 是唯一主滚动容器，body overflow:hidden 防止双滚动条。
 
