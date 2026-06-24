@@ -390,8 +390,15 @@ Badge 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性。
 
 ## 实时消息滚动策略
 
+- scroll intent 状态机控制滚动行为：
+  - stick-to-bottom：切换会话/初始加载/reconcile 后，保持到底部直到布局稳定
+  - preserve-position：older pagination 保持阅读位置
+  - manual：用户手动控制（上滑看历史）
 - 当前会话 nearBottom 时：自动滚到底部。
 - 当前会话不在底部时：显示"有新消息"提示，不强制滚动。
+- 用户滚回底部时：恢复 stick-to-bottom 模式。
 - 非当前会话：只更新 preview/cache，不影响当前滚动。
 - deleted/edited：不触发滚动。
 - sender label：仅群聊/频道的 incoming 消息显示，私聊不显示。
+- scheduleScrollToBottom 使用 nextTick → 双 rAF 确保 DOM 完成布局。
+- ResizeObserver 补偿 scrollHeight 二次变化（字体加载、emoji 渲染等）。
