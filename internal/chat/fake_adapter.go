@@ -12,10 +12,12 @@ type FakeAdapter struct {
 	Messages      []telegramclient.Message
 	OlderMessages []telegramclient.Message
 	SendResult    telegramclient.SendResult
+	Contacts      []telegramclient.Contact
 	ListErr       error
 	GetErr        error
 	SendErr       error
 	LoadErr       error
+	ContactsErr   error
 	HasOlder      bool
 	SendCallCount int
 }
@@ -79,6 +81,18 @@ func (f *FakeAdapter) SendText(ctx context.Context, req telegramclient.SendTextR
 		return telegramclient.SendResult{}, f.SendErr
 	}
 	return f.SendResult, nil
+}
+
+// GetContacts 返回预设的联系人列表。
+func (f *FakeAdapter) GetContacts(ctx context.Context, req telegramclient.GetContactsRequest) (telegramclient.ContactsResult, error) {
+	if f.ContactsErr != nil {
+		return telegramclient.ContactsResult{}, f.ContactsErr
+	}
+	return telegramclient.ContactsResult{
+		Source:   telegramclient.DataSourceCache,
+		Stale:    false,
+		Contacts: f.Contacts,
+	}, nil
 }
 
 // 确保 FakeAdapter 实现 ClientAdapter。

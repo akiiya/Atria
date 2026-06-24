@@ -22,6 +22,9 @@ type ClientAdapter interface {
 
 	// SendText 发送文本消息。
 	SendText(ctx context.Context, req SendTextRequest) (SendResult, error)
+
+	// GetContacts 获取联系人列表。
+	GetContacts(ctx context.Context, req GetContactsRequest) (ContactsResult, error)
 }
 
 // AdapterConfig 是适配器的通用配置。

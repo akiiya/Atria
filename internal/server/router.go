@@ -310,6 +310,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPIDialogs(c)
 	})
 
+	// 联系人列表 JSON
+	r.GET("/api/contacts", authMiddleware, func(c *gin.Context) {
+		s.handleAPIContacts(c)
+	})
+
 	// 消息历史 JSON
 	r.GET("/api/chats/:peer_ref/messages", authMiddleware, func(c *gin.Context) {
 		s.handleAPIMessages(c)

@@ -78,5 +78,14 @@ func (f *FakeService) SendText(_ context.Context, accountID uint, peerRef string
 	}, nil
 }
 
+// GetContacts 返回预设的联系人列表。
+func (f *FakeService) GetContacts(_ context.Context, accountID uint, forceRefresh bool) (*ContactsResult, error) {
+	return &ContactsResult{
+		Contacts: []Contact{},
+		Source:   "cache",
+		Stale:    false,
+	}, nil
+}
+
 // Ensure FakeService implements Service.
 var _ Service = (*FakeService)(nil)

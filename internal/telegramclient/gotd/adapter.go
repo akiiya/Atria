@@ -453,6 +453,72 @@ func (a *Adapter) sendTextFallback(ctx context.Context, inputPeer tg.InputPeerCl
 	return result, nil
 }
 
+// GetContacts 获取联系人列表。
+func (a *Adapter) GetContacts(ctx context.Context, req telegramclient.GetContactsRequest) (telegramclient.ContactsResult, error) {
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		return a.getContactsViaExecutor(ctx, executor, req)
+	}
+	return a.getContactsFallback(ctx, req)
+}
+
+func (a *Adapter) getContactsViaExecutor(ctx context.Context, executor *RuntimeExecutor, req telegramclient.GetContactsRequest) (telegramclient.ContactsResult, error) {
+	var contacts []telegramclient.Contact
+	err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+		result, err := api.ContactsGetContacts(ctx, 0)
+		if err != nil {
+			return err
+		}
+		c, ok := result.(*tg.ContactsContacts)
+		if !ok {
+			return nil
+		}
+		contacts = mapContacts(c.Users)
+		return nil
+	})
+	if err != nil {
+		return telegramclient.ContactsResult{}, classifyError(err)
+	}
+	return telegramclient.ContactsResult{
+		Source:   telegramclient.DataSourceTelegram,
+		Stale:    false,
+		Contacts: contacts,
+	}, nil
+}
+
+func (a *Adapter) getContactsFallback(ctx context.Context, req telegramclient.GetContactsRequest) (telegramclient.ContactsResult, error) {
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	a.logger.Debug("使用临时 client fallback", "operation", "get_contacts", "account_id", req.AccountID)
+
+	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
+	if a.dialFunc != nil {
+		client.SetDialer(a.dialFunc)
+	}
+
+	var contacts []telegramclient.Contact
+	err := client.RunWithSession(ctx, req.APIID, req.APIHash, req.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
+		result, err := api.ContactsGetContacts(ctx, 0)
+		if err != nil {
+			return err
+		}
+		c, ok := result.(*tg.ContactsContacts)
+		if !ok {
+			return nil
+		}
+		contacts = mapContacts(c.Users)
+		return nil
+	})
+	if err != nil {
+		return telegramclient.ContactsResult{}, classifyError(err)
+	}
+	return telegramclient.ContactsResult{
+		Source:   telegramclient.DataSourceTelegram,
+		Stale:    false,
+		Contacts: contacts,
+	}, nil
+}
+
 // buildInputPeerFromInfo 从 peer 信息构造 gotd InputPeerClass。
 func buildInputPeerFromInfo(peerID int64, peerType telegramclient.PeerType, accessHash int64) tg.InputPeerClass {
 	switch peerType {

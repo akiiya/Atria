@@ -103,4 +103,25 @@ type Service interface {
 
 	// SendText 向指定会话发送文本消息。
 	SendText(ctx context.Context, accountID uint, peerRef string, text string) (*SendResult, error)
+
+	// GetContacts 获取联系人列表（cache-first）。
+	// forceRefresh=true 时跳过缓存直接调 Telegram。
+	GetContacts(ctx context.Context, accountID uint, forceRefresh bool) (*ContactsResult, error)
+}
+
+// Contact 表示一个联系人。
+type Contact struct {
+	PeerRef       string `json:"peer_ref"`
+	DisplayName   string `json:"display_name"`
+	Username      string `json:"username,omitempty"`
+	Phone         string `json:"phone,omitempty"`
+	AvatarInitial string `json:"avatar_initial,omitempty"`
+	HasDialog     bool   `json:"has_dialog"`
+}
+
+// ContactsResult 联系人列表结果。
+type ContactsResult struct {
+	Contacts []Contact `json:"contacts"`
+	Source   string    `json:"source"`
+	Stale    bool      `json:"stale"`
 }

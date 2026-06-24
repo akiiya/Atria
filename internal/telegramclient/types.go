@@ -186,3 +186,30 @@ type PeerInfo struct {
 	Title      string
 	Username   string
 }
+
+// Contact 表示一个联系人（中立 DTO）。
+type Contact struct {
+	PeerRef     string   `json:"peer_ref"`
+	PeerType    PeerType `json:"peer_type"`
+	DisplayName string   `json:"display_name"`
+	Username    string   `json:"username,omitempty"`
+	Phone       string   `json:"phone,omitempty"` // 脱敏后的手机号
+	AvatarText  string   `json:"avatar_text,omitempty"`
+	AccessHash  int64    `json:"-"` // 不返回前端，仅内部使用
+	PeerID      int64    `json:"-"` // 不返回前端，仅内部使用
+}
+
+// GetContactsRequest 是获取联系人列表的请求。
+type GetContactsRequest struct {
+	AccountID       uint
+	APIID           int
+	APIHash         string
+	SessionFilePath string
+}
+
+// ContactsResult 是联系人列表结果。
+type ContactsResult struct {
+	Source   DataSource `json:"source"`
+	Stale    bool       `json:"stale"`
+	Contacts []Contact  `json:"contacts"`
+}
