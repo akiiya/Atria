@@ -20,7 +20,10 @@ const scrollParent = ref<HTMLElement | null>(null)
 const showNewMessageHint = ref(false)
 
 // ── Scroll Intent 状态机 ──
-// "stick-to-bottom": 切换会话/初始加载后，保持到底部直到布局稳定
+// column-reverse 方向映射：
+//   scrollTop ≈ 0      → 视口显示最新消息（DOM 底部）= "near bottom"
+//   scrollTop ≈ max    → 视口显示最旧消息（DOM 顶部）= "near top"
+// "stick-to-bottom": 切换会话/初始加载后，保持在最新消息直到用户手动上滑
 // "preserve-position": older pagination 保持位置
 // "manual": 用户手动控制
 type ScrollIntent = 'stick-to-bottom' | 'preserve-position' | 'manual'
@@ -31,6 +34,8 @@ let scrollTaskToken = 0
 // ResizeObserver 用于 stick-to-bottom 补偿
 let stickObserver: ResizeObserver | null = null
 let stickTimeout: ReturnType<typeof setTimeout> | null = null
+// 初始加载标记：peer switch 后首次加载需要 scroll 到最新消息
+let needsInitialScroll = false
 
 // ── Older Pagination Anchor（内部管理）──
 // 用户上滑触发 load-older 时标记，消息变化后恢复滚动位置
@@ -45,28 +50,40 @@ watch(() => props.peerRef, () => {
   stopStickObserver()
   shouldPreserveOlderPosition.value = false
   olderScrollData = null
+  needsInitialScroll = true
 })
 
-// ── 检查是否接近底部 ──
-function isNearBottom(): boolean {
-  if (!scrollParent.value) return true
-  const el = scrollParent.value
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 160
+// ── column-reverse 方向下的滚动位置检测 ──
+// scrollTop ≈ 0 → 视口在最新消息（DOM 底部）
+// scrollTop ≈ max → 视口在最旧消息（DOM 顶部）
+
+function getMaxScrollTop(): number {
+  if (!scrollParent.value) return 0
+  return Math.max(0, scrollParent.value.scrollHeight - scrollParent.value.clientHeight)
 }
 
-// ── 核心：可靠地滚动到底部 ──
-// 使用递增 token 确保旧 peer 的任务失效
-// 使用 ResizeObserver 补偿 scrollHeight 二次变化
+/** 视口是否在最新消息附近（DOM 底部，scrollTop ≈ 0） */
+function isNearBottom(): boolean {
+  if (!scrollParent.value) return true
+  return scrollParent.value.scrollTop < 160
+}
+
+/** 视口是否在最旧消息附近（DOM 顶部，scrollTop ≈ max） */
+function isNearTop(): boolean {
+  if (!scrollParent.value) return false
+  const max = getMaxScrollTop()
+  return max > 0 && scrollParent.value.scrollTop > max - 300
+}
+
+// ── 核心：column-reverse 下滚动到最新消息 ──
+// scrollTop = 0 即可显示 DOM 底部（最新消息）
 function scheduleScrollToBottom(_reason: string, _peerRef?: string) {
   const token = ++scrollTaskToken
   const el = scrollParent.value
   if (!el) return
 
-  // 标记程序滚动，避免 onScroll 误判为用户操作
   isProgrammaticScroll = true
 
-  // nextTick → rAF → rAF → 设置 scrollTop
-  // 双 rAF 确保浏览器完成布局和绘制
   nextTick().then(() => {
     if (scrollTaskToken !== token) return
     requestAnimationFrame(() => {
@@ -83,18 +100,16 @@ function doScrollToBottom(token: number, _reason: string) {
   const el = scrollParent.value
   if (!el || scrollTaskToken !== token) return
 
-  el.scrollTop = el.scrollHeight
+  // column-reverse: scrollTop = 0 → 显示最新消息
+  el.scrollTop = 0
   isProgrammaticScroll = false
 
-  // 启动 stick-to-bottom observer：内容高度变化时继续保持底部
   if (scrollIntent.value === 'stick-to-bottom') {
     startStickObserver(token)
   }
 }
 
 // ── ResizeObserver：stick-to-bottom 补偿 ──
-// 当消息列表高度变化（字体加载、emoji 渲染、reconcile merge）时，
-// 如果仍在 stick-to-bottom 模式，自动保持底部
 function startStickObserver(token: number) {
   stopStickObserver()
   const el = scrollParent.value
@@ -103,11 +118,12 @@ function startStickObserver(token: number) {
   stickObserver = new ResizeObserver(() => {
     if (scrollTaskToken !== token) { stopStickObserver(); return }
     if (scrollIntent.value !== 'stick-to-bottom') { stopStickObserver(); return }
-    el.scrollTop = el.scrollHeight
+    // column-reverse: scrollTop = 0 → 最新消息
+    el.scrollTop = 0
   })
   stickObserver.observe(el)
 
-  // 稳定后停止 observer（避免无限观察）
+  // 稳定后停止 observer
   stickTimeout = setTimeout(() => {
     if (scrollTaskToken === token) stopStickObserver()
   }, 2000)
@@ -122,27 +138,32 @@ function stopStickObserver() {
 let isProgrammaticScroll = false
 
 // ── 滚动事件处理 ──
+// column-reverse 方向：
+//   scrollTop ≈ 0 → 最新消息（底部）
+//   scrollTop ≈ max → 最旧消息（顶部）
+//   向上滑（看旧消息）→ scrollTop 增加
+//   向下滑（看新消息）→ scrollTop 减少
 function handleScroll() {
   if (!scrollParent.value) return
   const el = scrollParent.value
+  const maxScroll = getMaxScrollTop()
 
-  // 接近底部时隐藏新消息提示
+  // 接近最新消息（scrollTop ≈ 0）→ 隐藏新消息提示
   if (isNearBottom()) {
     showNewMessageHint.value = false
-    // 用户滚回底部，恢复 stick-to-bottom
     if (scrollIntent.value === 'manual') {
       scrollIntent.value = 'stick-to-bottom'
     }
   }
 
-  // 非程序滚动 + 离底超过阈值 → 用户在阅读历史
+  // 非程序滚动 + 远离最新消息 → 用户在阅读历史
   if (!isProgrammaticScroll && !isNearBottom()) {
     scrollIntent.value = 'manual'
     stopStickObserver()
   }
 
-  // 接近顶部时加载更早消息
-  if (el.scrollTop < 300 && props.hasOlder && !props.loadingOlder) {
+  // 接近最旧消息（scrollTop ≈ max）→ 加载更早消息
+  if (maxScroll > 0 && isNearTop() && props.hasOlder && !props.loadingOlder) {
     // 记录滚动位置，供消息变化后恢复
     shouldPreserveOlderPosition.value = true
     olderScrollData = {
@@ -159,8 +180,9 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
   await nextTick()
   if (!scrollParent.value) return
 
-  // 首次加载（peer switch 后 isInitialLoad 已通过 peerRef watcher 重置）
-  if (scrollIntent.value === 'stick-to-bottom' && newLen > 0 && (oldLen === undefined || oldLen === 0)) {
+  // 首次加载：peer switch 后第一条消息到达
+  if (needsInitialScroll && newLen > 0) {
+    needsInitialScroll = false
     scheduleScrollToBottom('initial-load', props.peerRef)
     return
   }
@@ -173,6 +195,7 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
     requestAnimationFrame(() => {
       if (!scrollParent.value) return
       const newH = scrollParent.value.scrollHeight
+      // column-reverse: prepend 旧消息使 scrollHeight 增加，需要增加 scrollTop 保持位置
       scrollParent.value.scrollTop = oldTop + (newH - oldH)
     })
     return
@@ -180,7 +203,7 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
 
   // 消息数增加（非首次）
   if (oldLen !== undefined && newLen > oldLen) {
-    // outgoing 消息 → 滚到底
+    // outgoing 消息 → 滚到最新
     const lastMsg = props.messages[props.messages.length - 1]
     if (lastMsg?.is_outgoing) {
       scrollIntent.value = 'stick-to-bottom'
@@ -189,13 +212,13 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
       return
     }
 
-    // stick-to-bottom 模式（reconcile/force_refresh 后）
+    // stick-to-bottom 模式
     if (scrollIntent.value === 'stick-to-bottom') {
       scheduleScrollToBottom('stick-to-bottom', props.peerRef)
       return
     }
 
-    // 用户在底部附近 → 自动滚底
+    // 用户在最新消息附近 → 自动滚到最新
     if (isNearBottom()) {
       scheduleScrollToBottom('near-bottom', props.peerRef)
       showNewMessageHint.value = false
@@ -235,8 +258,27 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!--
+    column-reverse 说明：
+    - flex-direction: column-reverse 使 DOM 末尾（最新消息）显示在容器底部
+    - scrollTop = 0 → 视口显示最新消息
+    - scrollTop = max → 视口显示最旧消息
+    - 新消息 append 到数组末尾 → 自动显示在视口底部
+    - 旧消息 prepend 到数组头部 → 用户向上滚动可见
+  -->
   <div ref="scrollParent" class="message-scroll-container" @scroll="handleScroll">
-    <!-- 加载更早消息提示 -->
+    <div v-if="messages.length === 0" class="message-empty">
+      暂无消息
+    </div>
+
+    <!-- 消息列表：反向迭代，使视觉顺序为旧→新（上→下） -->
+    <template v-for="(msg, idx) in [...messages].reverse()" :key="messageKey(msg, messages.length - 1 - idx)">
+      <DateDivider v-if="isNewDay(messages.length - 1 - idx)" :date="msg.sent_at" />
+      <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
+      <MessageBubble v-else :message="msg" :peer-type="peerType" />
+    </template>
+
+    <!-- 加载更早消息提示（DOM 顶部 = column-reverse 视觉底部） -->
     <div v-if="loadingOlder" class="older-loading">
       <div class="older-loading-spinner"></div>
       <span>加载历史消息...</span>
@@ -246,18 +288,6 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="!hasOlder && messages.length > 0" class="older-end">
       — 已经到最早消息 —
-    </div>
-
-    <div v-if="messages.length === 0" class="message-empty">
-      暂无消息
-    </div>
-    <!-- 消息列表锚定：margin-top: auto 使消息不足一屏时靠底部显示 -->
-    <div v-if="messages.length > 0" class="message-list-anchor">
-      <template v-for="(msg, idx) in messages" :key="messageKey(msg, idx)">
-        <DateDivider v-if="isNewDay(idx)" :date="msg.sent_at" />
-        <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
-        <MessageBubble v-else :message="msg" :peer-type="peerType" />
-      </template>
     </div>
 
     <!-- 新消息提示 -->
