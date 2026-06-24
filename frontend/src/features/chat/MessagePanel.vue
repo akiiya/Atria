@@ -15,9 +15,12 @@ const queryClient = useQueryClient()
 const chat = useChatStore()
 
 // ── Latest Page：只从 API 获取最近 N 条 ──
+const INITIAL_LATEST_LIMIT = 20
+const LOAD_OLDER_LIMIT = 30
+
 const { data, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['messages', props.accountId, props.peerRef]),
-  queryFn: () => fetchMessages(props.peerRef, 50),
+  queryFn: () => fetchMessages(props.peerRef, INITIAL_LATEST_LIMIT),
   enabled: computed(() => !!props.peerRef && !!props.accountId),
   retry: 1,
   staleTime: 30_000,
@@ -52,7 +55,7 @@ async function reconcileLatestForPeer(peerRef: string, _reason: string) {
   chat.clearPeerStale(peerRef)
 
   try {
-    const result = await fetchMessages(peerRef, 50, undefined, true)
+    const result = await fetchMessages(peerRef, INITIAL_LATEST_LIMIT, undefined, true)
     if (result.ok && result.messages && result.messages.length > 0) {
       queryClient.setQueryData(['messages', props.accountId, peerRef], (old: unknown) => {
         const existing = old as { ok?: boolean; messages?: ChatMessage[] } | undefined
@@ -148,13 +151,11 @@ async function loadOlder() {
   const oldestMsg = allMessages.value[0]
   if (!oldestMsg) return
 
-  messageListRef.value?.prepareOlderAnchor()
-
   loadingOlder.value = true
   olderError.value = null
 
   try {
-    const result = await fetchMessages(props.peerRef, 50, messagePaginationID(oldestMsg))
+    const result = await fetchMessages(props.peerRef, LOAD_OLDER_LIMIT, messagePaginationID(oldestMsg))
     if (result.ok && result.messages) {
       if (result.messages.length === 0) {
         hasOlder.value = false
@@ -165,7 +166,7 @@ async function loadOlder() {
           hasOlder.value = false
         } else {
           olderPages.value = [...newMsgs, ...olderPages.value]
-          hasOlder.value = result.has_older ?? (result.messages.length >= 50)
+          hasOlder.value = result.has_older ?? (result.messages.length >= LOAD_OLDER_LIMIT)
         }
       }
     } else {
@@ -176,8 +177,6 @@ async function loadOlder() {
   } finally {
     loadingOlder.value = false
   }
-
-  messageListRef.value?.restoreOlderAnchor()
 }
 
 function handleSent() {

@@ -31,8 +31,11 @@ let scrollTaskToken = 0
 // ResizeObserver 用于 stick-to-bottom 补偿
 let stickObserver: ResizeObserver | null = null
 let stickTimeout: ReturnType<typeof setTimeout> | null = null
-// older pagination anchor
-let olderAnchorData: { oldScrollHeight: number; oldScrollTop: number } | null = null
+
+// ── Older Pagination Anchor（内部管理）──
+// 用户上滑触发 load-older 时标记，消息变化后恢复滚动位置
+const shouldPreserveOlderPosition = ref(false)
+let olderScrollData: { scrollHeight: number; scrollTop: number } | null = null
 
 // ── 切换会话时重置 ──
 watch(() => props.peerRef, () => {
@@ -40,7 +43,8 @@ watch(() => props.peerRef, () => {
   scrollIntent.value = 'stick-to-bottom'
   showNewMessageHint.value = false
   stopStickObserver()
-  olderAnchorData = null
+  shouldPreserveOlderPosition.value = false
+  olderScrollData = null
 })
 
 // ── 检查是否接近底部 ──
@@ -139,6 +143,13 @@ function handleScroll() {
 
   // 接近顶部时加载更早消息
   if (el.scrollTop < 300 && props.hasOlder && !props.loadingOlder) {
+    // 记录滚动位置，供消息变化后恢复
+    shouldPreserveOlderPosition.value = true
+    olderScrollData = {
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    }
+    scrollIntent.value = 'preserve-position'
     emit('load-older')
   }
 }
@@ -151,6 +162,19 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
   // 首次加载（peer switch 后 isInitialLoad 已通过 peerRef watcher 重置）
   if (scrollIntent.value === 'stick-to-bottom' && newLen > 0 && (oldLen === undefined || oldLen === 0)) {
     scheduleScrollToBottom('initial-load', props.peerRef)
+    return
+  }
+
+  // Older pagination：恢复滚动位置
+  if (shouldPreserveOlderPosition.value && olderScrollData && oldLen !== undefined && newLen > oldLen) {
+    shouldPreserveOlderPosition.value = false
+    const { scrollHeight: oldH, scrollTop: oldTop } = olderScrollData
+    olderScrollData = null
+    requestAnimationFrame(() => {
+      if (!scrollParent.value) return
+      const newH = scrollParent.value.scrollHeight
+      scrollParent.value.scrollTop = oldTop + (newH - oldH)
+    })
     return
   }
 
@@ -182,32 +206,6 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
   }
 })
 
-// ── Older Pagination Anchor ──
-// loadOlder 前调用，记录滚动位置
-function prepareOlderAnchor() {
-  if (!scrollParent.value) return
-  olderAnchorData = {
-    oldScrollHeight: scrollParent.value.scrollHeight,
-    oldScrollTop: scrollParent.value.scrollTop,
-  }
-  scrollIntent.value = 'preserve-position'
-}
-
-// loadOlder 完成后调用，恢复滚动位置
-function restoreOlderAnchor() {
-  if (!scrollParent.value || !olderAnchorData) return
-  const { oldScrollHeight, oldScrollTop } = olderAnchorData
-  nextTick().then(() => {
-    if (!scrollParent.value) return
-    requestAnimationFrame(() => {
-      if (!scrollParent.value) return
-      const newScrollHeight = scrollParent.value.scrollHeight
-      scrollParent.value.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight)
-      olderAnchorData = null
-    })
-  })
-}
-
 // ── 点击新消息提示 ──
 function handleClickNewMessage() {
   scrollIntent.value = 'stick-to-bottom'
@@ -234,9 +232,6 @@ onBeforeUnmount(() => {
   scrollTaskToken++
   stopStickObserver()
 })
-
-// ── 暴露给父组件：older pagination 使用 ──
-defineExpose({ prepareOlderAnchor, restoreOlderAnchor })
 </script>
 
 <template>
@@ -256,11 +251,14 @@ defineExpose({ prepareOlderAnchor, restoreOlderAnchor })
     <div v-if="messages.length === 0" class="message-empty">
       暂无消息
     </div>
-    <template v-for="(msg, idx) in messages" :key="messageKey(msg, idx)">
-      <DateDivider v-if="isNewDay(idx)" :date="msg.sent_at" />
-      <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
-      <MessageBubble v-else :message="msg" :peer-type="peerType" />
-    </template>
+    <!-- 消息列表锚定：margin-top: auto 使消息不足一屏时靠底部显示 -->
+    <div v-if="messages.length > 0" class="message-list-anchor">
+      <template v-for="(msg, idx) in messages" :key="messageKey(msg, idx)">
+        <DateDivider v-if="isNewDay(idx)" :date="msg.sent_at" />
+        <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
+        <MessageBubble v-else :message="msg" :peer-type="peerType" />
+      </template>
+    </div>
 
     <!-- 新消息提示 -->
     <Transition name="fade">
