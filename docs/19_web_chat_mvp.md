@@ -377,14 +377,18 @@ proxy_password 解密失败会阻止创建代理 dialer，不会静默直连。
 ## 消息区滚动行为
 
 - 切换会话时默认滚到底部（最新消息）。
-- peerRef 变化时重置 isInitialLoad，确保 scrollToBottom 触发。
-- scrollToBottom 使用 requestAnimationFrame 确保 DOM 渲染完成。
+- scroll intent 状态机：stick-to-bottom / preserve-position / manual。
+- scheduleScrollToBottom：nextTick → 双 rAF 确保 DOM 完成布局。
+- ResizeObserver stick-to-bottom：补偿字体加载、emoji 渲染、reconcile merge 导致的 scrollHeight 变化。
+- token 取消机制：旧 peer 的滚动任务不会影响新 peer。
 - 实时新消息：nearBottom 时自动滚底，不在底部时显示"有新消息"提示。
-- older pagination：保持 scroll anchor，不跳到底。
+- older pagination：prepareOlderAnchor/restoreOlderAnchor 保持阅读位置。
 - deleted/edited：不触发滚动。
+- message-scroll-container 是唯一主滚动容器，body overflow:hidden 防止双滚动条。
 
 ## 滚动条样式
 
 - 消息区和会话列表使用深色半透明滚动条。
-- 宽度 6px，hover 时增强可见性。
+- 宽度 5px，999px 圆角，hover 时增强可见性。
+- scrollbar-gutter: stable 防止布局跳动。
 - 支持 ::-webkit-scrollbar（Chrome/Edge/Safari）和 scrollbar-width/scrollbar-color（Firefox）。
