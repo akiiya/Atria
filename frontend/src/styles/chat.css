@@ -226,6 +226,51 @@
   border-radius: 21px;
 }
 
+/* Sync status icon */
+.sync-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: default;
+  transition: color 0.3s, opacity 0.3s;
+  flex-shrink: 0;
+}
+.sync-icon svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.3s;
+}
+/* Live: green, gentle pulse */
+.sync-icon.sync-live { color: var(--color-success, #10b981); }
+.sync-icon.sync-live svg { animation: pulse-sync 2s ease-in-out infinite; }
+/* Connecting/syncing: gray, spinning */
+.sync-icon.sync-connecting { color: var(--text-secondary, #888); opacity: 0.7; }
+.sync-icon.sync-connecting svg { animation: spin-sync 1.2s linear infinite; }
+/* Reconnecting: yellow, spinning */
+.sync-icon.sync-reconnecting { color: var(--color-warning, #f59e0b); }
+.sync-icon.sync-reconnecting svg { animation: spin-sync 0.8s linear infinite; }
+/* Error/offline: red, static */
+.sync-icon.sync-error { color: var(--color-danger, #ef4444); opacity: 0.8; }
+/* Stopped: gray, static */
+.sync-icon.sync-stopped { color: var(--text-secondary, #888); opacity: 0.5; }
+/* Message header: loading state */
+.sync-icon.sync-loading { color: var(--accent-color); }
+.sync-icon.sync-loading svg { animation: spin-sync 1s linear infinite; }
+/* Message header: up-to-date */
+.sync-icon.sync-idle { color: var(--text-tertiary, #aaa); opacity: 0.4; }
+.sync-icon.sync-idle:hover { opacity: 0.7; cursor: pointer; }
+
+@keyframes spin-sync { to { transform: rotate(360deg); } }
+@keyframes pulse-sync {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* Mobile */
 @media (max-width: 768px) {
   .chat-sidebar { width: 100%; }

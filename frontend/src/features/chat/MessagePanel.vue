@@ -222,7 +222,14 @@ function handleSent() {
 
 <template>
   <div class="message-panel">
-    <MessageHeader :peer-ref="peerRef" :title="dialogTitle || ''" :account-id="accountId" @refresh="refetch()" />
+    <MessageHeader
+      :peer-ref="peerRef"
+      :title="dialogTitle || ''"
+      :account-id="accountId"
+      :syncing="isLoading"
+      :stale="isStale"
+      @refresh="refetch()"
+    />
 
     <div v-if="isLoading && visibleMessages.length === 0" class="message-body">
       <div class="message-loading">

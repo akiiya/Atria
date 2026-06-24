@@ -295,6 +295,25 @@ const runtimeTooltip = computed(() => {
   return parts.join(' · ') || ''
 })
 
+// 同步图标样式：根据 runtime + WS 状态决定动画
+const syncIconClass = computed(() => {
+  if (wsState.value === 'reconnecting') return 'sync-reconnecting'
+  if (wsState.value === 'connecting') return 'sync-connecting'
+  if (wsState.value === 'disconnected' || wsState.value === 'error') {
+    if (runtimeFetchError.value) return 'sync-error'
+    return 'sync-stopped'
+  }
+  if (startMutation.isPending.value) return 'sync-connecting'
+  switch (runtimeState.value) {
+    case 'live': return 'sync-live'
+    case 'connecting':
+    case 'syncing': return 'sync-connecting'
+    case 'degraded':
+    case 'offline': return 'sync-error'
+    default: return 'sync-stopped'
+  }
+})
+
 const runtimeClass = computed(() => {
   // WebSocket 重连/连接中 → 黄色
   if (wsState.value === 'reconnecting' || wsState.value === 'connecting') return 'runtime-connecting'
@@ -329,7 +348,11 @@ const runtimeClass = computed(() => {
             <span class="runtime-dot"></span>
             {{ runtimeLabel }}
           </span>
-          <button class="btn-icon" @click="forceRefresh()" title="刷新">↻</button>
+          <span :class="['sync-icon', syncIconClass]" :title="runtimeTooltip || runtimeLabel || '同步状态'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+            </svg>
+          </span>
         </div>
       </div>
 
