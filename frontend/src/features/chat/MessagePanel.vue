@@ -227,7 +227,7 @@ function handleSent() {
       :title="dialogTitle || ''"
       :account-id="accountId"
       :syncing="isFetching"
-      :stale="isStale && isFetching"
+      :stale="false"
       @refresh="refetch()"
     />
 
@@ -248,7 +248,7 @@ function handleSent() {
       <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
     </div>
     <div v-else class="message-body">
-      <div v-if="isStale && isFetching" class="message-stale-hint">正在刷新...</div>
+      <div v-if="isFetching && !isLoading" class="message-stale-hint">正在刷新...</div>
       <MessageList
         ref="messageListRef"
         :messages="visibleMessages"
