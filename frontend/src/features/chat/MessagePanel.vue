@@ -112,12 +112,13 @@ const olderError = ref<string | null>(null)
 
 const recentMessages = computed(() => data.value?.messages || [])
 
-// peer switch 时清空 olderPages，确保只显示 latest page
+// peer switch 时清空 olderPages，重置 visibleCap，确保只显示 latest page
 watch(() => props.peerRef, () => {
   olderPages.value = []
   hasOlder.value = true
   loadingOlder.value = false
   olderError.value = null
+  visibleCap.value = INITIAL_LATEST_LIMIT
 })
 
 function messageKey(msg: ChatMessage): string {
@@ -130,7 +131,7 @@ function messagePaginationID(msg: ChatMessage): number {
   return msg.telegram_message_id || msg.id
 }
 
-// allVisibleMessages = olderPages + recentMessages，按 sent_at ASC
+// allMessages = olderPages + recentMessages，按 sent_at ASC，去重
 const allMessages = computed(() => {
   const map = new Map<string, ChatMessage>()
   for (const msg of olderPages.value) {
@@ -140,6 +141,18 @@ const allMessages = computed(() => {
     map.set(messageKey(msg), msg)
   }
   return sortMessagesAsc(Array.from(map.values()))
+})
+
+// visibleMessages：实际渲染的消息列表
+// 动态 cap：初始显示最近 INITIAL_LATEST_LIMIT 条，
+// 用户每次上滑加载历史后 cap 自动增长，形成瀑布流分页效果
+// 防止 TanStack Query cache 累积过多消息时一次性全部渲染
+const visibleCap = ref(INITIAL_LATEST_LIMIT)
+
+const visibleMessages = computed(() => {
+  const all = allMessages.value
+  if (all.length <= visibleCap.value) return all
+  return all.slice(-visibleCap.value)
 })
 
 const isStale = computed(() => data.value?.stale || false)
@@ -166,6 +179,8 @@ async function loadOlder() {
           hasOlder.value = false
         } else {
           olderPages.value = [...newMsgs, ...olderPages.value]
+          // 动态扩大 visibleCap，让新加载的旧消息进入可见区域
+          visibleCap.value += newMsgs.length
           hasOlder.value = result.has_older ?? (result.messages.length >= LOAD_OLDER_LIMIT)
         }
       }
@@ -188,7 +203,7 @@ function handleSent() {
   <div class="message-panel">
     <MessageHeader :peer-ref="peerRef" :title="dialogTitle || ''" :account-id="accountId" @refresh="refetch()" />
 
-    <div v-if="isLoading && allMessages.length === 0" class="message-body">
+    <div v-if="isLoading && visibleMessages.length === 0" class="message-body">
       <div class="message-loading">
         <div class="skeleton-list">
           <div v-for="i in 6" :key="i" class="skeleton-item">
@@ -201,14 +216,14 @@ function handleSent() {
         </div>
       </div>
     </div>
-    <div v-else-if="error && allMessages.length === 0" class="message-body">
+    <div v-else-if="error && visibleMessages.length === 0" class="message-body">
       <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
     </div>
     <div v-else class="message-body">
       <div v-if="isStale && isLoading" class="message-stale-hint">正在刷新...</div>
       <MessageList
         ref="messageListRef"
-        :messages="allMessages"
+        :messages="visibleMessages"
         :has-older="hasOlder"
         :loading-older="loadingOlder"
         :older-error="olderError"
