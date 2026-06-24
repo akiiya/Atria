@@ -38,9 +38,8 @@ let stickTimeout: ReturnType<typeof setTimeout> | null = null
 let needsInitialScroll = false
 
 // ── Older Pagination Anchor（内部管理）──
-// 用户上滑触发 load-older 时标记，消息变化后恢复滚动位置
+// 用户上滑触发 load-older 时标记，消息变化后跳过自动滚动
 const shouldPreserveOlderPosition = ref(false)
-let olderScrollData: { scrollHeight: number; scrollTop: number } | null = null
 
 // ── 切换会话时重置 ──
 watch(() => props.peerRef, () => {
@@ -49,7 +48,6 @@ watch(() => props.peerRef, () => {
   showNewMessageHint.value = false
   stopStickObserver()
   shouldPreserveOlderPosition.value = false
-  olderScrollData = null
   needsInitialScroll = true
 })
 
@@ -57,22 +55,28 @@ watch(() => props.peerRef, () => {
 // scrollTop ≈ 0 → 视口在最新消息（DOM 底部）
 // scrollTop ≈ max → 视口在最旧消息（DOM 顶部）
 
+// column-reverse scrollTop 实测值：
+//   scrollTop = 0     → 最新消息（视觉底部）
+//   scrollTop < 0     → 向旧消息方向滚动
+//   scrollTop = -max  → 最旧消息（视觉顶部）
+//   max = scrollHeight - clientHeight（正数）
+
 function getMaxScrollTop(): number {
   if (!scrollParent.value) return 0
   return Math.max(0, scrollParent.value.scrollHeight - scrollParent.value.clientHeight)
 }
 
-/** 视口是否在最新消息附近（DOM 底部，scrollTop ≈ 0） */
+/** 视口是否在最新消息附近（scrollTop ≈ 0） */
 function isNearBottom(): boolean {
   if (!scrollParent.value) return true
-  return scrollParent.value.scrollTop < 160
+  return scrollParent.value.scrollTop > -160
 }
 
-/** 视口是否在最旧消息附近（DOM 顶部，scrollTop ≈ max） */
+/** 视口是否在最旧消息附近（scrollTop ≈ -max） */
 function isNearTop(): boolean {
   if (!scrollParent.value) return false
   const max = getMaxScrollTop()
-  return max > 0 && scrollParent.value.scrollTop > max - 300
+  return max > 0 && scrollParent.value.scrollTop < -(max - 300)
 }
 
 // ── 核心：column-reverse 下滚动到最新消息 ──
@@ -100,7 +104,7 @@ function doScrollToBottom(token: number, _reason: string) {
   const el = scrollParent.value
   if (!el || scrollTaskToken !== token) return
 
-  // column-reverse: scrollTop = 0 → 显示最新消息
+  // column-reverse: scrollTop = 0 → 显示最新消息（视觉底部）
   el.scrollTop = 0
   isProgrammaticScroll = false
 
@@ -145,7 +149,6 @@ let isProgrammaticScroll = false
 //   向下滑（看新消息）→ scrollTop 减少
 function handleScroll() {
   if (!scrollParent.value) return
-  const el = scrollParent.value
   const maxScroll = getMaxScrollTop()
 
   // 接近最新消息（scrollTop ≈ 0）→ 隐藏新消息提示
@@ -162,14 +165,9 @@ function handleScroll() {
     stopStickObserver()
   }
 
-  // 接近最旧消息（scrollTop ≈ max）→ 加载更早消息
+  // 接近最旧消息（scrollTop ≈ -max）→ 加载更早消息
   if (maxScroll > 0 && isNearTop() && props.hasOlder && !props.loadingOlder) {
-    // 记录滚动位置，供消息变化后恢复
     shouldPreserveOlderPosition.value = true
-    olderScrollData = {
-      scrollHeight: el.scrollHeight,
-      scrollTop: el.scrollTop,
-    }
     scrollIntent.value = 'preserve-position'
     emit('load-older')
   }
@@ -187,17 +185,11 @@ watch(() => props.messages.length, async (newLen, oldLen) => {
     return
   }
 
-  // Older pagination：恢复滚动位置
-  if (shouldPreserveOlderPosition.value && olderScrollData && oldLen !== undefined && newLen > oldLen) {
+  // Older pagination：加载完成后
+  // column-reverse 下浏览器自动处理 scroll anchoring，不需要手动恢复
+  if (shouldPreserveOlderPosition.value && oldLen !== undefined && newLen > oldLen) {
     shouldPreserveOlderPosition.value = false
-    const { scrollHeight: oldH, scrollTop: oldTop } = olderScrollData
-    olderScrollData = null
-    requestAnimationFrame(() => {
-      if (!scrollParent.value) return
-      const newH = scrollParent.value.scrollHeight
-      // column-reverse: prepend 旧消息使 scrollHeight 增加，需要增加 scrollTop 保持位置
-      scrollParent.value.scrollTop = oldTop + (newH - oldH)
-    })
+    // 不调整 scrollTop，让浏览器保持用户的视觉位置
     return
   }
 
@@ -256,24 +248,12 @@ function handleWheel(e: WheelEvent) {
   const el = scrollParent.value
   if (!el) return
   const max = getMaxScrollTop()
-  console.info('[wheel]', {
-    deltaY: e.deltaY,
-    scrollTop: Math.round(el.scrollTop),
-    maxScroll: Math.round(max),
-    hasOlder: props.hasOlder,
-    loadingOlder: props.loadingOlder,
-    messagesCount: props.messages.length,
-  })
+  // column-reverse: deltaY < 0 = 向旧消息方向滚动（scrollTop 变得更负）
+  // 触发条件：无滚动条（max=0）或已在最旧位置附近（scrollTop 接近 -max）
   if (e.deltaY < 0 && props.hasOlder && !props.loadingOlder) {
-    // 无滚动条（max=0）或已在最旧位置附近 → 触发加载
-    if (max === 0 || el.scrollTop > max - 300) {
-      console.info('[wheel] → triggering loadOlder')
-      // 记录滚动位置
+    if (max === 0 || el.scrollTop < -(max - 300)) {
+      console.info('[wheel] → loadOlder', { scrollTop: Math.round(el.scrollTop), max: Math.round(max) })
       shouldPreserveOlderPosition.value = true
-      olderScrollData = {
-        scrollHeight: el.scrollHeight,
-        scrollTop: el.scrollTop,
-      }
       scrollIntent.value = 'preserve-position'
       emit('load-older')
     }

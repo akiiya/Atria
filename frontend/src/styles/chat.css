@@ -91,9 +91,11 @@
 
 /* Message list — 唯一主滚动容器 */
 /* column-reverse: 消息从底部开始渲染，scrollTop=0 显示最新消息 */
+/* overflow-anchor: auto 启用浏览器 scroll anchoring，prepend 旧消息时保持视觉位置 */
 .message-scroll-container {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px;
   display: flex; flex-direction: column-reverse;
+  overflow-anchor: auto;
   scrollbar-gutter: stable;
   /* 深色滚动条 - Firefox */
   scrollbar-width: thin;
