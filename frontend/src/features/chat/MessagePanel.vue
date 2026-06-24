@@ -168,8 +168,6 @@ const visibleMessages = computed(() => {
   return sliced
 })
 
-const isStale = computed(() => data.value?.stale || false)
-
 // ── Older Pagination ──
 async function loadOlder() {
   if (loadingOlder.value || !hasOlder.value) {
