@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import type { ChatMessage, PeerType } from '@/types/chat'
 import MessageBubble from './MessageBubble.vue'
 import ServiceMessage from './ServiceMessage.vue'
@@ -18,64 +18,106 @@ const emit = defineEmits<{ 'load-older': [] }>()
 
 const scrollParent = ref<HTMLElement | null>(null)
 const showNewMessageHint = ref(false)
-const isInitialLoad = ref(true)
 
-// 切换会话时重置滚动状态，确保新会话滚到底部
+// ── Scroll Intent 状态机 ──
+// "stick-to-bottom": 切换会话/初始加载后，保持到底部直到布局稳定
+// "preserve-position": older pagination 保持位置
+// "manual": 用户手动控制
+type ScrollIntent = 'stick-to-bottom' | 'preserve-position' | 'manual'
+const scrollIntent = ref<ScrollIntent>('stick-to-bottom')
+
+// 取消旧 peer 的异步滚动任务
+let scrollTaskToken = 0
+// ResizeObserver 用于 stick-to-bottom 补偿
+let stickObserver: ResizeObserver | null = null
+let stickTimeout: ReturnType<typeof setTimeout> | null = null
+// older pagination anchor
+let olderAnchorData: { oldScrollHeight: number; oldScrollTop: number } | null = null
+
+// ── 切换会话时重置 ──
 watch(() => props.peerRef, () => {
-  isInitialLoad.value = true
+  scrollTaskToken++ // 取消旧任务
+  scrollIntent.value = 'stick-to-bottom'
   showNewMessageHint.value = false
+  stopStickObserver()
+  olderAnchorData = null
 })
 
-// 检查是否接近底部（200px 阈值）
+// ── 检查是否接近底部 ──
 function isNearBottom(): boolean {
   if (!scrollParent.value) return true
   const el = scrollParent.value
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 200
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 160
 }
 
-// 滚动到底部（使用 requestAnimationFrame 确保 DOM 已渲染）
-function scrollToBottom() {
-  if (!scrollParent.value) return
-  requestAnimationFrame(() => {
-    if (!scrollParent.value) return
-    scrollParent.value.scrollTop = scrollParent.value.scrollHeight
+// ── 核心：可靠地滚动到底部 ──
+// 使用递增 token 确保旧 peer 的任务失效
+// 使用 ResizeObserver 补偿 scrollHeight 二次变化
+function scheduleScrollToBottom(_reason: string, _peerRef?: string) {
+  const token = ++scrollTaskToken
+  const el = scrollParent.value
+  if (!el) return
+
+  // 标记程序滚动，避免 onScroll 误判为用户操作
+  isProgrammaticScroll = true
+
+  // nextTick → rAF → rAF → 设置 scrollTop
+  // 双 rAF 确保浏览器完成布局和绘制
+  nextTick().then(() => {
+    if (scrollTaskToken !== token) return
+    requestAnimationFrame(() => {
+      if (scrollTaskToken !== token) return
+      requestAnimationFrame(() => {
+        if (scrollTaskToken !== token) return
+        doScrollToBottom(token, _reason)
+      })
+    })
   })
 }
 
-// 监听消息变化
-watch(() => props.messages.length, async (newLen, oldLen) => {
-  await nextTick()
-  if (!scrollParent.value) return
+function doScrollToBottom(token: number, _reason: string) {
+  const el = scrollParent.value
+  if (!el || scrollTaskToken !== token) return
 
-  // 首次加载
-  if (isInitialLoad.value && newLen > 0) {
-    isInitialLoad.value = false
-    scrollToBottom()
-    return
+  el.scrollTop = el.scrollHeight
+  isProgrammaticScroll = false
+
+  // 启动 stick-to-bottom observer：内容高度变化时继续保持底部
+  if (scrollIntent.value === 'stick-to-bottom') {
+    startStickObserver(token)
   }
+}
 
-  // 消息数增加（非首次）
-  if (oldLen !== undefined && newLen > oldLen) {
-    // 检查最后一条是否是 outgoing（发送消息触发）
-    const lastMsg = props.messages[props.messages.length - 1]
-    if (lastMsg?.is_outgoing && isNearBottom()) {
-      scrollToBottom()
-      showNewMessageHint.value = false
-      return
-    }
+// ── ResizeObserver：stick-to-bottom 补偿 ──
+// 当消息列表高度变化（字体加载、emoji 渲染、reconcile merge）时，
+// 如果仍在 stick-to-bottom 模式，自动保持底部
+function startStickObserver(token: number) {
+  stopStickObserver()
+  const el = scrollParent.value
+  if (!el) return
 
-    // 如果用户在底部附近，自动滚到底部
-    if (isNearBottom()) {
-      scrollToBottom()
-      showNewMessageHint.value = false
-    } else {
-      // 用户不在底部，显示新消息提示
-      showNewMessageHint.value = true
-    }
-  }
-})
+  stickObserver = new ResizeObserver(() => {
+    if (scrollTaskToken !== token) { stopStickObserver(); return }
+    if (scrollIntent.value !== 'stick-to-bottom') { stopStickObserver(); return }
+    el.scrollTop = el.scrollHeight
+  })
+  stickObserver.observe(el)
 
-// 滚动事件处理
+  // 稳定后停止 observer（避免无限观察）
+  stickTimeout = setTimeout(() => {
+    if (scrollTaskToken === token) stopStickObserver()
+  }, 2000)
+}
+
+function stopStickObserver() {
+  if (stickObserver) { stickObserver.disconnect(); stickObserver = null }
+  if (stickTimeout) { clearTimeout(stickTimeout); stickTimeout = null }
+}
+
+// ── 程序滚动标记 ──
+let isProgrammaticScroll = false
+
+// ── 滚动事件处理 ──
 function handleScroll() {
   if (!scrollParent.value) return
   const el = scrollParent.value
@@ -83,6 +125,16 @@ function handleScroll() {
   // 接近底部时隐藏新消息提示
   if (isNearBottom()) {
     showNewMessageHint.value = false
+    // 用户滚回底部，恢复 stick-to-bottom
+    if (scrollIntent.value === 'manual') {
+      scrollIntent.value = 'stick-to-bottom'
+    }
+  }
+
+  // 非程序滚动 + 离底超过阈值 → 用户在阅读历史
+  if (!isProgrammaticScroll && !isNearBottom()) {
+    scrollIntent.value = 'manual'
+    stopStickObserver()
   }
 
   // 接近顶部时加载更早消息
@@ -91,12 +143,79 @@ function handleScroll() {
   }
 }
 
-// 点击新消息提示
+// ── 消息变化监听 ──
+watch(() => props.messages.length, async (newLen, oldLen) => {
+  await nextTick()
+  if (!scrollParent.value) return
+
+  // 首次加载（peer switch 后 isInitialLoad 已通过 peerRef watcher 重置）
+  if (scrollIntent.value === 'stick-to-bottom' && newLen > 0 && (oldLen === undefined || oldLen === 0)) {
+    scheduleScrollToBottom('initial-load', props.peerRef)
+    return
+  }
+
+  // 消息数增加（非首次）
+  if (oldLen !== undefined && newLen > oldLen) {
+    // outgoing 消息 → 滚到底
+    const lastMsg = props.messages[props.messages.length - 1]
+    if (lastMsg?.is_outgoing) {
+      scrollIntent.value = 'stick-to-bottom'
+      scheduleScrollToBottom('outgoing', props.peerRef)
+      showNewMessageHint.value = false
+      return
+    }
+
+    // stick-to-bottom 模式（reconcile/force_refresh 后）
+    if (scrollIntent.value === 'stick-to-bottom') {
+      scheduleScrollToBottom('stick-to-bottom', props.peerRef)
+      return
+    }
+
+    // 用户在底部附近 → 自动滚底
+    if (isNearBottom()) {
+      scheduleScrollToBottom('near-bottom', props.peerRef)
+      showNewMessageHint.value = false
+    } else {
+      // 用户在看历史 → 显示新消息提示
+      showNewMessageHint.value = true
+    }
+  }
+})
+
+// ── Older Pagination Anchor ──
+// loadOlder 前调用，记录滚动位置
+function prepareOlderAnchor() {
+  if (!scrollParent.value) return
+  olderAnchorData = {
+    oldScrollHeight: scrollParent.value.scrollHeight,
+    oldScrollTop: scrollParent.value.scrollTop,
+  }
+  scrollIntent.value = 'preserve-position'
+}
+
+// loadOlder 完成后调用，恢复滚动位置
+function restoreOlderAnchor() {
+  if (!scrollParent.value || !olderAnchorData) return
+  const { oldScrollHeight, oldScrollTop } = olderAnchorData
+  nextTick().then(() => {
+    if (!scrollParent.value) return
+    requestAnimationFrame(() => {
+      if (!scrollParent.value) return
+      const newScrollHeight = scrollParent.value.scrollHeight
+      scrollParent.value.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight)
+      olderAnchorData = null
+    })
+  })
+}
+
+// ── 点击新消息提示 ──
 function handleClickNewMessage() {
-  scrollToBottom()
+  scrollIntent.value = 'stick-to-bottom'
+  scheduleScrollToBottom('manual-jump', props.peerRef)
   showNewMessageHint.value = false
 }
 
+// ── 日期分隔 ──
 function isNewDay(idx: number): boolean {
   if (idx === 0) return true
   const prev = new Date(props.messages[idx - 1].sent_at).toDateString()
@@ -109,6 +228,15 @@ function messageKey(msg: ChatMessage, idx: number): string {
   if (msg.local_id) return `local:${msg.local_id}`
   return `id:${msg.id}:${idx}`
 }
+
+// ── 清理 ──
+onBeforeUnmount(() => {
+  scrollTaskToken++
+  stopStickObserver()
+})
+
+// ── 暴露给父组件：older pagination 使用 ──
+defineExpose({ prepareOlderAnchor, restoreOlderAnchor })
 </script>
 
 <template>

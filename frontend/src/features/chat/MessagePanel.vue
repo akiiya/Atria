@@ -107,6 +107,7 @@ onMounted(() => {
   }
 })
 
+const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 const olderPages = ref<ChatMessage[]>([])
 const hasOlder = ref(true)
 const loadingOlder = ref(false)
@@ -151,6 +152,9 @@ async function loadOlder() {
   const oldestMsg = allMessages.value[0]
   if (!oldestMsg) return
 
+  // 记录滚动位置，用于 older pagination anchor
+  messageListRef.value?.prepareOlderAnchor()
+
   loadingOlder.value = true
   olderError.value = null
 
@@ -182,6 +186,9 @@ async function loadOlder() {
   } finally {
     loadingOlder.value = false
   }
+
+  // 恢复滚动位置
+  messageListRef.value?.restoreOlderAnchor()
 }
 
 function handleSent() {
@@ -212,6 +219,7 @@ function handleSent() {
     <div v-else class="message-body">
       <div v-if="isStale && isLoading" class="message-stale-hint">正在刷新...</div>
       <MessageList
+        ref="messageListRef"
         :messages="allMessages"
         :has-older="hasOlder"
         :loading-older="loadingOlder"
