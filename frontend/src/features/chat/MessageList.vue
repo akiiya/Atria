@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import type { ChatMessage, PeerType } from '@/types/chat'
+import { useI18n } from '@/i18n'
 import MessageBubble from './MessageBubble.vue'
 import ServiceMessage from './ServiceMessage.vue'
 import DateDivider from './DateDivider.vue'
@@ -15,6 +16,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ 'load-older': [] }>()
+
+const { t } = useI18n()
 
 const scrollParent = ref<HTMLElement | null>(null)
 const showNewMessageHint = ref(false)
@@ -277,7 +280,7 @@ onBeforeUnmount(() => {
   -->
   <div ref="scrollParent" class="message-scroll-container" @scroll="handleScroll" @wheel="handleWheel">
     <div v-if="messages.length === 0" class="message-empty">
-      暂无消息
+      {{ t('chat.noMessages') }}
     </div>
 
     <!-- 消息列表：反向迭代，使视觉顺序为旧→新（上→下） -->
@@ -290,13 +293,13 @@ onBeforeUnmount(() => {
     <!-- 加载更早消息提示（DOM 顶部 = column-reverse 视觉底部） -->
     <div v-if="loadingOlder" class="older-loading">
       <div class="older-loading-spinner"></div>
-      <span>加载历史消息...</span>
+      <span>{{ t('chat.loadingHistory') }}</span>
     </div>
     <div v-else-if="olderError" class="older-error">
       {{ olderError }}
     </div>
     <div v-else-if="!hasOlder && messages.length > 0" class="older-end">
-      — 已经到最早消息 —
+      — {{ t('chat.reachedOldest') }} —
     </div>
 
     <!-- 新消息提示 -->
@@ -306,7 +309,7 @@ onBeforeUnmount(() => {
         class="new-message-hint"
         @click="handleClickNewMessage"
       >
-        ↓ 有新消息
+        ↓ {{ t('chat.newMessages') }}
       </button>
     </Transition>
   </div>

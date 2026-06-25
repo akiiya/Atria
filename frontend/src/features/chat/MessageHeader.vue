@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 import { useQueryClient } from '@tanstack/vue-query'
 import { fetchMessages } from '@/api/chat'
+import { useI18n } from '@/i18n'
 
 const props = defineProps<{
   peerRef: string
@@ -18,6 +19,7 @@ const emit = defineEmits<{ refresh: [] }>()
 const router = useRouter()
 const chat = useChatStore()
 const queryClient = useQueryClient()
+const { t } = useI18n()
 
 function goBack() {
   chat.selectPeer(null)
@@ -43,7 +45,7 @@ function handleClick() {
     </div>
     <span
       :class="['sync-icon', syncing ? 'sync-loading' : stale ? 'sync-connecting' : 'sync-idle']"
-      :title="syncing ? '正在同步...' : stale ? '数据可能过期' : '已同步'"
+      :title="syncing ? t('chat.syncing') : stale ? t('chat.dataStale') : t('chat.synced')"
       @click="handleClick"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

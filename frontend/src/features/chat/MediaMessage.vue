@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { ChatMessage } from '@/types/chat'
+import { useI18n } from '@/i18n'
 
 defineProps<{ message: ChatMessage }>()
+
+const { t } = useI18n()
 
 function formatSize(bytes: number | undefined): string {
   if (!bytes) return ''
@@ -23,24 +26,24 @@ function formatDuration(sec: number | undefined): string {
     <div v-if="message.message_type === 'photo'" class="media-photo">
       <div class="media-placeholder">🖼️</div>
       <div v-if="message.caption" class="media-caption">{{ message.caption }}</div>
-      <div class="media-note">图片（预览暂未实现）</div>
+      <div class="media-note">{{ t('media.photoPlaceholder') }}</div>
     </div>
 
     <div v-else-if="message.message_type === 'document'" class="media-document">
       <div class="media-icon">📄</div>
       <div class="media-info">
-        <div class="media-filename">{{ message.media?.file_name || '未知文件' }}</div>
+        <div class="media-filename">{{ message.media?.file_name || t('media.unknownFile') }}</div>
         <div class="media-meta">
           {{ message.media?.mime_type || '' }}
           {{ message.media?.size ? ' · ' + formatSize(message.media.size) : '' }}
         </div>
       </div>
-      <button class="btn-sm" disabled title="下载暂未实现">下载</button>
+      <button class="btn-sm" disabled title="下载暂未实现">{{ t('media.download') }}</button>
     </div>
 
     <div v-else-if="message.message_type === 'sticker'" class="media-sticker">
       <div class="media-emoji">{{ message.media?.emoji || '🏷️' }}</div>
-      <div class="media-note">贴纸</div>
+      <div class="media-note">{{ t('media.sticker') }}</div>
     </div>
 
     <div v-else-if="message.message_type === 'video'" class="media-video">
@@ -50,22 +53,22 @@ function formatDuration(sec: number | undefined): string {
         <span v-if="message.media?.width"> · {{ message.media.width }}×{{ message.media.height }}</span>
       </div>
       <div v-if="message.caption" class="media-caption">{{ message.caption }}</div>
-      <div class="media-note">视频（播放暂未实现）</div>
+      <div class="media-note">{{ t('media.videoPlaceholder') }}</div>
     </div>
 
     <div v-else-if="message.message_type === 'voice'" class="media-voice">
       <div class="media-icon">🎤</div>
       <div class="media-info">
         <span v-if="message.media?.duration">{{ formatDuration(message.media.duration) }}</span>
-        <span v-else>语音消息</span>
+        <span v-else>{{ t('media.voiceMessage') }}</span>
       </div>
-      <div class="media-note">语音（播放暂未实现）</div>
+      <div class="media-note">{{ t('media.voicePlaceholder') }}</div>
     </div>
 
     <div v-else-if="message.message_type === 'audio'" class="media-audio">
       <div class="media-icon">🎵</div>
       <div class="media-info">
-        <div class="media-filename">{{ message.media?.file_name || '音频' }}</div>
+        <div class="media-filename">{{ message.media?.file_name || t('media.audio') }}</div>
         <div class="media-meta">
           {{ message.media?.duration ? formatDuration(message.media.duration) : '' }}
           {{ message.media?.size ? ' · ' + formatSize(message.media.size) : '' }}
