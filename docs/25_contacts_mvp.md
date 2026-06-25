@@ -128,8 +128,18 @@ type Contact struct {
 - 不记录完整手机号
 - API 复用现有 auth + CSRF 保护
 
+## 缓存策略
+
+联系人数据缓存在 `chat_peer_cache` 表中（`peer_type=user`），复用现有的 peer cache 机制。
+
+1. 首次调用 `GET /api/contacts` → 从 Telegram 获取 → 写入 `chat_peer_cache`
+2. 后续调用（`force_refresh=false`）→ 从 `chat_peer_cache` 读取（`source=cache, stale=true`）
+3. `force_refresh=true` → 跳过缓存，重新从 Telegram 获取并更新缓存
+4. Telegram 不可达时自动回退到缓存
+
+联系人写入 `chat_peer_cache` 后，chat 模块的 `GetMessages` 可以直接通过 `peer_ref` 查找 `access_hash`，无需依赖已有 dialog。
+
 ## 限制
 
-- 联系人数据直接从 Telegram 获取，无本地缓存
 - 不支持分页（Telegram contacts API 一次性返回全部）
 - 联系人数量多时前端搜索为纯客户端过滤

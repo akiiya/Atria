@@ -1306,9 +1306,11 @@ func TestGetContacts_ReturnsContactsWithHasDialog(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, adapter, slog.Default())
 
-	// 创建 peer cache 记录（模拟已有 dialog）
+	// 创建 Alice 的 peer cache（模拟已有 dialog）
+	now := time.Now()
 	db.Create(&model.ChatPeerCache{
 		AccountID: account.ID, PeerRef: "u_100", PeerType: "user", PeerID: 100, Title: "Alice",
+		LastMessageAt: &now,
 	})
 
 	result, err := svc.GetContacts(context.Background(), account.ID, true)
@@ -1335,6 +1337,55 @@ func TestGetContacts_ReturnsContactsWithHasDialog(t *testing.T) {
 	}
 	if bob.HasDialog {
 		t.Error("Bob should not have dialog")
+	}
+
+	// 验证 peer_cache 已写入 Bob（access_hash 被加密保存）
+	var bobCache model.ChatPeerCache
+	err = db.Where("peer_ref = ? AND account_id = ?", "u_200", account.ID).First(&bobCache).Error
+	if err != nil {
+		t.Fatalf("Bob should be in peer_cache: %v", err)
+	}
+	if bobCache.AccessHashEncrypted == "" {
+		t.Error("Bob's access_hash should be encrypted in peer_cache")
+	}
+	if bobCache.Title != "Bob" {
+		t.Errorf("Bob's title should be 'Bob', got '%s'", bobCache.Title)
+	}
+}
+
+func TestGetContacts_CacheFirst(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+
+	adapter := &FakeAdapter{
+		Contacts: []telegramclient.Contact{
+			{PeerRef: "u_100", PeerType: telegramclient.PeerTypeUser, DisplayName: "Alice", AccessHash: 100, PeerID: 100},
+		},
+	}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	// 第一次调用：从 Telegram 获取
+	result1, err := svc.GetContacts(context.Background(), account.ID, true)
+	if err != nil {
+		t.Fatalf("first GetContacts failed: %v", err)
+	}
+	if result1.Source != "telegram" {
+		t.Errorf("first call source should be 'telegram', got '%s'", result1.Source)
+	}
+
+	// 第二次调用（不 force_refresh）：应从缓存返回
+	result2, err := svc.GetContacts(context.Background(), account.ID, false)
+	if err != nil {
+		t.Fatalf("second GetContacts failed: %v", err)
+	}
+	if result2.Source != "cache" {
+		t.Errorf("second call source should be 'cache', got '%s'", result2.Source)
+	}
+	if !result2.Stale {
+		t.Error("cached result should be stale")
+	}
+	if len(result2.Contacts) != 1 {
+		t.Fatalf("cached contacts should have 1 entry, got %d", len(result2.Contacts))
 	}
 }
 
