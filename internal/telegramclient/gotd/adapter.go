@@ -869,10 +869,9 @@ func extractPhotoLocation(photoClass tg.PhotoClass) (tg.InputFileLocationClass, 
 }
 
 // downloadFileInChunks 分块下载文件。
-// Telegram API 要求 offset 和 limit 都必须是 4096 的倍数。
+// Telegram API 要求 limit 为 4096 的倍数且是 2 的幂（4096/8192/16384/.../1048576）。
 func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.InputFileLocationClass, totalSize int64) ([]byte, error) {
-	const chunkSize = 512 * 1024 // 512KB（4096 的倍数）
-	const alignSize = 4096
+	const chunkSize = 512 * 1024 // 512KB
 	var allData []byte
 	var offset int64
 
@@ -883,7 +882,7 @@ func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.Input
 		default:
 		}
 
-		// 计算 limit 并对齐到 4096
+		// 计算 limit，对齐到 2 的幂且是 4096 的倍数
 		limit := chunkSize
 		if totalSize > 0 {
 			remaining := totalSize - offset
@@ -891,15 +890,9 @@ func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.Input
 				return allData, nil
 			}
 			if int64(limit) > remaining {
-				// 向上取整到 4096 的倍数
-				limit = int((remaining + alignSize - 1) / alignSize * alignSize)
+				limit = alignToPowerOf2(int(remaining))
 			}
 		}
-		// 确保 limit 至少为 4096 且是 4096 的倍数
-		if limit < alignSize {
-			limit = alignSize
-		}
-		limit = limit / alignSize * alignSize
 
 		result, err := api.UploadGetFile(ctx, &tg.UploadGetFileRequest{
 			Location: location,
@@ -914,7 +907,6 @@ func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.Input
 		case *tg.UploadFile:
 			allData = append(allData, r.Bytes...)
 			offset += int64(len(r.Bytes))
-			// 如果返回的数据小于请求的大小，说明已下载完成
 			if len(r.Bytes) < limit {
 				return allData, nil
 			}
@@ -922,9 +914,25 @@ func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.Input
 			return nil, fmt.Errorf("未知的上传结果类型: %T", result)
 		}
 
-		// 如果指定了总大小且已下载完成
 		if totalSize > 0 && offset >= totalSize {
 			return allData, nil
 		}
 	}
+}
+
+// alignToPowerOf2 将字节数向上取整到最近的 2 的幂（且是 4096 的倍数）。
+// Telegram 要求 limit 为 4096 的倍数，实际测试需要是 2 的幂。
+func alignToPowerOf2(n int) int {
+	if n <= 4096 {
+		return 4096
+	}
+	// 向上取整到最近的 2 的幂
+	power := 4096
+	for power < n && power < 1048576 {
+		power *= 2
+	}
+	if power > 1048576 {
+		power = 1048576
+	}
+	return power
 }
