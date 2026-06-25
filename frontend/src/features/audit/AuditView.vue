@@ -34,16 +34,8 @@ const filterRiskLevel = ref('')
 const offset = ref(0)
 const limit = 50
 
-const filters = computed(() => ({
-  action: filterAction.value,
-  account_id: filterAccountId.value,
-  risk_level: filterRiskLevel.value,
-  offset: offset.value,
-  limit,
-}))
-
 const { data, isLoading, error, refetch } = useQuery({
-  queryKey: computed(() => ['audit-logs', filters.value]),
+  queryKey: computed(() => ['audit-logs', filterAction.value, filterAccountId.value, filterRiskLevel.value, offset.value]),
   queryFn: () => {
     let url = `/api/audit?limit=${limit}&offset=${offset.value}`
     if (filterAction.value) url += `&action=${encodeURIComponent(filterAction.value)}`
@@ -58,7 +50,6 @@ const logs = computed(() => data.value?.logs || [])
 const total = computed(() => data.value?.total || 0)
 const hasMore = computed(() => offset.value + limit < total.value)
 
-// 预定义的事件类型（用于筛选下拉）
 const eventTypes = [
   { value: '', label: '全部类型' },
   { value: 'admin.login', label: '管理员登录' },
@@ -88,20 +79,16 @@ function resetFilters() {
   filterAction.value = ''
   filterAccountId.value = ''
   filterRiskLevel.value = ''
-  offset.value = 0
 }
 
 function nextPage() {
-  if (hasMore.value) {
-    offset.value += limit
-  }
+  if (hasMore.value) offset.value += limit
 }
 
 function prevPage() {
   offset.value = Math.max(0, offset.value - limit)
 }
 
-// 筛选变化时重置分页
 watch([filterAction, filterAccountId, filterRiskLevel], () => {
   offset.value = 0
 })
@@ -129,39 +116,45 @@ function actionLabel(action: string): string {
 </script>
 
 <template>
-  <div class="audit-page">
-    <div class="audit-header">
-      <h1 class="audit-title">审计日志</h1>
-      <span class="audit-count" v-if="total > 0">共 {{ total }} 条</span>
+  <div>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <h1 class="page-title">审计日志</h1>
+        <p class="page-desc">系统操作记录与安全追踪</p>
+      </div>
+      <span v-if="total > 0" style="font-size:13px;color:var(--text-secondary);">共 {{ total }} 条</span>
     </div>
 
     <!-- 筛选栏 -->
-    <div class="audit-filters">
-      <select v-model="filterAction" class="filter-select">
-        <option v-for="t in eventTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
-      </select>
-      <select v-model="filterRiskLevel" class="filter-select">
-        <option v-for="r in riskLevels" :key="r.value" :value="r.value">{{ r.label }}</option>
-      </select>
-      <input
-        v-model="filterAccountId"
-        class="filter-input"
-        type="text"
-        placeholder="账号 ID"
-      />
-      <button class="btn-text" @click="resetFilters">重置</button>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;">
+        <select v-model="filterAction" class="form-input" style="width:auto;min-width:140px;padding:6px 10px;font-size:13px;">
+          <option v-for="t in eventTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
+        </select>
+        <select v-model="filterRiskLevel" class="form-input" style="width:auto;min-width:100px;padding:6px 10px;font-size:13px;">
+          <option v-for="r in riskLevels" :key="r.value" :value="r.value">{{ r.label }}</option>
+        </select>
+        <input
+          v-model="filterAccountId"
+          class="form-input"
+          type="text"
+          placeholder="账号 ID"
+          style="width:100px;min-width:80px;padding:6px 10px;font-size:13px;"
+        />
+        <button class="btn btn-sm btn-outline" @click="resetFilters">重置</button>
+      </div>
     </div>
 
     <!-- 加载中 -->
-    <div v-if="isLoading"><LoadingSkeleton /></div>
+    <div v-if="isLoading" class="card"><div class="card-body"><LoadingSkeleton /></div></div>
 
     <!-- 错误 -->
-    <div v-else-if="error" class="audit-body">
+    <div v-else-if="error">
       <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
     </div>
 
     <!-- 空列表 -->
-    <div v-else-if="logs.length === 0" class="audit-body">
+    <div v-else-if="logs.length === 0" class="card">
       <EmptyState
         icon="📋"
         title="暂无审计事件"
@@ -186,164 +179,26 @@ function actionLabel(action: string): string {
           </thead>
           <tbody>
             <tr v-for="log in logs" :key="log.id">
-              <td class="col-time">{{ formatTime(log.created_at) }}</td>
-              <td><span class="action-tag">{{ actionLabel(log.action) }}</span></td>
-              <td class="col-resource">{{ log.resource_type }}<span v-if="log.resource_id"> #{{ log.resource_id }}</span></td>
-              <td class="col-account">{{ log.account_id || '-' }}</td>
+              <td style="color:var(--text-secondary);white-space:nowrap;font-size:12px;">{{ formatTime(log.created_at) }}</td>
+              <td><span style="font-size:12px;font-weight:500;padding:1px 6px;border-radius:4px;background:var(--bg-tertiary);">{{ actionLabel(log.action) }}</span></td>
+              <td style="font-family:var(--font-mono,monospace);font-size:12px;">{{ log.resource_type }}<span v-if="log.resource_id"> #{{ log.resource_id }}</span></td>
+              <td style="font-size:12px;color:var(--text-secondary);">{{ log.account_id || '-' }}</td>
               <td>
-                <span :class="['badge', riskBadgeClass(log.risk_level)]">
-                  {{ log.risk_level }}
-                </span>
+                <span :class="['badge', riskBadgeClass(log.risk_level)]">{{ log.risk_level }}</span>
               </td>
-              <td class="col-ip">{{ log.ip || '-' }}</td>
-              <td class="col-message" :title="log.message">{{ log.message }}</td>
+              <td style="color:var(--text-secondary);font-size:12px;font-family:var(--font-mono,monospace);">{{ log.ip || '-' }}</td>
+              <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text-secondary);" :title="log.message">{{ log.message }}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <!-- 分页 -->
-      <div class="audit-pagination">
-        <button class="btn-text" :disabled="offset === 0" @click="prevPage">← 上一页</button>
-        <span class="pagination-info">
-          {{ offset + 1 }}-{{ Math.min(offset + limit, total) }} / {{ total }}
-        </span>
-        <button class="btn-text" :disabled="!hasMore" @click="nextPage">下一页 →</button>
+      <div style="display:flex;align-items:center;justify-content:center;gap:16px;padding:12px 16px;border-top:1px solid var(--border-color);">
+        <button class="btn btn-sm btn-outline" :disabled="offset === 0" @click="prevPage">← 上一页</button>
+        <span style="font-size:13px;color:var(--text-secondary);">{{ offset + 1 }}-{{ Math.min(offset + limit, total) }} / {{ total }}</span>
+        <button class="btn btn-sm btn-outline" :disabled="!hasMore" @click="nextPage">下一页 →</button>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.audit-page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 16px;
-}
-
-.audit-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 0 8px;
-}
-
-.audit-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.audit-count {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.audit-filters {
-  display: flex;
-  gap: 8px;
-  padding: 8px 0 16px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.filter-select,
-.filter-input {
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: var(--font-sans);
-  outline: none;
-  min-width: 120px;
-}
-
-.filter-select:focus,
-.filter-input:focus {
-  border-color: var(--accent-color);
-}
-
-.filter-input {
-  width: 100px;
-  min-width: 80px;
-}
-
-.btn-text {
-  background: none;
-  border: none;
-  color: var(--accent-color);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  transition: background 0.15s;
-}
-
-.btn-text:hover {
-  background: var(--bg-secondary);
-}
-
-.btn-text:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.audit-body {
-  padding: 20px 0;
-}
-
-.col-time {
-  color: var(--text-secondary);
-  white-space: nowrap;
-  font-size: 12px;
-}
-
-.col-resource {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-}
-
-.col-account {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.col-ip {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: var(--font-mono, monospace);
-}
-
-.col-message {
-  max-width: 250px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.action-tag {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--bg-secondary);
-}
-
-.audit-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-color);
-}
-
-.pagination-info {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-</style>
