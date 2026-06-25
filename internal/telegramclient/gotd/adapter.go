@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gotd/td/telegram/dcs"
@@ -675,8 +677,8 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 	var mimeType string
 	var fileSize int64
 
-	// 尝试通过 ChannelsGetMessages 获取（channel/chat 类型）
-	if req.PeerType == telegramclient.PeerTypeChannel {
+	// 尝试通过 ChannelsGetMessages 获取（channel/supergroup 类型）
+	if req.PeerType == telegramclient.PeerTypeChannel || req.PeerType == telegramclient.PeerTypeSupergroup {
 		inputChannel := &tg.InputChannel{
 			ChannelID:  req.PeerID,
 			AccessHash: req.AccessHash,
@@ -690,12 +692,24 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 		if err != nil {
 			return telegramclient.DownloadMediaResult{}, fmt.Errorf("获取消息失败: %w", err)
 		}
-		messages, ok := result.(*tg.MessagesChannelMessages)
-		if !ok || len(messages.Messages) == 0 {
-			return telegramclient.DownloadMediaResult{}, fmt.Errorf("消息不存在")
+		// ChannelsGetMessages 可能返回多种类型
+		var msg *tg.Message
+		switch r := result.(type) {
+		case *tg.MessagesChannelMessages:
+			if len(r.Messages) == 0 {
+				return telegramclient.DownloadMediaResult{}, fmt.Errorf("消息不存在")
+			}
+			msg, _ = r.Messages[0].(*tg.Message)
+		case *tg.MessagesMessages:
+			if len(r.Messages) > 0 {
+				msg, _ = r.Messages[0].(*tg.Message)
+			}
+		case *tg.MessagesMessagesSlice:
+			if len(r.Messages) > 0 {
+				msg, _ = r.Messages[0].(*tg.Message)
+			}
 		}
-		msg, ok := messages.Messages[0].(*tg.Message)
-		if !ok || msg.Media == nil {
+		if msg == nil || msg.Media == nil {
 			return telegramclient.DownloadMediaResult{}, fmt.Errorf("消息无媒体内容")
 		}
 		inputFileLocation, fileName, mimeType, fileSize = extractFileLocationFromMedia(msg.Media)
@@ -746,12 +760,28 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 		return telegramclient.DownloadMediaResult{}, fmt.Errorf("下载文件失败: %w", err)
 	}
 
-	// 保存到本地（调用方负责目录创建和路径管理）
-	// 这里返回数据，由上层 service 负责写入文件
-	// 为简化，这里直接返回成功标记，实际文件写入在 media service 中完成
-	_ = data
+	// 保存到本地文件
+	safeName := fileName
+	if safeName == "" {
+		safeName = fmt.Sprintf("%d", req.MessageID)
+	}
+	outputDir := req.OutputDir
+	if outputDir == "" {
+		return telegramclient.DownloadMediaResult{}, fmt.Errorf("未指定输出目录")
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return telegramclient.DownloadMediaResult{}, fmt.Errorf("创建目录失败: %w", err)
+	}
+	filePath := filepath.Join(outputDir, safeName)
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+		return telegramclient.DownloadMediaResult{}, fmt.Errorf("写入文件失败: %w", err)
+	}
+
+	// 返回相对于 dataDir 的路径
+	relPath := filepath.Join("media", fmt.Sprintf("%d", req.AccountID), req.PeerRef, fmt.Sprintf("%d", req.MessageID), safeName)
 
 	return telegramclient.DownloadMediaResult{
+		FilePath: relPath,
 		FileName: fileName,
 		MIMEType: mimeType,
 		Size:     fileSize,
@@ -795,8 +825,10 @@ func extractFileLocationFromMedia(media tg.MessageMediaClass) (tg.InputFileLocat
 }
 
 // downloadFileInChunks 分块下载文件。
+// Telegram API 要求 offset 和 limit 都必须是 4096 的倍数。
 func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.InputFileLocationClass, totalSize int64) ([]byte, error) {
-	const chunkSize = 512 * 1024 // 512KB
+	const chunkSize = 512 * 1024 // 512KB（4096 的倍数）
+	const alignSize = 4096
 	var allData []byte
 	var offset int64
 
@@ -807,10 +839,23 @@ func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.Input
 		default:
 		}
 
+		// 计算 limit 并对齐到 4096
 		limit := chunkSize
-		if totalSize > 0 && offset+int64(limit) > totalSize {
-			limit = int(totalSize - offset)
+		if totalSize > 0 {
+			remaining := totalSize - offset
+			if remaining <= 0 {
+				return allData, nil
+			}
+			if int64(limit) > remaining {
+				// 向上取整到 4096 的倍数
+				limit = int((remaining + alignSize - 1) / alignSize * alignSize)
+			}
 		}
+		// 确保 limit 至少为 4096 且是 4096 的倍数
+		if limit < alignSize {
+			limit = alignSize
+		}
+		limit = limit / alignSize * alignSize
 
 		result, err := api.UploadGetFile(ctx, &tg.UploadGetFileRequest{
 			Location: location,
@@ -818,7 +863,7 @@ func downloadFileInChunks(ctx context.Context, api *tg.Client, location tg.Input
 			Limit:    limit,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("下载分块失败 (offset=%d): %w", offset, err)
+			return nil, fmt.Errorf("下载分块失败 (offset=%d, limit=%d): %w", offset, limit, err)
 		}
 
 		switch r := result.(type) {
