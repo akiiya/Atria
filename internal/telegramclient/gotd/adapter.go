@@ -846,19 +846,24 @@ func extractPhotoLocation(photoClass tg.PhotoClass) (tg.InputFileLocationClass, 
 		return nil, "", "", 0
 	}
 	photo, ok := photoClass.(*tg.Photo)
-	if !ok || len(photo.Sizes) == 0 {
+	if !ok {
+		// PhotoClass 可能是 PhotoEmpty
 		return nil, "", "", 0
 	}
-	// 取最大的尺寸
-	best := photo.Sizes[len(photo.Sizes)-1]
-	if s, ok := best.(*tg.PhotoSize); ok {
-		loc := &tg.InputPhotoFileLocation{
-			ID:            photo.ID,
-			AccessHash:    photo.AccessHash,
-			FileReference: photo.FileReference,
-			ThumbSize:     s.Type,
+	if len(photo.Sizes) == 0 {
+		return nil, "", "", 0
+	}
+	// 取最大的尺寸（跳过非 PhotoSize 类型，如 PhotoStrippedSize、PhotoPathSize）
+	for i := len(photo.Sizes) - 1; i >= 0; i-- {
+		if s, ok := photo.Sizes[i].(*tg.PhotoSize); ok {
+			loc := &tg.InputPhotoFileLocation{
+				ID:            photo.ID,
+				AccessHash:    photo.AccessHash,
+				FileReference: photo.FileReference,
+				ThumbSize:     s.Type,
+			}
+			return loc, "", "image/jpeg", int64(s.Size)
 		}
-		return loc, "", "image/jpeg", int64(s.Size)
 	}
 	return nil, "", "", 0
 }
