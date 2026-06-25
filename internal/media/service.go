@@ -187,6 +187,9 @@ func (s *Service) DownloadMedia(ctx context.Context, accountID uint, peerRef str
 		return nil, err
 	}
 
+	// 构造输出目录
+	outputDir := filepath.Join(s.dataDir, "media", fmt.Sprintf("%d", accountID), peerRef, fmt.Sprintf("%d", messageID))
+
 	// 通过 adapter 下载
 	result, err := s.adapter.DownloadMedia(ctx, telegramclient.DownloadMediaRequest{
 		AccountID:       accountID,
@@ -198,6 +201,7 @@ func (s *Service) DownloadMedia(ctx context.Context, accountID uint, peerRef str
 		PeerID:          peerID,
 		PeerType:        telegramclient.PeerType(peerType),
 		AccessHash:      accessHash,
+		OutputDir:       outputDir,
 	})
 
 	if err != nil {

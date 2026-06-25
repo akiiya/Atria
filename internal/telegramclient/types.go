@@ -229,6 +229,7 @@ type DownloadMediaRequest struct {
 	PeerID          int64
 	PeerType        PeerType
 	AccessHash      int64
+	OutputDir       string // 媒体缓存目录，adapter 负责写入文件
 }
 
 // DownloadMediaResult 是下载结果。
