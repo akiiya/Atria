@@ -809,14 +809,37 @@ func (e *ChatError) Error() string {
 }
 
 // GetContacts 获取联系人列表（cache-first）。
+// 联系人缓存在 chat_peer_cache 表中（peer_type=user），
+// 同时确保 peer_cache 包含 access_hash，以便无 dialog 联系人也能正常进入聊天。
 func (s *ChatService) GetContacts(ctx context.Context, accountID uint, forceRefresh bool) (*ContactsResult, error) {
+	start := time.Now()
+
+	// cache-first：从 chat_peer_cache 读取已缓存的联系人
+	cachedContacts := s.getContactsFromCache(accountID)
+	if !forceRefresh && len(cachedContacts) > 0 {
+		s.logger.Info("GetContacts 缓存命中",
+			"operation", "get_contacts",
+			"account_id", accountID,
+			"source", "cache",
+			"count", len(cachedContacts),
+			"duration_ms", msSince(start),
+		)
+		return &ContactsResult{Contacts: cachedContacts, Source: "cache", Stale: true}, nil
+	}
+
 	account, cred, err := s.getAccountAndCredential(accountID)
 	if err != nil {
+		if len(cachedContacts) > 0 {
+			return &ContactsResult{Contacts: cachedContacts, Source: "cache", Stale: true}, nil
+		}
 		return nil, err
 	}
 
 	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
 	if err != nil {
+		if len(cachedContacts) > 0 {
+			return &ContactsResult{Contacts: cachedContacts, Source: "cache", Stale: true}, nil
+		}
 		return nil, &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
 	}
 
@@ -827,46 +850,138 @@ func (s *ChatService) GetContacts(ctx context.Context, accountID uint, forceRefr
 		SessionFilePath: account.Session.SessionFilePath,
 	})
 	if err != nil {
+		if len(cachedContacts) > 0 {
+			s.logger.Warn("Telegram 获取联系人失败，返回缓存", "error", err, "duration_ms", msSince(start))
+			return &ContactsResult{Contacts: cachedContacts, Source: "cache", Stale: true}, nil
+		}
 		return nil, s.classifyError(err)
 	}
 
-	// 构建 peer_ref 集合，用于判断是否已有 dialog
-	peerRefs := make(map[string]bool)
+	// 将联系人写入 peer_cache，确保 access_hash 可用于后续聊天
+	for _, c := range result.Contacts {
+		s.upsertPeerCacheFromContact(accountID, &c)
+	}
+
+	// 构建联系人列表，判断 has_dialog
+	contacts := s.buildContactsList(accountID, result.Contacts)
+
+	source := "telegram"
+	if len(cachedContacts) > 0 {
+		source = "mixed"
+	}
+
+	s.logger.Info("GetContacts 完成",
+		"operation", "get_contacts",
+		"account_id", accountID,
+		"source", source,
+		"count", len(contacts),
+		"duration_ms", msSince(start),
+	)
+
+	return &ContactsResult{Contacts: contacts, Source: source, Stale: false}, nil
+}
+
+// getContactsFromCache 从 chat_peer_cache 读取联系人（peer_type=user）。
+func (s *ChatService) getContactsFromCache(accountID uint) []Contact {
 	var peers []model.ChatPeerCache
-	if err := s.db.Where("account_id = ?", accountID).Find(&peers).Error; err == nil {
-		for _, p := range peers {
-			peerRefs[p.PeerRef] = true
+	if err := s.db.Where("account_id = ? AND peer_type = ?", accountID, "user").
+		Order("title ASC").Find(&peers).Error; err != nil {
+		return nil
+	}
+	if len(peers) == 0 {
+		return nil
+	}
+
+	// 构建 dialog 集合（有 last_message_at 的 peer 视为已有 dialog）
+	dialogRefs := make(map[string]bool)
+	var allPeers []model.ChatPeerCache
+	if err := s.db.Where("account_id = ?", accountID).Find(&allPeers).Error; err == nil {
+		for _, p := range allPeers {
+			if p.LastMessageAt != nil {
+				dialogRefs[p.PeerRef] = true
+			}
 		}
 	}
 
-	contacts := make([]Contact, 0, len(result.Contacts))
-	for _, c := range result.Contacts {
+	contacts := make([]Contact, 0, len(peers))
+	for _, p := range peers {
+		contacts = append(contacts, Contact{
+			PeerRef:       p.PeerRef,
+			DisplayName:   p.Title,
+			Username:      p.Username,
+			AvatarInitial: getInitial(p.Title),
+			HasDialog:     dialogRefs[p.PeerRef],
+		})
+	}
+	return contacts
+}
+
+// upsertPeerCacheFromContact 从联系人数据写入 peer_cache。
+// 确保 access_hash 被加密保存，以便后续聊天 API 使用。
+func (s *ChatService) upsertPeerCacheFromContact(accountID uint, c *telegramclient.Contact) {
+	if c.PeerRef == "" || c.AccessHash == 0 {
+		return
+	}
+
+	encrypted, err := s.encryptAccessHash(c.AccessHash)
+	if err != nil {
+		s.logger.Error("加密联系人 access_hash 失败", "error", err, "peer_ref", c.PeerRef)
+		return
+	}
+
+	cache := model.ChatPeerCache{
+		AccountID:           accountID,
+		PeerRef:             c.PeerRef,
+		PeerType:            string(c.PeerType),
+		PeerID:              c.PeerID,
+		AccessHashEncrypted: encrypted,
+		Title:               c.DisplayName,
+		Username:            c.Username,
+	}
+
+	var existing model.ChatPeerCache
+	err = s.db.Where("peer_ref = ? AND account_id = ?", c.PeerRef, accountID).First(&existing).Error
+	if err == gorm.ErrRecordNotFound {
+		s.db.Create(&cache)
+	} else if err == nil {
+		s.db.Model(&existing).Updates(map[string]any{
+			"access_hash_encrypted": encrypted,
+			"title":                 c.DisplayName,
+			"username":              c.Username,
+		})
+	}
+}
+
+// buildContactsList 从 Telegram 返回的联系人构建最终列表。
+func (s *ChatService) buildContactsList(accountID uint, tcContacts []telegramclient.Contact) []Contact {
+	// 构建 dialog 集合
+	dialogRefs := make(map[string]bool)
+	var peers []model.ChatPeerCache
+	if err := s.db.Where("account_id = ?", accountID).Find(&peers).Error; err == nil {
+		for _, p := range peers {
+			if p.LastMessageAt != nil {
+				dialogRefs[p.PeerRef] = true
+			}
+		}
+	}
+
+	contacts := make([]Contact, 0, len(tcContacts))
+	for _, c := range tcContacts {
 		contacts = append(contacts, Contact{
 			PeerRef:       c.PeerRef,
 			DisplayName:   c.DisplayName,
 			Username:      c.Username,
 			Phone:         c.Phone,
 			AvatarInitial: c.AvatarText,
-			HasDialog:     peerRefs[c.PeerRef],
+			HasDialog:     dialogRefs[c.PeerRef],
 		})
 	}
 
-	// 按 DisplayName 排序
 	sort.Slice(contacts, func(i, j int) bool {
 		return contacts[i].DisplayName < contacts[j].DisplayName
 	})
 
-	s.logger.Info("GetContacts 完成",
-		"operation", "get_contacts",
-		"account_id", accountID,
-		"count", len(contacts),
-	)
-
-	return &ContactsResult{
-		Contacts: contacts,
-		Source:   string(result.Source),
-		Stale:    result.Stale,
-	}, nil
+	return contacts
 }
 
 // mapNeutralDialogToChatDialog 将中立 Dialog DTO 转换为 chat 包内部 Dialog。
