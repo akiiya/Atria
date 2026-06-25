@@ -1226,3 +1226,172 @@ func TestChatCacheAPI_DoesNotReturnProxyPassword(t *testing.T) {
 		t.Error("聊天 API 不应包含 proxy_password 字段")
 	}
 }
+
+// ===== 媒体安全测试 =====
+
+func TestMediaStatus_RequiresPeerRef(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 缺少 peer_ref 应返回错误
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/media/123/status", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":false`) && !strings.Contains(body, "peer_ref") {
+		t.Errorf("缺少 peer_ref 应返回错误，实际: %s", body)
+	}
+}
+
+func TestMediaStatus_RequiresMessageID(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// message_id=0 应返回错误
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/media/0/status?peer_ref=u_123", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":false`) && !strings.Contains(body, "message_id") {
+		t.Errorf("message_id=0 应返回错误，实际: %s", body)
+	}
+}
+
+func TestMediaContent_RequiresAuth(t *testing.T) {
+	r, _ := setupTestRouter(t)
+
+	// 未登录应返回 401
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/media/123/content?peer_ref=u_123", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Error("未登录应返回非 200 状态码")
+	}
+}
+
+func TestMediaDownload_RequiresCSRF(t *testing.T) {
+	r, _ := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 无 CSRF 应返回 403
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/media/123/download?peer_ref=u_123", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("无 CSRF 应返回 403，实际: %d", w.Code)
+	}
+}
+
+func TestMaintenanceStatus_IncludesMediaStats(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 添加一条媒体缓存记录
+	srv.db.Create(&model.MediaCache{
+		AccountID:         1,
+		PeerRef:           "u_123",
+		TelegramMessageID: 456,
+		FileName:          "test.jpg",
+		MIMEType:          "image/jpeg",
+		FileSize:          1024,
+		Status:            "cached",
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/maintenance/status", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"media_record_count"`) {
+		t.Errorf("maintenance status 应包含 media_record_count，实际: %s", body)
+	}
+	if !strings.Contains(body, `"media_cached_count"`) {
+		t.Errorf("maintenance status 应包含 media_cached_count，实际: %s", body)
+	}
+	if !strings.Contains(body, `"media_total_size"`) {
+		t.Errorf("maintenance status 应包含 media_total_size，实际: %s", body)
+	}
+}
+
+func TestMaintenanceCleanupMediaCache_DryRunDoesNotDelete(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+	csrfToken := refreshCSRF(t, r, sessionCookie)
+
+	// 添加一条媒体缓存记录
+	srv.db.Create(&model.MediaCache{
+		AccountID:         1,
+		PeerRef:           "u_123",
+		TelegramMessageID: 456,
+		FileName:          "test.jpg",
+		MIMEType:          "image/jpeg",
+		FileSize:          1024,
+		Status:            "cached",
+	})
+
+	// dry-run 不应删除
+	w := httptest.NewRecorder()
+	reqBody := `{"dry_run": true}`
+	req, _ := http.NewRequest("POST", "/api/maintenance/cleanup/media-cache", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfToken)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie+"; atria_csrf="+csrfToken)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"dry_run":true`) && !strings.Contains(body, `"dry_run": true`) {
+		t.Errorf("应返回 dry_run=true，实际: %s", body)
+	}
+
+	// 验证记录未被删除
+	var count int64
+	srv.db.Model(&model.MediaCache{}).Count(&count)
+	if count != 1 {
+		t.Errorf("dry-run 不应删除记录，实际记录数: %d", count)
+	}
+}
+
+func TestMediaAudit_DoesNotLeakLocalPath(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 添加一条媒体缓存记录（含 local_path）
+	srv.db.Create(&model.MediaCache{
+		AccountID:         1,
+		PeerRef:           "u_123",
+		TelegramMessageID: 456,
+		FileName:          "test.jpg",
+		MIMEType:          "image/jpeg",
+		FileSize:          1024,
+		LocalPath:         "media/1/u_123/456/test.jpg",
+		Status:            "cached",
+	})
+
+	// 查询审计日志中不应包含 local_path
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/audit?action=media.download", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "media/1/u_123/456/test.jpg") {
+		t.Error("审计日志不应包含 local_path")
+	}
+	if strings.Contains(body, "access_hash") {
+		t.Error("审计日志不应包含 access_hash")
+	}
+}

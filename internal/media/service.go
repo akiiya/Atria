@@ -29,7 +29,21 @@ type Service struct {
 	adapter telegramclient.ClientAdapter
 	dataDir string
 	logger  *slog.Logger
-	mu      sync.Mutex // 防止并发下载同一文件
+	// per-file 锁：按 "accountID:peerRef:messageID" 加锁，避免全局锁阻塞不同文件下载
+	locks sync.Map
+}
+
+// lockKey 生成 per-file 锁的 key。
+func lockKey(accountID uint, peerRef string, messageID int) string {
+	return fmt.Sprintf("%d:%s:%d", accountID, peerRef, messageID)
+}
+
+// acquireLock 获取指定文件的锁。
+func (s *Service) acquireLock(key string) *sync.Mutex {
+	val, _ := s.locks.LoadOrStore(key, &sync.Mutex{})
+	mu := val.(*sync.Mutex)
+	mu.Lock()
+	return mu
 }
 
 // NewService 创建媒体服务。
@@ -51,6 +65,27 @@ func (s *Service) recoverStaleDownloads() {
 	if result.RowsAffected > 0 {
 		s.logger.Warn("恢复卡住的媒体下载", "count", result.RowsAffected)
 	}
+}
+
+// isPathInsideDir 检查 targetPath 是否在 baseDir 内。
+// 使用 filepath.Rel 而非字符串 HasPrefix，防止 /data/media_evil 绕过 /data/media。
+func isPathInsideDir(baseDir, targetPath string) bool {
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return false
+	}
+	absTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return false
+	}
+	// rel 不能是 "."（就是 baseDir 本身，不允许读取目录）
+	// rel 不能以 ".." 开头（在 baseDir 之外）
+	// rel 不能是绝对路径
+	return rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
 // sanitizeLocalPath 防止路径穿越。
@@ -114,9 +149,9 @@ func (s *Service) GetMediaStatus(ctx context.Context, accountID uint, peerRef st
 
 // DownloadMedia 下载媒体文件并缓存。
 func (s *Service) DownloadMedia(ctx context.Context, accountID uint, peerRef string, messageID int, peerID int64, peerType string, accessHash int64, apiID int, apiHash string, sessionPath string) (*DownloadResult, error) {
-	// 防止并发下载同一文件
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// per-file 锁：只阻塞同一文件的并发下载
+	mu := s.acquireLock(lockKey(accountID, peerRef, messageID))
+	defer mu.Unlock()
 
 	// 检查已有缓存
 	var cache model.MediaCache
@@ -174,8 +209,8 @@ func (s *Service) DownloadMedia(ctx context.Context, accountID uint, peerRef str
 		return nil, err
 	}
 
-	// 检查文件大小限制
-	if result.Size > MaxFileSize {
+	// 检查文件大小限制（size>0 时才检查，size=0 表示大小未知）
+	if result.Size > 0 && result.Size > MaxFileSize {
 		s.db.Model(&cache).Updates(map[string]any{
 			"status":        "failed",
 			"error_message": "file too large",
@@ -221,10 +256,8 @@ func (s *Service) GetMediaContent(ctx context.Context, accountID uint, peerRef s
 
 	fullPath := filepath.Join(s.dataDir, cleanPath)
 
-	// 确保解析后的路径仍在 dataDir 内
-	absDataDir, _ := filepath.Abs(s.dataDir)
-	absFullPath, _ := filepath.Abs(fullPath)
-	if !strings.HasPrefix(absFullPath, absDataDir) {
+	// 路径边界校验：确保解析后的路径仍在 dataDir 内
+	if !isPathInsideDir(s.dataDir, fullPath) {
 		return "", "", "", fmt.Errorf("path traversal detected")
 	}
 
@@ -299,9 +332,7 @@ func (s *Service) CleanupCache(ctx context.Context, accountID uint, peerRef stri
 			cleanPath := sanitizeLocalPath(rec.LocalPath)
 			if cleanPath != "" {
 				fullPath := filepath.Join(s.dataDir, cleanPath)
-				absDataDir, _ := filepath.Abs(s.dataDir)
-				absFullPath, _ := filepath.Abs(fullPath)
-				if strings.HasPrefix(absFullPath, absDataDir) {
+				if isPathInsideDir(s.dataDir, fullPath) {
 					if err := os.Remove(fullPath); err == nil {
 						result.FileCount++
 						result.TotalSize += rec.FileSize
