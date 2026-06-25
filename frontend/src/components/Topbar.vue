@@ -163,7 +163,7 @@ onUnmounted(() => {
         <button class="theme-btn" :class="{ active: app.theme === 'system' }" @click="app.setTheme('system')" :title="t('topbar.themeSystem')">💻</button>
       </div>
 
-      <div class="lang-switcher">
+      <div class="lang-switcher" style="position:relative;">
         <button class="theme-btn" @click="toggleLangMenu" title="Language">🌐</button>
         <div :class="['settings-dropdown', { show: showLangMenu }]">
           <a v-for="loc in locales" :key="loc.code"
