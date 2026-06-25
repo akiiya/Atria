@@ -245,6 +245,15 @@ export const de: Record<string, string> = {
   'maintenance.messages': 'Nachrichten-Cache',
   'maintenance.willDelete': '{peers} Peer-Cache und {messages} Nachrichten-Cache werden gelöscht',
   'maintenance.deleted': '{peers} Peer-Cache und {messages} Nachrichten-Cache gelöscht',
+  'maintenance.mediaCache': 'Medien-Cache',
+  'maintenance.mediaRecords': 'Einträge',
+  'maintenance.mediaCached': 'Zwischengespeichert',
+  'maintenance.mediaFailed': 'Fehlgeschlagen',
+  'maintenance.mediaTotalSize': 'Gesamtgröße',
+  'maintenance.cleanupMediaCache': 'Medien-Cache bereinigen',
+  'maintenance.cleanupMediaCacheDesc': 'Zwischengespeicherte Medien-Dateien und Metadaten entfernen',
+  'maintenance.onlyFailed': 'Nur fehlgeschlagene/abgelaufene',
+  'maintenance.mediaCleaned': '{records} Einträge und {files} Dateien bereinigt',
 
   // Accounts
   'accounts.title': 'Konten',

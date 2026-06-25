@@ -245,6 +245,15 @@ export const zhCN: Record<string, string> = {
   'maintenance.messages': '消息缓存',
   'maintenance.willDelete': '将删除 {peers} peer 缓存和 {messages} 消息缓存',
   'maintenance.deleted': '已删除 {peers} peer 缓存和 {messages} 消息缓存',
+  'maintenance.mediaCache': '媒体缓存',
+  'maintenance.mediaRecords': '记录数',
+  'maintenance.mediaCached': '已缓存',
+  'maintenance.mediaFailed': '失败',
+  'maintenance.mediaTotalSize': '总大小',
+  'maintenance.cleanupMediaCache': '清理媒体缓存',
+  'maintenance.cleanupMediaCacheDesc': '删除已缓存的媒体文件和元数据',
+  'maintenance.onlyFailed': '仅失败/过期',
+  'maintenance.mediaCleaned': '已清理 {records} 条记录, {files} 个文件',
 
   // Accounts
   'accounts.title': '账号会话',

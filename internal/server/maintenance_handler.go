@@ -31,6 +31,14 @@ func (s *Server) handleAPIMaintenanceStatus(c *gin.Context) {
 		Where("account_id NOT IN (SELECT id FROM telegram_accounts WHERE status = 'active')").
 		Count(&orphanMessages)
 
+	// 媒体缓存统计
+	var mediaRecordCount, mediaCachedCount, mediaFailedCount int64
+	var mediaTotalSize int64
+	s.db.Model(&model.MediaCache{}).Count(&mediaRecordCount)
+	s.db.Model(&model.MediaCache{}).Where("status = ?", "cached").Count(&mediaCachedCount)
+	s.db.Model(&model.MediaCache{}).Where("status = ?", "failed").Count(&mediaFailedCount)
+	s.db.Model(&model.MediaCache{}).Where("status = ?", "cached").Select("COALESCE(SUM(file_size), 0)").Scan(&mediaTotalSize)
+
 	// 最近维护操作
 	var recentMaintenance []model.AuditLog
 	s.db.Where("action LIKE ?", "maintenance.%").
@@ -66,6 +74,10 @@ func (s *Server) handleAPIMaintenanceStatus(c *gin.Context) {
 		"orphan_peers":        orphanPeers,
 		"orphan_messages":     orphanMessages,
 		"migration_version":   currentVersion,
+		"media_record_count":  mediaRecordCount,
+		"media_cached_count":  mediaCachedCount,
+		"media_failed_count":  mediaFailedCount,
+		"media_total_size":    mediaTotalSize,
 		"recent_maintenance":  recentDTOs,
 	})
 }
@@ -208,4 +220,69 @@ func (s *Server) cleanupOrphans() (int64, int64) {
 	r1 := s.db.Where("account_id NOT IN (SELECT id FROM telegram_accounts WHERE status = 'active')").Delete(&model.ChatPeerCache{})
 	r2 := s.db.Where("account_id NOT IN (SELECT id FROM telegram_accounts WHERE status = 'active')").Delete(&model.ChatMessageCache{})
 	return r1.RowsAffected, r2.RowsAffected
+}
+
+// handleAPICleanupMediaCache 清理媒体缓存。
+func (s *Server) handleAPICleanupMediaCache(c *gin.Context) {
+	var req struct {
+		AccountID  uint   `json:"account_id"`
+		PeerRef    string `json:"peer_ref"`
+		OnlyFailed *bool  `json:"only_failed"`
+		DryRun     *bool  `json:"dry_run"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "请求格式错误"})
+		return
+	}
+
+	onlyFailed := req.OnlyFailed != nil && *req.OnlyFailed
+
+	mediaSvc := s.newMediaService()
+
+	if req.DryRun == nil || *req.DryRun {
+		stats, _ := mediaSvc.GetCacheStats()
+		c.JSON(http.StatusOK, gin.H{
+			"ok":           true,
+			"dry_run":      true,
+			"record_count": stats.RecordCount,
+			"cached_count": stats.CachedCount,
+			"failed_count": stats.FailedCount,
+			"total_size":   stats.TotalSize,
+			"message":      fmt.Sprintf("将清理 %d 条媒体缓存记录", stats.RecordCount),
+		})
+		return
+	}
+
+	result, err := mediaSvc.CleanupCache(c.Request.Context(), req.AccountID, req.PeerRef, onlyFailed)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "清理失败"})
+		return
+	}
+
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		Action:       "maintenance.cleanup_media_cache",
+		ResourceType: "cache",
+		AccountID:    req.AccountID,
+		RiskLevel:    "medium",
+		IP:           c.ClientIP(),
+		Metadata: map[string]any{
+			"account_id":   req.AccountID,
+			"peer_ref":     req.PeerRef,
+			"only_failed":  onlyFailed,
+			"record_count": result.RecordCount,
+			"file_count":   result.FileCount,
+			"total_size":   result.TotalSize,
+		},
+		Message: fmt.Sprintf("清理媒体缓存: %d 条记录, %d 文件, %d bytes", result.RecordCount, result.FileCount, result.TotalSize),
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":           true,
+		"dry_run":      false,
+		"record_count": result.RecordCount,
+		"file_count":   result.FileCount,
+		"total_size":   result.TotalSize,
+		"message":      fmt.Sprintf("已清理 %d 条记录, %d 文件", result.RecordCount, result.FileCount),
+	})
 }

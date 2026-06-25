@@ -245,6 +245,15 @@ export const en: Record<string, string> = {
   'maintenance.messages': 'messages',
   'maintenance.willDelete': 'Will delete {peers} peer cache and {messages} message cache',
   'maintenance.deleted': 'Deleted {peers} peer cache and {messages} message cache',
+  'maintenance.mediaCache': 'Media Cache',
+  'maintenance.mediaRecords': 'Records',
+  'maintenance.mediaCached': 'Cached',
+  'maintenance.mediaFailed': 'Failed',
+  'maintenance.mediaTotalSize': 'Total Size',
+  'maintenance.cleanupMediaCache': 'Cleanup Media Cache',
+  'maintenance.cleanupMediaCacheDesc': 'Remove cached media files and metadata',
+  'maintenance.onlyFailed': 'Only failed/stale',
+  'maintenance.mediaCleaned': 'Cleaned {records} records, {files} files',
 
   // Accounts
   'accounts.title': 'Accounts',

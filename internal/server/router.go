@@ -410,6 +410,9 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	r.POST("/api/maintenance/cleanup/orphans", authMiddleware, csrfMiddleware, func(c *gin.Context) {
 		s.handleAPICleanupOrphans(c)
 	})
+	r.POST("/api/maintenance/cleanup/media-cache", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPICleanupMediaCache(c)
+	})
 
 	// ===== SPA Shell =====
 

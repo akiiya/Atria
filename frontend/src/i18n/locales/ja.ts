@@ -245,6 +245,15 @@ export const ja: Record<string, string> = {
   'maintenance.messages': 'メッセージキャッシュ',
   'maintenance.willDelete': '{peers} peerキャッシュと{messages}メッセージキャッシュを削除します',
   'maintenance.deleted': '{peers} peerキャッシュと{messages}メッセージキャッシュを削除しました',
+  'maintenance.mediaCache': 'メディアキャッシュ',
+  'maintenance.mediaRecords': 'レコード数',
+  'maintenance.mediaCached': 'キャッシュ済み',
+  'maintenance.mediaFailed': '失敗',
+  'maintenance.mediaTotalSize': '合計サイズ',
+  'maintenance.cleanupMediaCache': 'メディアキャッシュクリア',
+  'maintenance.cleanupMediaCacheDesc': 'キャッシュされたメディアファイルとメタデータを削除',
+  'maintenance.onlyFailed': '失敗/期限切れのみ',
+  'maintenance.mediaCleaned': '{records}件のレコードと{files}件のファイルをクリーンアップしました',
 
   // Accounts
   'accounts.title': 'アカウント',

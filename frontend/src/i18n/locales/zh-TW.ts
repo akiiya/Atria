@@ -245,6 +245,15 @@ export const zhTW: Record<string, string> = {
   'maintenance.messages': '訊息快取',
   'maintenance.willDelete': '將刪除 {peers} peer 快取和 {messages} 訊息快取',
   'maintenance.deleted': '已刪除 {peers} peer 快取和 {messages} 訊息快取',
+  'maintenance.mediaCache': '媒體快取',
+  'maintenance.mediaRecords': '記錄數',
+  'maintenance.mediaCached': '已快取',
+  'maintenance.mediaFailed': '失敗',
+  'maintenance.mediaTotalSize': '總大小',
+  'maintenance.cleanupMediaCache': '清理媒體快取',
+  'maintenance.cleanupMediaCacheDesc': '刪除已快取的媒體檔案和元資料',
+  'maintenance.onlyFailed': '僅失敗/過期',
+  'maintenance.mediaCleaned': '已清理 {records} 條記錄, {files} 個檔案',
 
   // Accounts
   'accounts.title': '帳號工作階段',
