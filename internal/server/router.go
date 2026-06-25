@@ -323,6 +323,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPIContacts(c)
 	})
 
+	// Peer 信息
+	r.GET("/api/chats/peers/:peer_ref/info", authMiddleware, func(c *gin.Context) {
+		s.handleAPIPeerInfo(c)
+	})
+
 	// 消息历史 JSON
 	r.GET("/api/chats/:peer_ref/messages", authMiddleware, func(c *gin.Context) {
 		s.handleAPIMessages(c)

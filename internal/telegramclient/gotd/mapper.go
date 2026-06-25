@@ -28,12 +28,10 @@ func mapDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg.Use
 	}
 
 	var peerID int64
-	var peerType telegramclient.PeerType
 	var accessHash int64
 
 	switch p := d.Peer.(type) {
 	case *tg.PeerUser:
-		peerType = telegramclient.PeerTypeUser
 		peerID = p.UserID
 		dlg.PeerType = telegramclient.PeerTypeUser
 		for _, u := range users {
@@ -42,30 +40,38 @@ func mapDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg.Use
 				dlg.Username = user.Username
 				dlg.AvatarText = getInitial(dlg.Title)
 				accessHash = user.AccessHash
+				if user.Bot {
+					dlg.PeerType = telegramclient.PeerTypeBot
+				}
 				break
 			}
 		}
 	case *tg.PeerChat:
-		peerType = telegramclient.PeerTypeChat
 		peerID = p.ChatID
 		dlg.PeerType = telegramclient.PeerTypeChat
 		for _, c := range chats {
 			if chat, ok := c.(*tg.Chat); ok && chat.ID == p.ChatID {
 				dlg.Title = chat.Title
 				dlg.AvatarText = getInitial(dlg.Title)
+				dlg.MemberCount = int(chat.ParticipantsCount)
 				break
 			}
 		}
 	case *tg.PeerChannel:
-		peerType = telegramclient.PeerTypeChannel
 		peerID = p.ChannelID
-		dlg.PeerType = telegramclient.PeerTypeChannel
 		for _, c := range chats {
 			if channel, ok := c.(*tg.Channel); ok && channel.ID == p.ChannelID {
 				dlg.Title = channel.Title
 				dlg.Username = channel.Username
 				dlg.AvatarText = getInitial(dlg.Title)
 				accessHash = channel.AccessHash
+				dlg.MemberCount = int(channel.ParticipantsCount)
+				dlg.Flags = extractChannelFlags(channel)
+				if channel.Megagroup {
+					dlg.PeerType = telegramclient.PeerTypeSupergroup
+				} else {
+					dlg.PeerType = telegramclient.PeerTypeChannel
+				}
 				break
 			}
 		}
@@ -73,7 +79,6 @@ func mapDialog(dialog tg.DialogClass, messages []tg.MessageClass, users []tg.Use
 
 	dlg.AccessHash = accessHash
 	dlg.PeerID = peerID
-	_ = peerType // 用于后续扩展
 
 	// 查找最后一条消息
 	for _, msg := range messages {
@@ -404,4 +409,28 @@ func truncateText(text string, maxLen int) string {
 		return text
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// extractChannelFlags 从 channel 提取标志位，返回逗号分隔的字符串。
+func extractChannelFlags(channel *tg.Channel) string {
+	var flags []string
+	if channel.Verified {
+		flags = append(flags, "verified")
+	}
+	if channel.Scam {
+		flags = append(flags, "scam")
+	}
+	if channel.Fake {
+		flags = append(flags, "fake")
+	}
+	if channel.Restricted {
+		flags = append(flags, "restricted")
+	}
+	if channel.Broadcast {
+		flags = append(flags, "broadcast")
+	}
+	if channel.Megagroup {
+		flags = append(flags, "megagroup")
+	}
+	return strings.Join(flags, ",")
 }

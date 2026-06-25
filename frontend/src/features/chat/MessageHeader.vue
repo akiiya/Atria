@@ -13,6 +13,8 @@ const props = defineProps<{
   syncing?: boolean
   /** 数据可能过期（stale cache） */
   stale?: boolean
+  /** peer 类型 */
+  peerType?: string
 }>()
 const emit = defineEmits<{ refresh: [] }>()
 
@@ -35,13 +37,25 @@ function handleClick() {
   })
   emit('refresh')
 }
+
+function peerTypeLabel(type: string | undefined): string {
+  switch (type) {
+    case 'user': return ''
+    case 'bot': return t('peerType.bot')
+    case 'chat': return t('peerType.group')
+    case 'supergroup': return t('peerType.supergroup')
+    case 'channel': return t('peerType.channel')
+    default: return ''
+  }
+}
 </script>
 
 <template>
   <div class="message-header">
-    <button class="btn-back mobile-only" @click="goBack">←</button>
+    <button class="btn-back mobile-only" @click="goBack">&larr;</button>
     <div class="message-header-info">
       <span class="message-header-title">{{ title || peerRef }}</span>
+      <span v-if="peerTypeLabel(peerType)" class="message-header-type">{{ peerTypeLabel(peerType) }}</span>
     </div>
     <span
       :class="['sync-icon', syncing ? 'sync-loading' : stale ? 'sync-connecting' : 'sync-idle']"

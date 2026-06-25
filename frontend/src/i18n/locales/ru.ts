@@ -356,4 +356,10 @@ export const ru: Record<string, string> = {
   'accountDetail.developing': 'Функция в разработке',
   'accountDetail.remoteLogout': 'Удалённый выход',
   'accountDetail.deleteSession': 'Удалить локальную Session',
+
+  // Peer Type
+  'peerType.bot': 'Бот',
+  'peerType.group': 'Группа',
+  'peerType.supergroup': 'Супергруппа',
+  'peerType.channel': 'Канал',
 }

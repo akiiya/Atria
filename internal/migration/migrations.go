@@ -95,6 +95,13 @@ func init() {
 		Description: "创建 media_cache 表，用于缓存已下载的媒体文件元数据",
 		Run:         migration012CreateMediaCache,
 	})
+
+	Register(Migration{
+		Version:     13,
+		Name:        "add_peer_cache_group_fields",
+		Description: "为 chat_peer_cache 添加 member_count、flags、description 字段，支持群组/频道信息展示",
+		Run:         migration013AddPeerCacheGroupFields,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -474,5 +481,16 @@ func migration012CreateMediaCache(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("创建 media_cache 表失败: %w", err)
 	}
 	slog.Info("迁移 12: media_cache 表创建/更新完成")
+	return nil
+}
+
+// migration013AddPeerCacheGroupFields 为 chat_peer_cache 添加群组/频道展示字段。
+// 新增 member_count（成员数）、flags（频道标志）、description（描述）字段。
+// 幂等：AutoMigrate 会跳过已存在的列。
+func migration013AddPeerCacheGroupFields(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.ChatPeerCache{}); err != nil {
+		return fmt.Errorf("更新 chat_peer_cache 表失败: %w", err)
+	}
+	slog.Info("迁移 13: chat_peer_cache 表 member_count/flags/description 字段添加完成")
 	return nil
 }

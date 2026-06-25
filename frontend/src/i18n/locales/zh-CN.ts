@@ -356,4 +356,10 @@ export const zhCN: Record<string, string> = {
   'accountDetail.developing': '功能开发中',
   'accountDetail.remoteLogout': '远端 Logout',
   'accountDetail.deleteSession': '删除本地 Session',
+
+  // Peer Type
+  'peerType.bot': '机器人',
+  'peerType.group': '群组',
+  'peerType.supergroup': '超级群组',
+  'peerType.channel': '频道',
 }

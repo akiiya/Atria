@@ -1,4 +1,4 @@
-export type PeerType = 'user' | 'chat' | 'channel'
+export type PeerType = 'user' | 'bot' | 'chat' | 'supergroup' | 'channel'
 
 export interface Dialog {
   peer_ref: string
@@ -11,6 +11,8 @@ export interface Dialog {
   unread_count: number
   is_pinned?: boolean
   is_muted?: boolean
+  member_count?: number
+  flags?: string
 }
 
 export type MessageKind = 'text' | 'photo' | 'document' | 'sticker' | 'video' | 'voice' | 'audio' | 'service' | 'unsupported'

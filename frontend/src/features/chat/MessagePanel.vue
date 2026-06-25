@@ -213,6 +213,7 @@ function handleSent() {
       :account-id="accountId"
       :syncing="isFetching"
       :stale="false"
+      :peer-type="peerType"
       @refresh="refetch()"
     />
 

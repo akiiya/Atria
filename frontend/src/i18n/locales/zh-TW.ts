@@ -356,4 +356,10 @@ export const zhTW: Record<string, string> = {
   'accountDetail.developing': '功能開發中',
   'accountDetail.remoteLogout': '遠端 Logout',
   'accountDetail.deleteSession': '刪除本地 Session',
+
+  // Peer Type
+  'peerType.bot': '機器人',
+  'peerType.group': '群組',
+  'peerType.supergroup': '超級群組',
+  'peerType.channel': '頻道',
 }

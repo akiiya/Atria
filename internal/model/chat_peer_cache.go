@@ -9,7 +9,7 @@ type ChatPeerCache struct {
 	ID                  uint       `gorm:"primaryKey" json:"-"`
 	AccountID           uint       `gorm:"uniqueIndex:idx_peer_account;not null" json:"-"`
 	PeerRef             string     `gorm:"uniqueIndex:idx_peer_account;size:64;not null" json:"peer_ref"`
-	PeerType            string     `gorm:"size:16;not null" json:"peer_type"` // user, chat, channel
+	PeerType            string     `gorm:"size:16;not null" json:"peer_type"` // user, bot, chat, supergroup, channel
 	PeerID              int64      `gorm:"index;not null" json:"peer_id"`
 	AccessHashEncrypted string     `gorm:"size:512" json:"-"` // AES-256-GCM 加密，chat 类型可为空
 	Title               string     `gorm:"size:256" json:"title"`
@@ -19,6 +19,9 @@ type ChatPeerCache struct {
 	UnreadCount         int        `gorm:"not null;default:0" json:"unread_count"`
 	IsPinned            bool       `gorm:"not null;default:false" json:"is_pinned,omitempty"`
 	IsMuted             bool       `gorm:"not null;default:false" json:"is_muted,omitempty"`
+	MemberCount         int        `gorm:"not null;default:0" json:"member_count,omitempty"`
+	Flags               string     `gorm:"size:128" json:"flags,omitempty"` // verified,scam,fake,restricted,broadcast,megagroup
+	Description         string     `gorm:"size:1024" json:"description,omitempty"`
 	CreatedAt           time.Time  `gorm:"not null" json:"created_at"`
 	UpdatedAt           time.Time  `gorm:"not null" json:"updated_at"`
 }

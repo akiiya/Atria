@@ -181,9 +181,9 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 		return nil, err
 	}
 
-	// 解密 access_hash（user/channel 类型必须有）
+	// 解密 access_hash（user/channel/supergroup 类型必须有）
 	var accessHash int64
-	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel {
+	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel || PeerType(cache.PeerType) == PeerTypeSupergroup {
 		if cache.AccessHashEncrypted == "" {
 			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
@@ -311,9 +311,9 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 		return nil, err
 	}
 
-	// 解密 access_hash
+	// 解密 access_hash（user/channel/supergroup 类型必须有）
 	var accessHash int64
-	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel {
+	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel || PeerType(cache.PeerType) == PeerTypeSupergroup {
 		if cache.AccessHashEncrypted == "" {
 			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
@@ -406,9 +406,9 @@ func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef stri
 		return nil, err
 	}
 
-	// 解密 access_hash（user/channel 类型必须有）
+	// 解密 access_hash（user/channel/supergroup 类型必须有）
 	var accessHash int64
-	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel {
+	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel || PeerType(cache.PeerType) == PeerTypeSupergroup {
 		if cache.AccessHashEncrypted == "" {
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
 		}
@@ -506,6 +506,8 @@ func (s *ChatService) listDialogsFromCache(accountID uint, limit int) []Dialog {
 			UnreadCount:        p.UnreadCount,
 			IsPinned:           p.IsPinned,
 			IsMuted:            p.IsMuted,
+			MemberCount:        p.MemberCount,
+			Flags:              p.Flags,
 		}
 		if p.LastMessageAt != nil {
 			dlg.LastMessageAt = *p.LastMessageAt
@@ -702,9 +704,9 @@ func (s *ChatService) upsertPeerCacheFromDialog(accountID uint, dlg *telegramcli
 		return
 	}
 
-	// chat 类型不需要 access_hash
+	// user/channel/supergroup 类型需要 access_hash
 	var encryptedHash string
-	if dlg.PeerType == telegramclient.PeerTypeUser || dlg.PeerType == telegramclient.PeerTypeChannel {
+	if dlg.PeerType == telegramclient.PeerTypeUser || dlg.PeerType == telegramclient.PeerTypeChannel || dlg.PeerType == telegramclient.PeerTypeSupergroup {
 		if dlg.AccessHash == 0 {
 			s.logger.Warn("peer 缺少 access_hash，跳过缓存", "peer_ref", dlg.PeerRef, "peer_type", string(dlg.PeerType))
 			return
@@ -727,6 +729,8 @@ func (s *ChatService) upsertPeerCacheFromDialog(accountID uint, dlg *telegramcli
 		Username:            dlg.Username,
 		IsPinned:            dlg.IsPinned,
 		IsMuted:             dlg.IsMuted,
+		MemberCount:         dlg.MemberCount,
+		Flags:               dlg.Flags,
 	}
 	if !dlg.LastMessageAt.IsZero() {
 		cache.LastMessageAt = &dlg.LastMessageAt
@@ -747,6 +751,8 @@ func (s *ChatService) upsertPeerCacheFromDialog(accountID uint, dlg *telegramcli
 			"is_muted":              dlg.IsMuted,
 			"last_message_at":       cache.LastMessageAt,
 			"last_message_preview":  dlg.LastMessagePreview,
+			"member_count":          dlg.MemberCount,
+			"flags":                 dlg.Flags,
 		})
 	}
 }
@@ -1039,6 +1045,8 @@ func mapNeutralDialogToChatDialog(d telegramclient.Dialog) Dialog {
 		IsPinned:           d.IsPinned,
 		IsMuted:            d.IsMuted,
 		LastMessageAt:      d.LastMessageAt,
+		MemberCount:        d.MemberCount,
+		Flags:              d.Flags,
 	}
 }
 

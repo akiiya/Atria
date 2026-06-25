@@ -10,9 +10,11 @@ import (
 type PeerType string
 
 const (
-	PeerTypeUser    PeerType = "user"
-	PeerTypeChat    PeerType = "chat"
-	PeerTypeChannel PeerType = "channel"
+	PeerTypeUser       PeerType = "user"
+	PeerTypeBot        PeerType = "bot"
+	PeerTypeChat       PeerType = "chat"
+	PeerTypeSupergroup PeerType = "supergroup"
+	PeerTypeChannel    PeerType = "channel"
 )
 
 // Dialog 表示一个会话。
@@ -27,6 +29,8 @@ type Dialog struct {
 	UnreadCount        int       `json:"unread_count"`
 	IsPinned           bool      `json:"is_pinned,omitempty"`
 	IsMuted            bool      `json:"is_muted,omitempty"`
+	MemberCount        int       `json:"member_count,omitempty"`
+	Flags              string    `json:"flags,omitempty"`
 }
 
 // MessageDirection 表示消息方向。
