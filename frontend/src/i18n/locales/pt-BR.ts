@@ -7,6 +7,7 @@ export const ptBR: Record<string, string> = {
   'nav.audit': 'Registros de auditoria',
   'nav.settings': 'Configurações',
   'nav.maintenance': 'Manutenção de dados',
+  'nav.search': 'Pesquisar',
   'nav.features': 'Funcionalidades',
 
   // Common
@@ -191,11 +192,17 @@ export const ptBR: Record<string, string> = {
   'accounts.stopRuntime': 'Parar',
   'accounts.runtimeStarted': 'Runtime iniciado',
   'accounts.runtimeStopped': 'Runtime parado',
+  'accounts.enable': 'Habilitar',
+  'accounts.disable': 'Desabilitar',
+  'accounts.enabled': 'Conta habilitada',
+  'accounts.disabled': 'Conta desabilitada',
+  'accounts.confirmDisable': 'Desabilitar esta conta? O runtime será parado.',
 
   'accounts.status.active': 'Ativo',
   'accounts.status.banned': 'Bloqueado',
   'accounts.status.logged_out': 'Desconectado',
   'accounts.status.restricted': 'Restrito',
+  'accounts.status.disabled': 'Desabilitado',
 
   'accounts.sessionActive': 'Válido',
   'accounts.sessionExpired': 'Expirado',
@@ -215,4 +222,16 @@ export const ptBR: Record<string, string> = {
   'risk.medium': 'Médio',
   'risk.high': 'Alto',
   'risk.critical': 'Crítico',
+
+  // Search
+  'search.title': 'Pesquisar mensagens',
+  'search.placeholder': 'Pesquisar no cache de mensagens...',
+  'search.noResults': 'Sem resultados',
+  'search.noResultsDesc': 'Nenhuma mensagem corresponde a "{query}"',
+  'search.total': '{count} resultados',
+  'search.openChat': 'Abrir conversa',
+  'search.sender': 'Remetente',
+  'search.time': 'Hora',
+  'search.allChats': 'Todas as conversas',
+  'search.currentChat': 'Apenas conversa atual',
 }

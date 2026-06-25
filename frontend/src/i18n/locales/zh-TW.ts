@@ -7,6 +7,7 @@ export const zhTW: Record<string, string> = {
   'nav.audit': '稽核日誌',
   'nav.settings': '設定',
   'nav.maintenance': '資料維護',
+  'nav.search': '搜尋',
   'nav.features': '功能',
 
   // Common
@@ -191,11 +192,17 @@ export const zhTW: Record<string, string> = {
   'accounts.stopRuntime': '停止',
   'accounts.runtimeStarted': 'Runtime 已啟動',
   'accounts.runtimeStopped': 'Runtime 已停止',
+  'accounts.enable': '啟用',
+  'accounts.disable': '停用',
+  'accounts.enabled': '帳號已啟用',
+  'accounts.disabled': '帳號已停用',
+  'accounts.confirmDisable': '停用此帳號？Runtime 將被停止。',
 
   'accounts.status.active': '正常',
   'accounts.status.banned': '已封鎖',
   'accounts.status.logged_out': '已登出',
   'accounts.status.restricted': '受限',
+  'accounts.status.disabled': '已停用',
 
   'accounts.sessionActive': '有效',
   'accounts.sessionExpired': '已過期',
@@ -215,4 +222,16 @@ export const zhTW: Record<string, string> = {
   'risk.medium': '中',
   'risk.high': '高',
   'risk.critical': '嚴重',
+
+  // Search
+  'search.title': '搜尋訊息',
+  'search.placeholder': '在訊息快取中搜尋...',
+  'search.noResults': '無結果',
+  'search.noResultsDesc': '未找到符合 "{query}" 的訊息',
+  'search.total': '{count} 筆結果',
+  'search.openChat': '開啟聊天',
+  'search.sender': '傳送者',
+  'search.time': '時間',
+  'search.allChats': '所有聊天',
+  'search.currentChat': '僅目前聊天',
 }

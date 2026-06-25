@@ -58,6 +58,11 @@ const router = createRouter({
       component: () => import('@/features/maintenance/MaintenanceView.vue'),
     },
     {
+      path: '/search',
+      name: 'search',
+      component: () => import('@/features/search/SearchView.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/features/dashboard/DashboardView.vue'),

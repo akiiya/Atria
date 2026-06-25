@@ -7,6 +7,7 @@ export const ko: Record<string, string> = {
   'nav.audit': '감사 로그',
   'nav.settings': '설정',
   'nav.maintenance': '데이터 유지보수',
+  'nav.search': '검색',
   'nav.features': '기능',
 
   // Common
@@ -191,11 +192,17 @@ export const ko: Record<string, string> = {
   'accounts.stopRuntime': '중지',
   'accounts.runtimeStarted': 'Runtime이 시작되었습니다',
   'accounts.runtimeStopped': 'Runtime이 중지되었습니다',
+  'accounts.enable': '활성화',
+  'accounts.disable': '비활성화',
+  'accounts.enabled': '계정이 활성화되었습니다',
+  'accounts.disabled': '계정이 비활성화되었습니다',
+  'accounts.confirmDisable': '이 계정을 비활성화하시겠습니까? Runtime이 중지됩니다.',
 
   'accounts.status.active': '활성',
   'accounts.status.banned': '차단됨',
   'accounts.status.logged_out': '로그아웃됨',
   'accounts.status.restricted': '제한됨',
+  'accounts.status.disabled': '비활성화됨',
 
   'accounts.sessionActive': '유효',
   'accounts.sessionExpired': '만료됨',
@@ -215,4 +222,16 @@ export const ko: Record<string, string> = {
   'risk.medium': '중간',
   'risk.high': '높음',
   'risk.critical': '심각',
+
+  // Search
+  'search.title': '메시지 검색',
+  'search.placeholder': '메시지 캐시에서 검색...',
+  'search.noResults': '결과 없음',
+  'search.noResultsDesc': '"{query}"과 일치하는 메시지가 없습니다',
+  'search.total': '{count}개의 결과',
+  'search.openChat': '채팅 열기',
+  'search.sender': '보낸 사람',
+  'search.time': '시간',
+  'search.allChats': '모든 채팅',
+  'search.currentChat': '현재 채팅만',
 }

@@ -7,6 +7,7 @@ export const ru: Record<string, string> = {
   'nav.audit': 'Журнал аудита',
   'nav.settings': 'Настройки',
   'nav.maintenance': 'Обслуживание данных',
+  'nav.search': 'Поиск',
   'nav.features': 'Функции',
 
   // Common
@@ -191,11 +192,17 @@ export const ru: Record<string, string> = {
   'accounts.stopRuntime': 'Остановить',
   'accounts.runtimeStarted': 'Runtime запущен',
   'accounts.runtimeStopped': 'Runtime остановлен',
+  'accounts.enable': 'Включить',
+  'accounts.disable': 'Отключить',
+  'accounts.enabled': 'Учётная запись включена',
+  'accounts.disabled': 'Учётная запись отключена',
+  'accounts.confirmDisable': 'Отключить эту учётную запись? Runtime будет остановлен.',
 
   'accounts.status.active': 'Активна',
   'accounts.status.banned': 'Заблокирована',
   'accounts.status.logged_out': 'Вышла из системы',
   'accounts.status.restricted': 'Ограничена',
+  'accounts.status.disabled': 'Отключена',
 
   'accounts.sessionActive': 'Действительна',
   'accounts.sessionExpired': 'Истекла',
@@ -215,4 +222,16 @@ export const ru: Record<string, string> = {
   'risk.medium': 'Средний',
   'risk.high': 'Высокий',
   'risk.critical': 'Критический',
+
+  // Search
+  'search.title': 'Поиск сообщений',
+  'search.placeholder': 'Поиск в кеше сообщений...',
+  'search.noResults': 'Результатов нет',
+  'search.noResultsDesc': 'Нет сообщений, соответствующих "{query}"',
+  'search.total': '{count} результатов',
+  'search.openChat': 'Открыть чат',
+  'search.sender': 'Отправитель',
+  'search.time': 'Время',
+  'search.allChats': 'Все чаты',
+  'search.currentChat': 'Только текущий чат',
 }

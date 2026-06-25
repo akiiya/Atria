@@ -1129,3 +1129,95 @@ var _ Service = (*ChatService)(nil)
 func msSince(start time.Time) int64 {
 	return time.Since(start).Milliseconds()
 }
+
+// SearchResult 搜索结果项。
+type SearchResult struct {
+	PeerRef     string `json:"peer_ref"`
+	MessageID   int    `json:"message_id"`
+	SenderName  string `json:"sender_name"`
+	TextSnippet string `json:"text_snippet"`
+	SentAt      string `json:"sent_at"`
+	IsOutgoing  bool   `json:"is_outgoing"`
+}
+
+// SearchMessages 搜索本地消息缓存（解密后匹配）。
+func (s *ChatService) SearchMessages(ctx context.Context, accountID uint, query string, peerRef string, limit int, offset int) ([]SearchResult, int, error) {
+	if query == "" {
+		return nil, 0, nil
+	}
+
+	// 从缓存读取消息
+	dbQuery := s.db.WithContext(ctx).Where("account_id = ?", accountID)
+	if peerRef != "" {
+		dbQuery = dbQuery.Where("peer_ref = ?", peerRef)
+	}
+
+	var cached []model.ChatMessageCache
+	dbQuery.Order("sent_at DESC").Find(&cached)
+
+	// 解密并匹配
+	qLower := strings.ToLower(query)
+	var matched []SearchResult
+	for _, c := range cached {
+		text := ""
+		if c.TextEncrypted != "" {
+			decrypted, err := crypto.DecryptString(s.key, c.TextEncrypted, []byte("atria:msg:v1"))
+			if err != nil {
+				continue
+			}
+			text = decrypted
+		}
+		if !strings.Contains(strings.ToLower(text), qLower) {
+			continue
+		}
+		matched = append(matched, SearchResult{
+			PeerRef:     c.PeerRef,
+			MessageID:   c.TelegramMessageID,
+			SenderName:  c.SenderName,
+			TextSnippet: snippetAround(text, query, 80),
+			SentAt:      c.SentAt.Format("2006-01-02 15:04:05"),
+			IsOutgoing:  c.Direction == "out",
+		})
+	}
+
+	total := len(matched)
+	// 分页
+	start := offset
+	if start >= total {
+		return nil, total, nil
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	return matched[start:end], total, nil
+}
+
+// snippetAround 返回匹配位置周围的文本片段。
+func snippetAround(text, query string, contextLen int) string {
+	idx := strings.Index(strings.ToLower(text), strings.ToLower(query))
+	if idx < 0 {
+		if len([]rune(text)) > contextLen*2 {
+			return string([]rune(text)[:contextLen*2]) + "..."
+		}
+		return text
+	}
+	runes := []rune(text)
+	start := idx - contextLen
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len([]rune(query)) + contextLen
+	if end > len(runes) {
+		end = len(runes)
+	}
+	snippet := ""
+	if start > 0 {
+		snippet = "..."
+	}
+	snippet += string(runes[start:end])
+	if end < len(runes) {
+		snippet += "..."
+	}
+	return snippet
+}

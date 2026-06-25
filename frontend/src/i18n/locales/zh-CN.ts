@@ -7,6 +7,7 @@ export const zhCN: Record<string, string> = {
   'nav.audit': '审计日志',
   'nav.settings': '设置',
   'nav.maintenance': '数据维护',
+  'nav.search': '搜索',
   'nav.features': '功能',
 
   // Common
@@ -191,11 +192,17 @@ export const zhCN: Record<string, string> = {
   'accounts.stopRuntime': '停止',
   'accounts.runtimeStarted': 'Runtime 已启动',
   'accounts.runtimeStopped': 'Runtime 已停止',
+  'accounts.enable': '启用',
+  'accounts.disable': '禁用',
+  'accounts.enabled': '账号已启用',
+  'accounts.disabled': '账号已禁用',
+  'accounts.confirmDisable': '禁用此账号？Runtime 将被停止。',
 
   'accounts.status.active': '正常',
   'accounts.status.banned': '已封禁',
   'accounts.status.logged_out': '已登出',
   'accounts.status.restricted': '受限',
+  'accounts.status.disabled': '已禁用',
 
   'accounts.sessionActive': '有效',
   'accounts.sessionExpired': '已过期',
@@ -215,4 +222,16 @@ export const zhCN: Record<string, string> = {
   'risk.medium': '中',
   'risk.high': '高',
   'risk.critical': '严重',
+
+  // Search
+  'search.title': '搜索消息',
+  'search.placeholder': '在消息缓存中搜索...',
+  'search.noResults': '无结果',
+  'search.noResultsDesc': '未找到匹配 "{query}" 的消息',
+  'search.total': '{count} 条结果',
+  'search.openChat': '打开聊天',
+  'search.sender': '发送者',
+  'search.time': '时间',
+  'search.allChats': '所有聊天',
+  'search.currentChat': '仅当前聊天',
 }
