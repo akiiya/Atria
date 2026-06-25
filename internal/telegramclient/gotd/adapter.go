@@ -801,21 +801,7 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 func extractFileLocationFromMedia(media tg.MessageMediaClass) (tg.InputFileLocationClass, string, string, int64) {
 	switch m := media.(type) {
 	case *tg.MessageMediaPhoto:
-		if m.Photo != nil {
-			if photo, ok := m.Photo.(*tg.Photo); ok && len(photo.Sizes) > 0 {
-				// 取最大的尺寸
-				best := photo.Sizes[len(photo.Sizes)-1]
-				if s, ok := best.(*tg.PhotoSize); ok {
-					loc := &tg.InputPhotoFileLocation{
-						ID:            photo.ID,
-						AccessHash:    photo.AccessHash,
-						FileReference: photo.FileReference,
-						ThumbSize:     s.Type,
-					}
-					return loc, "", "image/jpeg", int64(s.Size)
-				}
-			}
-		}
+		return extractPhotoLocation(m.Photo)
 	case *tg.MessageMediaDocument:
 		if m.Document != nil {
 			if doc, ok := m.Document.(*tg.Document); ok {
@@ -828,6 +814,53 @@ func extractFileLocationFromMedia(media tg.MessageMediaClass) (tg.InputFileLocat
 				return loc, fileName, doc.MimeType, doc.Size
 			}
 		}
+	case *tg.MessageMediaWebPage:
+		// 网页预览中可能包含图片或文档
+		if m.Webpage != nil {
+			if wp, ok := m.Webpage.(*tg.WebPage); ok {
+				// 优先取图片
+				if wp.Photo != nil {
+					if loc, _, mime, size := extractPhotoLocation(wp.Photo); loc != nil {
+						return loc, "", mime, size
+					}
+				}
+				// 其次取文档
+				if wp.Document != nil {
+					if doc, ok := wp.Document.(*tg.Document); ok {
+						loc := &tg.InputDocumentFileLocation{
+							ID:            doc.ID,
+							AccessHash:    doc.AccessHash,
+							FileReference: doc.FileReference,
+						}
+						fileName := getDocumentFilename(doc)
+						return loc, fileName, doc.MimeType, doc.Size
+					}
+				}
+			}
+		}
+	}
+	return nil, "", "", 0
+}
+
+// extractPhotoLocation 从 PhotoClass 中提取文件位置。
+func extractPhotoLocation(photoClass tg.PhotoClass) (tg.InputFileLocationClass, string, string, int64) {
+	if photoClass == nil {
+		return nil, "", "", 0
+	}
+	photo, ok := photoClass.(*tg.Photo)
+	if !ok || len(photo.Sizes) == 0 {
+		return nil, "", "", 0
+	}
+	// 取最大的尺寸
+	best := photo.Sizes[len(photo.Sizes)-1]
+	if s, ok := best.(*tg.PhotoSize); ok {
+		loc := &tg.InputPhotoFileLocation{
+			ID:            photo.ID,
+			AccessHash:    photo.AccessHash,
+			FileReference: photo.FileReference,
+			ThumbSize:     s.Type,
+		}
+		return loc, "", "image/jpeg", int64(s.Size)
 	}
 	return nil, "", "", 0
 }
