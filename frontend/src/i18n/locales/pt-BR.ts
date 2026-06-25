@@ -95,6 +95,12 @@ export const ptBR: Record<string, string> = {
   'media.voiceMessage': 'Mensagem de voz',
   'media.voicePlaceholder': 'Voz (reprodução não disponível)',
   'media.audio': 'Áudio',
+  'media.photo': 'Foto',
+  'media.view': 'Ver',
+  'media.open': 'Abrir',
+  'media.downloading': 'Baixando...',
+  'media.downloadFailed': 'Falha ao baixar',
+  'media.unsupported': 'Mídia não suportada',
 
   // Contacts
   'contacts.title': 'Contatos',

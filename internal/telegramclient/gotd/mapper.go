@@ -145,7 +145,89 @@ func mapMessage(m *tg.Message, peerRef string) telegramclient.Message {
 		msg.Text = m.Message
 	}
 
+	// 提取 caption 和媒体信息
+	if m.Media != nil {
+		// 在 gotd v0.115.0 中，媒体消息的 caption 存储在 Message.Message 字段中
+		if m.Message != "" {
+			msg.Caption = m.Message
+		}
+		msg.Media = extractMediaInfo(m.Media)
+	}
+
 	return msg
+}
+
+// extractMediaInfo 从消息媒体中提取媒体元信息。
+func extractMediaInfo(media tg.MessageMediaClass) *telegramclient.Media {
+	switch m := media.(type) {
+	case *tg.MessageMediaPhoto:
+		if m.Photo != nil {
+			if photo, ok := m.Photo.(*tg.Photo); ok {
+				return &telegramclient.Media{
+					Width:  getPhotoWidth(photo),
+					Height: getPhotoHeight(photo),
+				}
+			}
+		}
+	case *tg.MessageMediaDocument:
+		if m.Document != nil {
+			if doc, ok := m.Document.(*tg.Document); ok {
+				med := &telegramclient.Media{
+					FileName: getDocumentFilename(doc),
+					MIMEType: doc.MimeType,
+					Size:     doc.Size,
+				}
+				for _, attr := range doc.Attributes {
+					switch a := attr.(type) {
+					case *tg.DocumentAttributeVideo:
+						med.Width = int(a.W)
+						med.Height = int(a.H)
+						med.Duration = int(a.Duration)
+					case *tg.DocumentAttributeAudio:
+						med.Duration = int(a.Duration)
+					case *tg.DocumentAttributeSticker:
+						med.Emoji = a.Alt
+					case *tg.DocumentAttributeFilename:
+						med.FileName = a.FileName
+					}
+				}
+				return med
+			}
+		}
+	}
+	return nil
+}
+
+// getPhotoWidth 获取照片宽度（取最大尺寸）。
+func getPhotoWidth(photo *tg.Photo) int {
+	if len(photo.Sizes) > 0 {
+		best := photo.Sizes[len(photo.Sizes)-1]
+		if s, ok := best.(*tg.PhotoSize); ok {
+			return s.W
+		}
+	}
+	return 0
+}
+
+// getPhotoHeight 获取照片高度（取最大尺寸）。
+func getPhotoHeight(photo *tg.Photo) int {
+	if len(photo.Sizes) > 0 {
+		best := photo.Sizes[len(photo.Sizes)-1]
+		if s, ok := best.(*tg.PhotoSize); ok {
+			return s.H
+		}
+	}
+	return 0
+}
+
+// getDocumentFilename 从文档属性中提取文件名。
+func getDocumentFilename(doc *tg.Document) string {
+	for _, attr := range doc.Attributes {
+		if fn, ok := attr.(*tg.DocumentAttributeFilename); ok {
+			return fn.FileName
+		}
+	}
+	return ""
 }
 
 // mapPeerRef 将 gotd Peer 映射为 peer_ref 字符串。
@@ -163,11 +245,64 @@ func mapPeerRef(peer tg.PeerClass) string {
 
 // classifyMessageKind 根据 gotd Message 内容判断消息类型。
 func classifyMessageKind(m *tg.Message) telegramclient.MessageKind {
-	if m.Message != "" {
-		return telegramclient.MessageKindText
+	// 优先检查媒体类型（媒体消息的 caption 存储在 m.Message 中）
+	if m.Media != nil {
+		switch m.Media.(type) {
+		case *tg.MessageMediaPhoto:
+			return telegramclient.MessageKindPhoto
+		case *tg.MessageMediaDocument:
+			doc := m.Media.(*tg.MessageMediaDocument)
+			if doc.Document != nil {
+				if d, ok := doc.Document.(*tg.Document); ok {
+					return classifyDocument(d)
+				}
+			}
+			return telegramclient.MessageKindDocument
+		case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive:
+			return "geo"
+		case *tg.MessageMediaContact:
+			return "contact"
+		case *tg.MessageMediaPoll:
+			return "poll"
+		case *tg.MessageMediaWebPage:
+			return "webpage"
+		default:
+			return telegramclient.MessageKindUnsupported
+		}
 	}
-	// TODO: 未来根据 media 类型细化 photo/document/sticker/video/voice/audio
-	return telegramclient.MessageKindUnsupported
+	// 无媒体：纯文本
+	return telegramclient.MessageKindText
+}
+
+// classifyDocument 根据文档属性判断具体消息类型。
+func classifyDocument(d *tg.Document) telegramclient.MessageKind {
+	for _, attr := range d.Attributes {
+		switch a := attr.(type) {
+		case *tg.DocumentAttributeVideo:
+			_ = a
+			return telegramclient.MessageKindVideo
+		case *tg.DocumentAttributeAudio:
+			if a.Voice {
+				return telegramclient.MessageKindVoice
+			}
+			return telegramclient.MessageKindAudio
+		case *tg.DocumentAttributeSticker:
+			return telegramclient.MessageKindSticker
+		case *tg.DocumentAttributeAnimated:
+			return "animation"
+		}
+	}
+	// MIME type fallback
+	mime := d.MimeType
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return telegramclient.MessageKindPhoto
+	case strings.HasPrefix(mime, "video/"):
+		return telegramclient.MessageKindVideo
+	case strings.HasPrefix(mime, "audio/"):
+		return telegramclient.MessageKindAudio
+	}
+	return telegramclient.MessageKindDocument
 }
 
 // buildDisplayName 构建显示名。

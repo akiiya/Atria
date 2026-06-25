@@ -95,6 +95,12 @@ export const ko: Record<string, string> = {
   'media.voiceMessage': '음성 메시지',
   'media.voicePlaceholder': '음성 (재생 미지원)',
   'media.audio': '오디오',
+  'media.photo': '사진',
+  'media.view': '보기',
+  'media.open': '열기',
+  'media.downloading': '다운로드 중...',
+  'media.downloadFailed': '다운로드 실패',
+  'media.unsupported': '지원되지 않는 미디어',
 
   // Contacts
   'contacts.title': '연락처',

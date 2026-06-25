@@ -3,6 +3,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -62,7 +63,7 @@ func (s *ChatService) ListDialogs(ctx context.Context, accountID uint, limit int
 		return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
 	}
 
-	account, cred, err := s.getAccountAndCredential(accountID)
+	account, cred, err := s.GetAccountAndCredential(accountID)
 	if err != nil {
 		if len(cached) > 0 {
 			return &DialogsResult{Dialogs: cached, Source: "cache", Stale: true}, nil
@@ -164,7 +165,7 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 		}, nil
 	}
 
-	account, cred, err := s.getAccountAndCredential(accountID)
+	account, cred, err := s.GetAccountAndCredential(accountID)
 	if err != nil {
 		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
@@ -172,7 +173,7 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 		return nil, err
 	}
 
-	cache, err := s.getPeerCache(accountID, peerRef)
+	cache, err := s.GetPeerCache(accountID, peerRef)
 	if err != nil {
 		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
@@ -189,7 +190,7 @@ func (s *ChatService) GetMessages(ctx context.Context, accountID uint, peerRef s
 			}
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
 		}
-		accessHash, err = s.decryptAccessHash(cache.AccessHashEncrypted)
+		accessHash, err = s.DecryptAccessHash(cache.AccessHashEncrypted)
 		if err != nil {
 			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true}, nil
@@ -294,7 +295,7 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 		return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
 	}
 
-	account, cred, err := s.getAccountAndCredential(accountID)
+	account, cred, err := s.GetAccountAndCredential(accountID)
 	if err != nil {
 		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
@@ -302,7 +303,7 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 		return nil, err
 	}
 
-	cache, err := s.getPeerCache(accountID, peerRef)
+	cache, err := s.GetPeerCache(accountID, peerRef)
 	if err != nil {
 		if len(cached) > 0 {
 			return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
@@ -319,7 +320,7 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 			}
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
 		}
-		accessHash, err = s.decryptAccessHash(cache.AccessHashEncrypted)
+		accessHash, err = s.DecryptAccessHash(cache.AccessHashEncrypted)
 		if err != nil {
 			if len(cached) > 0 {
 				return &MessagesResult{Messages: cached, Source: "cache", Stale: true, HasOlder: len(cached) >= limit}, nil
@@ -395,12 +396,12 @@ func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef stri
 		return nil, &ChatError{Code: "peer_invalid", Message: "会话引用不能为空"}
 	}
 
-	account, cred, err := s.getAccountAndCredential(accountID)
+	account, cred, err := s.GetAccountAndCredential(accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	cache, err := s.getPeerCache(accountID, peerRef)
+	cache, err := s.GetPeerCache(accountID, peerRef)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +412,7 @@ func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef stri
 		if cache.AccessHashEncrypted == "" {
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息不完整，请刷新会话列表"}
 		}
-		accessHash, err = s.decryptAccessHash(cache.AccessHashEncrypted)
+		accessHash, err = s.DecryptAccessHash(cache.AccessHashEncrypted)
 		if err != nil {
 			return nil, &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败，请刷新会话列表"}
 		}
@@ -451,8 +452,8 @@ func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef stri
 	}, nil
 }
 
-// getPeerCache 从缓存获取 peer 信息，验证 account_id 匹配。
-func (s *ChatService) getPeerCache(accountID uint, peerRef string) (*model.ChatPeerCache, error) {
+// GetPeerCache 从缓存获取 peer 信息，验证 account_id 匹配。
+func (s *ChatService) GetPeerCache(accountID uint, peerRef string) (*model.ChatPeerCache, error) {
 	var cache model.ChatPeerCache
 	err := s.db.Where("peer_ref = ? AND account_id = ?", peerRef, accountID).First(&cache).Error
 	if err == gorm.ErrRecordNotFound {
@@ -470,8 +471,8 @@ func (s *ChatService) encryptAccessHash(accessHash int64) (string, error) {
 	return crypto.EncryptString(s.key, plain, []byte("atria:chat_peer:v1"))
 }
 
-// decryptAccessHash 解密 access_hash。
-func (s *ChatService) decryptAccessHash(encrypted string) (int64, error) {
+// DecryptAccessHash 解密 access_hash。
+func (s *ChatService) DecryptAccessHash(encrypted string) (int64, error) {
 	plain, err := crypto.DecryptString(s.key, encrypted, []byte("atria:chat_peer:v1"))
 	if err != nil {
 		return 0, err
@@ -565,6 +566,21 @@ func (s *ChatService) decryptCachedMessages(cached []model.ChatMessageCache) []M
 				msg.Text = text
 			}
 		}
+		// 解密 caption
+		if c.CaptionEncrypted != "" {
+			caption, err := crypto.DecryptString(s.key, c.CaptionEncrypted, []byte("atria:msg:v1"))
+			if err == nil {
+				msg.Caption = caption
+			}
+		}
+		// 反序列化媒体信息
+		if c.MediaJSON != "" {
+			var media MediaInfo
+			if err := json.Unmarshal([]byte(c.MediaJSON), &media); err == nil {
+				msg.HasMedia = true
+				msg.MediaInfo = &media
+			}
+		}
 		messages = append(messages, msg)
 	}
 	return messages
@@ -591,6 +607,24 @@ func (s *ChatService) cacheMessages(accountID uint, peerRef string, messages []M
 			textEncrypted = encrypted
 		}
 
+		// 加密 caption
+		captionEncrypted := ""
+		if msg.Caption != "" {
+			encrypted, err := crypto.EncryptString(s.key, msg.Caption, []byte("atria:msg:v1"))
+			if err == nil {
+				captionEncrypted = encrypted
+			}
+		}
+
+		// 序列化媒体信息
+		mediaJSON := ""
+		if msg.MediaInfo != nil {
+			data, err := json.Marshal(msg.MediaInfo)
+			if err == nil {
+				mediaJSON = string(data)
+			}
+		}
+
 		cache := model.ChatMessageCache{
 			AccountID:         accountID,
 			PeerRef:           peerRef,
@@ -599,6 +633,8 @@ func (s *ChatService) cacheMessages(accountID uint, peerRef string, messages []M
 			SenderName:        msg.SenderName,
 			Kind:              msg.MessageType,
 			TextEncrypted:     textEncrypted,
+			CaptionEncrypted:  captionEncrypted,
+			MediaJSON:         mediaJSON,
 			SentAt:            msg.SentAt,
 		}
 
@@ -610,10 +646,12 @@ func (s *ChatService) cacheMessages(accountID uint, peerRef string, messages []M
 			s.db.Create(&cache)
 		} else if err == nil {
 			s.db.Model(&existing).Updates(map[string]any{
-				"text_encrypted": textEncrypted,
-				"sender_name":    msg.SenderName,
-				"kind":           msg.MessageType,
-				"sent_at":        msg.SentAt,
+				"text_encrypted":    textEncrypted,
+				"caption_encrypted": captionEncrypted,
+				"media_json":        mediaJSON,
+				"sender_name":       msg.SenderName,
+				"kind":              msg.MessageType,
+				"sent_at":           msg.SentAt,
 			})
 		}
 	}
@@ -634,8 +672,8 @@ func (s *ChatService) cacheMessages(accountID uint, peerRef string, messages []M
 	}
 }
 
-// getAccountAndCredential 获取账号和关联的 API 凭据。
-func (s *ChatService) getAccountAndCredential(accountID uint) (*model.TelegramAccount, *model.APICredential, error) {
+// GetAccountAndCredential 获取账号和关联的 API 凭据。
+func (s *ChatService) GetAccountAndCredential(accountID uint) (*model.TelegramAccount, *model.APICredential, error) {
 	var account model.TelegramAccount
 	err := s.db.Preload("Session").Where("id = ? AND status = ?", accountID, model.TelegramAccountStatusActive).
 		First(&account).Error
@@ -827,7 +865,7 @@ func (s *ChatService) GetContacts(ctx context.Context, accountID uint, forceRefr
 		return &ContactsResult{Contacts: cachedContacts, Source: "cache", Stale: true}, nil
 	}
 
-	account, cred, err := s.getAccountAndCredential(accountID)
+	account, cred, err := s.GetAccountAndCredential(accountID)
 	if err != nil {
 		if len(cachedContacts) > 0 {
 			return &ContactsResult{Contacts: cachedContacts, Source: "cache", Stale: true}, nil
@@ -1006,7 +1044,7 @@ func mapNeutralDialogToChatDialog(d telegramclient.Dialog) Dialog {
 
 // mapNeutralMessageToChatMessage 将中立 Message DTO 转换为 chat 包内部 Message。
 func mapNeutralMessageToChatMessage(m telegramclient.Message) Message {
-	return Message{
+	msg := Message{
 		MessageID:         m.TelegramMessageID,
 		TelegramMessageID: m.TelegramMessageID,
 		PeerRef:           m.PeerRef,
@@ -1017,7 +1055,23 @@ func mapNeutralMessageToChatMessage(m telegramclient.Message) Message {
 		IsOutgoing:        m.IsOutgoing,
 		Status:            MessageStatus(m.Status),
 		MessageType:       string(m.Kind),
+		Caption:           m.Caption,
+		HasMedia:          m.Media != nil,
 	}
+	if m.Media != nil {
+		msg.MediaInfo = &MediaInfo{
+			FileName:          m.Media.FileName,
+			MIMEType:          m.Media.MIMEType,
+			Size:              m.Media.Size,
+			Width:             m.Media.Width,
+			Height:            m.Media.Height,
+			Duration:          m.Media.Duration,
+			Emoji:             m.Media.Emoji,
+			DownloadAvailable: true,
+			LocalStatus:       "none",
+		}
+	}
+	return msg
 }
 
 // decodePeerRef 解析 peer 引用。

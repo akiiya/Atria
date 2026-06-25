@@ -95,6 +95,12 @@ export const zhTW: Record<string, string> = {
   'media.voiceMessage': '語音訊息',
   'media.voicePlaceholder': '語音（播放暫未實現）',
   'media.audio': '音訊',
+  'media.photo': '圖片',
+  'media.view': '檢視',
+  'media.open': '開啟',
+  'media.downloading': '下載中...',
+  'media.downloadFailed': '下載失敗',
+  'media.unsupported': '不支援的媒體',
 
   // Contacts
   'contacts.title': '聯絡人',

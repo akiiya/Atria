@@ -95,6 +95,12 @@ export const fr: Record<string, string> = {
   'media.voiceMessage': 'Message vocal',
   'media.voicePlaceholder': 'Voix (lecture non disponible)',
   'media.audio': 'Audio',
+  'media.photo': 'Photo',
+  'media.view': 'Voir',
+  'media.open': 'Ouvrir',
+  'media.downloading': 'Téléchargement...',
+  'media.downloadFailed': 'Échec du téléchargement',
+  'media.unsupported': 'Média non pris en charge',
 
   // Contacts
   'contacts.title': 'Contacts',

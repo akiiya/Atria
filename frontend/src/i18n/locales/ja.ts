@@ -95,6 +95,12 @@ export const ja: Record<string, string> = {
   'media.voiceMessage': 'ボイスメッセージ',
   'media.voicePlaceholder': '音声（再生未対応）',
   'media.audio': '音声',
+  'media.photo': '写真',
+  'media.view': '表示',
+  'media.open': '開く',
+  'media.downloading': 'ダウンロード中...',
+  'media.downloadFailed': 'ダウンロードに失敗しました',
+  'media.unsupported': '未対応のメディア',
 
   // Contacts
   'contacts.title': '連絡先',

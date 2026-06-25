@@ -25,6 +25,11 @@ export interface MediaInfo {
   duration?: number
 }
 
+export interface MediaInfoExtended extends MediaInfo {
+  download_available?: boolean
+  local_status?: string
+}
+
 /**
  * 聊天消息类型。
  *
@@ -50,6 +55,8 @@ export interface ChatMessage {
   kind?: MessageKind
   caption?: string
   media?: MediaInfo
+  has_media?: boolean
+  media_info?: MediaInfoExtended
 }
 
 export interface SendResult {

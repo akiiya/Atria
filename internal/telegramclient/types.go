@@ -213,3 +213,26 @@ type ContactsResult struct {
 	Stale    bool       `json:"stale"`
 	Contacts []Contact  `json:"contacts"`
 }
+
+// DownloadMediaRequest 是下载媒体的请求。
+type DownloadMediaRequest struct {
+	AccountID       uint
+	PeerRef         string
+	MessageID       int
+	APIID           int
+	APIHash         string
+	SessionFilePath string
+	PeerID          int64
+	PeerType        PeerType
+	AccessHash      int64
+}
+
+// DownloadMediaResult 是下载结果。
+type DownloadMediaResult struct {
+	FilePath     string `json:"-"` // 本地缓存路径（不返回前端）
+	FileName     string `json:"file_name"`
+	MIMEType     string `json:"mime_type"`
+	Size         int64  `json:"size"`
+	Success      bool   `json:"success"`
+	ErrorMessage string `json:"error_message,omitempty"`
+}

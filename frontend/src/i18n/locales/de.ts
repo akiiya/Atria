@@ -95,6 +95,12 @@ export const de: Record<string, string> = {
   'media.voiceMessage': 'Sprachnachricht',
   'media.voicePlaceholder': 'Sprache (Wiedergabe nicht verfügbar)',
   'media.audio': 'Audio',
+  'media.photo': 'Foto',
+  'media.view': 'Anzeigen',
+  'media.open': 'Öffnen',
+  'media.downloading': 'Herunterladen...',
+  'media.downloadFailed': 'Download fehlgeschlagen',
+  'media.unsupported': 'Nicht unterstütztes Medium',
 
   // Contacts
   'contacts.title': 'Kontakte',
