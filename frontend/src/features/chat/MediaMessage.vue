@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { ChatMessage } from '@/types/chat'
 import { useI18n } from '@/i18n'
 import { downloadMedia, getMediaContentUrl } from '@/api/media'
+import ImageLightbox from './ImageLightbox.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const { t } = useI18n()
@@ -10,6 +11,7 @@ const { t } = useI18n()
 const mediaStatus = ref<string>('none') // none / cached / downloading / failed
 const mediaError = ref<string>('')
 const contentUrl = ref<string>('')
+const lightboxVisible = ref(false)
 
 function formatSize(bytes: number | undefined): string {
   if (!bytes) return ''
@@ -47,6 +49,23 @@ async function handleDownload() {
   }
 }
 
+async function handlePhotoClick() {
+  if (mediaStatus.value === 'cached' && contentUrl.value) {
+    lightboxVisible.value = true
+  } else if (mediaStatus.value !== 'downloading') {
+    await handleDownload()
+    if (mediaStatus.value === 'cached' && contentUrl.value) {
+      lightboxVisible.value = true
+    }
+  }
+}
+
+function handleStickerClick() {
+  if (mediaStatus.value === 'cached' && contentUrl.value) {
+    lightboxVisible.value = true
+  }
+}
+
 function openContent() {
   if (contentUrl.value) {
     window.open(contentUrl.value, '_blank')
@@ -58,22 +77,19 @@ function openContent() {
   <div class="media-card">
     <!-- Photo -->
     <div v-if="message.message_type === 'photo'" class="media-photo">
-      <div v-if="mediaStatus === 'cached' && contentUrl" class="media-preview" @click="openContent">
+      <div v-if="mediaStatus === 'cached' && contentUrl" class="media-preview" @click="handlePhotoClick">
         <img :src="contentUrl" :alt="message.caption || t('media.photo')" class="media-img" />
       </div>
-      <div v-else class="media-placeholder" @click="handleDownload">
+      <div v-else class="media-placeholder" @click="handlePhotoClick">
         <span class="media-icon-large">🖼️</span>
         <div v-if="message.media?.width" class="media-meta">{{ message.media.width }}×{{ message.media.height }}</div>
       </div>
       <div v-if="message.caption" class="media-caption">{{ message.caption }}</div>
       <div v-if="mediaStatus === 'none'" class="media-action">
-        <button class="btn btn-sm btn-outline" @click="handleDownload">{{ t('media.download') }}</button>
+        <button class="btn btn-sm btn-outline" @click.stop="handleDownload">{{ t('media.download') }}</button>
       </div>
       <div v-else-if="mediaStatus === 'downloading'" class="media-action">
         <span class="media-loading">{{ t('media.downloading') }}</span>
-      </div>
-      <div v-else-if="mediaStatus === 'cached'" class="media-action">
-        <button class="btn btn-sm btn-outline" @click="openContent">{{ t('media.view') }}</button>
       </div>
       <div v-else-if="mediaStatus === 'failed'" class="media-error">
         {{ mediaError || t('media.downloadFailed') }}
@@ -106,16 +122,18 @@ function openContent() {
 
     <!-- Sticker -->
     <div v-else-if="message.message_type === 'sticker'" class="media-sticker">
-      <div class="media-emoji">{{ message.media?.emoji || '🏷️' }}</div>
-      <div class="media-note">{{ t('media.sticker') }}</div>
+      <div v-if="mediaStatus === 'cached' && contentUrl" @click="handleStickerClick" style="cursor:pointer;">
+        <img :src="contentUrl" :alt="t('media.sticker')" class="media-sticker-img" />
+      </div>
+      <div v-else>
+        <div class="media-emoji">{{ message.media?.emoji || '🏷️' }}</div>
+        <div class="media-note">{{ t('media.sticker') }}</div>
+      </div>
       <div v-if="mediaStatus === 'none'" class="media-action">
         <button class="btn btn-sm btn-outline" @click="handleDownload">{{ t('media.download') }}</button>
       </div>
       <div v-else-if="mediaStatus === 'downloading'" class="media-action">
         <span class="media-loading">{{ t('media.downloading') }}</span>
-      </div>
-      <div v-else-if="mediaStatus === 'cached' && contentUrl" class="media-action">
-        <img :src="contentUrl" :alt="t('media.sticker')" class="media-sticker-img" @click="openContent" />
       </div>
       <div v-else-if="mediaStatus === 'failed'" class="media-error">
         {{ mediaError || t('media.downloadFailed') }}
@@ -211,6 +229,15 @@ function openContent() {
         {{ mediaError || t('media.downloadFailed') }}
       </div>
     </div>
+
+    <!-- Lightbox -->
+    <ImageLightbox
+      v-if="contentUrl"
+      :src="contentUrl"
+      :alt="message.caption || t('media.photo')"
+      :visible="lightboxVisible"
+      @close="lightboxVisible = false"
+    />
   </div>
 </template>
 
