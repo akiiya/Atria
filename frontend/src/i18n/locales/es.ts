@@ -245,6 +245,15 @@ export const es: Record<string, string> = {
   'maintenance.messages': 'caché de mensajes',
   'maintenance.willDelete': 'Se eliminarán {peers} caché peer y {messages} caché de mensajes',
   'maintenance.deleted': '{peers} caché peer y {messages} caché de mensajes eliminados',
+  'maintenance.mediaCache': 'Caché de medios',
+  'maintenance.mediaRecords': 'Registros',
+  'maintenance.mediaCached': 'En caché',
+  'maintenance.mediaFailed': 'Fallidos',
+  'maintenance.mediaTotalSize': 'Tamaño total',
+  'maintenance.cleanupMediaCache': 'Limpiar caché de medios',
+  'maintenance.cleanupMediaCacheDesc': 'Eliminar archivos multimedia en caché y metadatos',
+  'maintenance.onlyFailed': 'Solo fallidos/expirados',
+  'maintenance.mediaCleaned': '{records} registros y {files} archivos limpiados',
 
   // Accounts
   'accounts.title': 'Cuentas',

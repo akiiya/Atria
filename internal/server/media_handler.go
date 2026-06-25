@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/user/atria/internal/audit"
-	"github.com/user/atria/internal/media"
 	"github.com/user/atria/internal/security"
 )
 
@@ -126,18 +125,17 @@ func (s *Server) handleAPIMediaContent(c *gin.Context) {
 	}
 
 	mediaSvc := s.newMediaService()
-	filePath, cache, err := mediaSvc.GetMediaContent(c.Request.Context(), selectedID, peerRef, messageID)
+	filePath, mimeType, fileName, err := mediaSvc.GetMediaContent(c.Request.Context(), selectedID, peerRef, messageID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "媒体不可用"})
 		return
 	}
 
-	c.Header("Content-Type", cache.MIMEType)
-	if cache.FileName != "" {
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", cache.FileName))
+	c.Header("Content-Type", mimeType)
+	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	c.Header("X-Content-Type-Options", "nosniff")
+	if fileName != "" {
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", fileName))
 	}
 	c.File(filePath)
 }
-
-// Ensure media.Service is used (import check).
-var _ = (*media.Service)(nil)

@@ -105,3 +105,10 @@ frontend/src/
 - 媒体文件存储在服务器本地缓存目录，不暴露原始路径
 - 不支持批量下载，每次只能下载单个文件
 - 媒体文件不存储在数据库中，仅缓存在文件系统
+- 路径穿越防护：`sanitizeLocalPath` 和 `sanitizeFileName` 清理文件路径和名称
+- 文件大小限制：最大 100MB（`MaxFileSize`）
+- 下载锁定：`sync.Mutex` 防止并发下载同一文件
+- Stale 恢复：启动时将卡在 downloading 状态超过 5 分钟的记录重置为 failed
+- Content-Security-Policy: `default-src 'none'; style-src 'unsafe-inline'`
+- X-Content-Type-Options: `nosniff`
+- Content-Disposition 使用 sanitize 后的文件名

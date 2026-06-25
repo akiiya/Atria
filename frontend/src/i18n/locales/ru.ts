@@ -245,6 +245,15 @@ export const ru: Record<string, string> = {
   'maintenance.messages': 'кеш сообщений',
   'maintenance.willDelete': 'Будет удалено {peers} кеш peer и {messages} кеш сообщений',
   'maintenance.deleted': 'Удалено {peers} кеш peer и {messages} кеш сообщений',
+  'maintenance.mediaCache': 'Кеш мультимедиа',
+  'maintenance.mediaRecords': 'Записей',
+  'maintenance.mediaCached': 'В кеше',
+  'maintenance.mediaFailed': 'Ошибки',
+  'maintenance.mediaTotalSize': 'Общий размер',
+  'maintenance.cleanupMediaCache': 'Очистка кеша мультимедиа',
+  'maintenance.cleanupMediaCacheDesc': 'Удалить кешированные мультимедийные файлы и метаданные',
+  'maintenance.onlyFailed': 'Только ошибки/истёкшие',
+  'maintenance.mediaCleaned': 'Очищено {records} записей и {files} файлов',
 
   // Accounts
   'accounts.title': 'Учётные записи',

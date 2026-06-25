@@ -10,6 +10,10 @@ export interface MaintenanceStatus {
   orphan_peers: number
   orphan_messages: number
   migration_version: number
+  media_record_count: number
+  media_cached_count: number
+  media_failed_count: number
+  media_total_size: number
   recent_maintenance: Array<{
     id: number
     action: string
@@ -42,4 +46,24 @@ export function cleanupChatCache(body: {
 
 export function cleanupOrphans(dryRun = true): Promise<CleanupResult> {
   return apiPost<CleanupResult>('/api/maintenance/cleanup/orphans', { dry_run: dryRun })
+}
+
+export interface MediaCleanupResult {
+  ok: boolean
+  dry_run: boolean
+  record_count: number
+  cached_count?: number
+  failed_count?: number
+  file_count?: number
+  total_size?: number
+  message: string
+}
+
+export function cleanupMediaCache(body: {
+  account_id?: number
+  peer_ref?: string
+  only_failed?: boolean
+  dry_run?: boolean
+}): Promise<MediaCleanupResult> {
+  return apiPost<MediaCleanupResult>('/api/maintenance/cleanup/media-cache', body)
 }

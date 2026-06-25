@@ -245,6 +245,15 @@ export const ptBR: Record<string, string> = {
   'maintenance.messages': 'cache de mensagens',
   'maintenance.willDelete': 'Serão excluídos {peers} cache peer e {messages} cache de mensagens',
   'maintenance.deleted': '{peers} cache peer e {messages} cache de mensagens excluídos',
+  'maintenance.mediaCache': 'Cache de mídia',
+  'maintenance.mediaRecords': 'Registros',
+  'maintenance.mediaCached': 'Em cache',
+  'maintenance.mediaFailed': 'Falhos',
+  'maintenance.mediaTotalSize': 'Tamanho total',
+  'maintenance.cleanupMediaCache': 'Limpar cache de mídia',
+  'maintenance.cleanupMediaCacheDesc': 'Remover arquivos de mídia em cache e metadados',
+  'maintenance.onlyFailed': 'Apenas falhos/expirados',
+  'maintenance.mediaCleaned': '{records} registros e {files} arquivos limpos',
 
   // Accounts
   'accounts.title': 'Contas',

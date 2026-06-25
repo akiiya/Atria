@@ -6,7 +6,9 @@ import {
   fetchMaintenanceStatus,
   cleanupChatCache,
   cleanupOrphans,
+  cleanupMediaCache,
   type CleanupResult,
+  type MediaCleanupResult,
 } from '@/api/maintenance'
 
 const { t } = useI18n()
@@ -68,6 +70,33 @@ function executeOrphans() {
   if (!confirm(t('maintenance.confirmExecute'))) return
   orphanMutation.mutate(false)
 }
+
+// Media cache cleanup
+const mediaOnlyFailed = ref(false)
+const mediaCacheResult = ref<MediaCleanupResult | null>(null)
+
+const mediaCacheMutation = useMutation({
+  mutationFn: (dryRun: boolean) =>
+    cleanupMediaCache({
+      only_failed: mediaOnlyFailed.value,
+      dry_run: dryRun,
+    }),
+  onSuccess: (result) => {
+    mediaCacheResult.value = result
+    if (!result.dry_run) {
+      queryClient.invalidateQueries({ queryKey: ['maintenance-status'] })
+    }
+  },
+})
+
+function previewMediaCache() {
+  mediaCacheMutation.mutate(true)
+}
+
+function executeMediaCache() {
+  if (!confirm(t('maintenance.confirmExecute'))) return
+  mediaCacheMutation.mutate(false)
+}
 </script>
 
 <template>
@@ -113,6 +142,11 @@ function executeOrphans() {
           <div class="stat-icon">📋</div>
           <div class="stat-value">{{ data?.audit_log_count ?? 0 }}</div>
           <div class="stat-label">{{ t('maintenance.auditLogs') }}</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon">🖼️</div>
+          <div class="stat-value">{{ data?.media_cached_count ?? 0 }}</div>
+          <div class="stat-label">{{ t('maintenance.mediaCache') }}</div>
         </div>
       </div>
 
@@ -207,6 +241,57 @@ function executeOrphans() {
             </div>
             <div v-if="chatCacheResult" class="alert alert-success" style="margin-top:12px;">
               {{ t('maintenance.previewResult') }}: {{ chatCacheResult.message }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Media cache cleanup -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">{{ t('maintenance.cleanupMediaCache') }}</h3>
+          </div>
+          <div class="card-body">
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
+              {{ t('maintenance.cleanupMediaCacheDesc') }}
+            </p>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+              <div>
+                <span style="color:var(--text-secondary);">{{ t('maintenance.mediaRecords') }}</span><br>
+                <strong>{{ data?.media_record_count ?? 0 }}</strong>
+              </div>
+              <div>
+                <span style="color:var(--text-secondary);">{{ t('maintenance.mediaCached') }}</span><br>
+                <strong>{{ data?.media_cached_count ?? 0 }}</strong>
+              </div>
+              <div>
+                <span style="color:var(--text-secondary);">{{ t('maintenance.mediaFailed') }}</span><br>
+                <strong>{{ data?.media_failed_count ?? 0 }}</strong>
+              </div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+                <input v-model="mediaOnlyFailed" type="checkbox">
+                {{ t('maintenance.onlyFailed') }}
+              </label>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button
+                class="btn btn-sm btn-outline"
+                :disabled="mediaCacheMutation.isPending.value"
+                @click="previewMediaCache"
+              >
+                {{ t('maintenance.dryRun') }}
+              </button>
+              <button
+                class="btn btn-sm btn-danger"
+                :disabled="mediaCacheMutation.isPending.value"
+                @click="executeMediaCache"
+              >
+                {{ t('maintenance.execute') }}
+              </button>
+            </div>
+            <div v-if="mediaCacheResult" class="alert alert-success" style="margin-top:12px;">
+              {{ t('maintenance.previewResult') }}: {{ mediaCacheResult.message }}
             </div>
           </div>
         </div>

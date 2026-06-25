@@ -245,6 +245,15 @@ export const ko: Record<string, string> = {
   'maintenance.messages': '메시지 캐시',
   'maintenance.willDelete': '{peers} peer 캐시와 {messages} 메시지 캐시를 삭제합니다',
   'maintenance.deleted': '{peers} peer 캐시와 {messages} 메시지 캐시를 삭제했습니다',
+  'maintenance.mediaCache': '미디어 캐시',
+  'maintenance.mediaRecords': '레코드 수',
+  'maintenance.mediaCached': '캐시됨',
+  'maintenance.mediaFailed': '실패',
+  'maintenance.mediaTotalSize': '총 크기',
+  'maintenance.cleanupMediaCache': '미디어 캐시 정리',
+  'maintenance.cleanupMediaCacheDesc': '캐시된 미디어 파일과 메타데이터를 삭제합니다',
+  'maintenance.onlyFailed': '실패/만료된 것만',
+  'maintenance.mediaCleaned': '{records}개 레코드와 {files}개 파일을 정리했습니다',
 
   // Accounts
   'accounts.title': '계정',
