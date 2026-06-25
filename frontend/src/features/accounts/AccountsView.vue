@@ -34,6 +34,7 @@ const hasApi = computed(() => data.value?.has_api_key ?? false)
 
 // Action feedback
 const actionMsg = ref('')
+const actionIsError = ref(false)
 const actionLoading = ref(false)
 
 async function selectAccount(id: number) {
@@ -58,6 +59,7 @@ async function selectAccount(id: number) {
     form.submit()
   } catch {
     actionMsg.value = t('common.error')
+    actionIsError.value = true
     actionLoading.value = false
   }
 }
@@ -68,12 +70,15 @@ async function startRuntime(id: number) {
     const result = await apiPost<{ ok: boolean; message?: string }>('/api/chats/runtime/start', { account_id: id })
     if (result.ok) {
       actionMsg.value = t('accounts.runtimeStarted')
+      actionIsError.value = false
       refetch()
     } else {
       actionMsg.value = result.message || t('common.error')
+      actionIsError.value = true
     }
   } catch {
     actionMsg.value = t('common.error')
+    actionIsError.value = true
   }
   actionLoading.value = false
 }
@@ -84,12 +89,15 @@ async function stopRuntime(id: number) {
     const result = await apiPost<{ ok: boolean; message?: string }>('/api/chats/runtime/stop', { account_id: id })
     if (result.ok) {
       actionMsg.value = t('accounts.runtimeStopped')
+      actionIsError.value = false
       refetch()
     } else {
       actionMsg.value = result.message || t('common.error')
+      actionIsError.value = true
     }
   } catch {
     actionMsg.value = t('common.error')
+    actionIsError.value = true
   }
   actionLoading.value = false
 }
@@ -101,12 +109,15 @@ async function enableAccount(id: number) {
     const result = await apiPost<{ ok: boolean; message?: string }>(`/api/accounts/${id}/enable`, {})
     if (result.ok) {
       actionMsg.value = t('accounts.enabled')
+      actionIsError.value = false
       refetch()
     } else {
       actionMsg.value = result.message || t('common.error')
+      actionIsError.value = true
     }
   } catch {
     actionMsg.value = t('common.error')
+    actionIsError.value = true
   }
   actionLoading.value = false
 }
@@ -119,12 +130,15 @@ async function disableAccount(id: number) {
     const result = await apiPost<{ ok: boolean; message?: string }>(`/api/accounts/${id}/disable`, {})
     if (result.ok) {
       actionMsg.value = t('accounts.disabled')
+      actionIsError.value = false
       refetch()
     } else {
       actionMsg.value = result.message || t('common.error')
+      actionIsError.value = true
     }
   } catch {
     actionMsg.value = t('common.error')
+    actionIsError.value = true
   }
   actionLoading.value = false
 }
@@ -196,7 +210,7 @@ function accountStatusLabel(status: string): string {
 
     <div v-else>
       <!-- Action feedback -->
-      <div v-if="actionMsg" class="alert" :class="actionMsg.includes('Error') || actionMsg.includes('失败') ? 'alert-error' : 'alert-success'" style="margin-bottom:16px;">
+      <div v-if="actionMsg" class="alert" :class="actionIsError ? 'alert-error' : 'alert-success'" style="margin-bottom:16px;">
         {{ actionMsg }}
         <button class="alert-dismiss" @click="actionMsg = ''">&times;</button>
       </div>

@@ -14,6 +14,7 @@ import (
 	"github.com/user/atria/internal/crypto"
 	"github.com/user/atria/internal/model"
 	"github.com/user/atria/internal/network"
+	"github.com/user/atria/internal/security"
 
 	"github.com/gin-gonic/gin"
 )
@@ -151,7 +152,8 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 			RiskPolicy:  "disabled",
 		})
 		if err != nil {
-			s.redirectSettingsWithError(c, "创建 API Key 失败: "+err.Error())
+			slog.Error("创建 API Key 失败", "error", err)
+			s.redirectSettingsWithError(c, "创建 API Key 失败: "+security.SanitizeErrorMessage(err.Error()))
 			return
 		}
 
@@ -195,7 +197,8 @@ func (s *Server) handlePostSettingsAPIKey(c *gin.Context) {
 		RiskPolicy:  string(systemKey.RiskPolicy),
 	})
 	if err != nil {
-		s.redirectSettingsWithError(c, "更新 API Key 失败: "+err.Error())
+		slog.Error("更新 API Key 失败", "error", err)
+		s.redirectSettingsWithError(c, "更新 API Key 失败: "+security.SanitizeErrorMessage(err.Error()))
 		return
 	}
 

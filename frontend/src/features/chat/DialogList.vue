@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
+import { useI18n } from '@/i18n'
 import type { Dialog } from '@/types/chat'
 import DialogItem from './DialogItem.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   dialogs: Dialog[]
@@ -38,7 +41,7 @@ const virtualizer = useVirtualizer({
         v-model="searchQuery"
         type="text"
         class="dialog-search-input"
-        placeholder="搜索会话..."
+        :placeholder="t('chat.searchDialogs')"
       />
     </div>
     <div ref="scrollParent" class="dialog-scroll-container">

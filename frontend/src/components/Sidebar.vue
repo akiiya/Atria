@@ -49,7 +49,7 @@ function navigate(path: string, disabled?: boolean) {
           v-for="item in navItems"
           :key="item.path"
           :class="['nav-item', { active: isActive(item.path), disabled: item.disabled }]"
-          :title="item.disabled ? '即将支持' : ''"
+          :title="item.disabled ? t('common.comingSoon') : ''"
           @click.prevent="navigate(item.path, item.disabled)"
           href="#"
         >

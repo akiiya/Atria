@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/types/chat'
 
+const { t } = useI18n()
 defineProps<{ message: ChatMessage }>()
 
 function formatTime(iso: string): string {
@@ -10,7 +12,7 @@ function formatTime(iso: string): string {
 
 <template>
   <div class="service-message">
-    <span class="service-text">{{ message.text || '服务消息' }}</span>
+    <span class="service-text">{{ message.text || t('chat.serviceMessage') }}</span>
     <span class="service-time">{{ formatTime(message.sent_at) }}</span>
   </div>
 </template>

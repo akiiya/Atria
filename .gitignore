@@ -24,6 +24,7 @@ tmp/
 # ===== 构建产物 =====
 /atria
 /atria.exe
+bin/
 build/
 # 前端 dist 需要提交（Go embed 需要），但忽略 node_modules
 frontend/node_modules/

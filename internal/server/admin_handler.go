@@ -21,6 +21,7 @@ func (s *Server) setCSRFToken(c *gin.Context) string {
 		slog.Error("生成 CSRF token 失败", "error", err)
 		return ""
 	}
+	c.SetSameSite(s.cfg.CookieSameSiteMode())
 	c.SetCookie(csrfCookieName, token, int(s.cfg.SessionTTL.Seconds()), "/", "", s.cfg.CookieSecure, false)
 	return token
 }
@@ -298,6 +299,7 @@ func (s *Server) setSessionCookie(c *gin.Context, adminID uint, username string)
 		return
 	}
 
+	c.SetSameSite(s.cfg.CookieSameSiteMode())
 	c.SetCookie(
 		s.cfg.CookieName,
 		token,
@@ -311,6 +313,7 @@ func (s *Server) setSessionCookie(c *gin.Context, adminID uint, username string)
 
 // clearSessionCookie 清除 Session Cookie 和 CSRF Cookie。
 func (s *Server) clearSessionCookie(c *gin.Context) {
+	c.SetSameSite(s.cfg.CookieSameSiteMode())
 	c.SetCookie(s.cfg.CookieName, "", -1, "/", "", s.cfg.CookieSecure, true)
 	c.SetCookie(csrfCookieName, "", -1, "/", "", s.cfg.CookieSecure, false)
 }

@@ -28,18 +28,23 @@ type Event struct {
 
 // sensitiveKeys 是需要过滤的敏感字段名称（小写匹配）。
 var sensitiveKeys = map[string]bool{
-	"password":      true,
-	"password_hash": true,
-	"api_hash":      true,
-	"session":       true,
-	"token":         true,
-	"code":          true,
-	"two_factor":    true,
-	"secret":        true,
-	"secret_key":    true,
-	"csrf_token":    true,
-	"cookie":        true,
-	"authorization": true,
+	"password":       true,
+	"password_hash":  true,
+	"api_hash":       true,
+	"session":        true,
+	"token":          true,
+	"code":           true,
+	"two_factor":     true,
+	"secret":         true,
+	"secret_key":     true,
+	"csrf_token":     true,
+	"cookie":         true,
+	"authorization":  true,
+	"access_hash":    true,
+	"file_reference": true,
+	"local_path":     true,
+	"message_body":   true,
+	"search_keyword": true,
 }
 
 // filterMetadata 过滤元数据中的敏感字段。

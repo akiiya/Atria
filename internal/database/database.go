@@ -73,6 +73,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.SystemSetting{},
 		&model.ChatPeerCache{},
 		&model.ChatMessageCache{},
+		&model.MediaCache{},
 		&model.TelegramUpdateState{},
 		&model.TelegramChannelUpdateState{},
 	)

@@ -20,6 +20,7 @@ const apiKeyEditMode = ref(false)
 const apiKeyForm = ref({ display_name: '', api_id: '', api_hash: '' })
 const apiKeySaving = ref(false)
 const apiKeyMsg = ref('')
+const apiKeyIsError = ref(false)
 
 function enterApiKeyEdit() {
   apiKeyEditMode.value = true
@@ -45,13 +46,15 @@ function saveApiKey() {
   }).then(data => {
     if (data.ok) {
       apiKeyMsg.value = t('settings.apiKeySaved')
+      apiKeyIsError.value = false
       apiKeyEditMode.value = false
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     } else {
       apiKeyMsg.value = data.message || t('settings.saveFailed')
+      apiKeyIsError.value = true
     }
     apiKeySaving.value = false
-  }).catch(() => { apiKeyMsg.value = t('settings.saveFailed'); apiKeySaving.value = false })
+  }).catch(() => { apiKeyMsg.value = t('settings.saveFailed'); apiKeyIsError.value = true; apiKeySaving.value = false })
 }
 
 // Proxy form - initialized from settings data via watcher
@@ -66,6 +69,7 @@ const proxyForm = ref({
 })
 const proxySaving = ref(false)
 const proxyMsg = ref('')
+const proxyIsError = ref(false)
 const proxyWarning = ref('')
 const proxyLegacyInvalid = ref(false)
 const proxyLegacyMessage = ref('')
@@ -99,6 +103,7 @@ function saveProxy() {
   // 前端拦截：不允许保存 api_proxy
   if (proxyForm.value.proxy_type === 'api_proxy') {
     proxyMsg.value = t('settings.proxySelectHint')
+    proxyIsError.value = false
     return
   }
 
@@ -108,6 +113,7 @@ function saveProxy() {
   apiPost<any>('/api/settings/proxy', proxyForm.value).then(data => {
     if (data.ok) {
       proxyMsg.value = t('settings.proxySaved')
+      proxyIsError.value = false
       // 显示后端返回的 warning
       if (data.warning) {
         proxyWarning.value = data.warning
@@ -119,26 +125,36 @@ function saveProxy() {
       queryClient.invalidateQueries({ queryKey: ['runtime-status'] })
     } else {
       proxyMsg.value = data.message || t('settings.saveFailed')
+      proxyIsError.value = true
     }
     proxySaving.value = false
-  }).catch(() => { proxyMsg.value = t('settings.saveFailed'); proxySaving.value = false })
+  }).catch(() => { proxyMsg.value = t('settings.saveFailed'); proxyIsError.value = true; proxySaving.value = false })
 }
 
 // Password form
 const pwdForm = ref({ current_password: '', new_password: '', confirm_new_password: '' })
 const pwdSaving = ref(false)
 const pwdMsg = ref('')
+const pwdIsError = ref(false)
 
 function savePassword() {
   if (pwdForm.value.new_password !== pwdForm.value.confirm_new_password) {
-    pwdMsg.value = t('settings.passwordMismatch'); return
+    pwdMsg.value = t('settings.passwordMismatch')
+    pwdIsError.value = true
+    return
   }
   pwdSaving.value = true
   pwdMsg.value = ''
   apiPost<any>('/settings/password', pwdForm.value).then(data => {
-    pwdMsg.value = data.ok ? t('settings.passwordChanged') : (data.message || t('settings.changeFailed'))
+    if (data.ok) {
+      pwdMsg.value = t('settings.passwordChanged')
+      pwdIsError.value = false
+    } else {
+      pwdMsg.value = data.message || t('settings.changeFailed')
+      pwdIsError.value = true
+    }
     pwdSaving.value = false
-  }).catch(() => { pwdMsg.value = t('settings.changeFailed'); pwdSaving.value = false })
+  }).catch(() => { pwdMsg.value = t('settings.changeFailed'); pwdIsError.value = true; pwdSaving.value = false })
 }
 </script>
 
@@ -156,7 +172,7 @@ function savePassword() {
       <div class="card" style="margin-bottom:16px;" id="admin-security">
         <div class="card-header"><h3 class="card-title">🔐 {{ t('settings.adminSecurity') }}</h3></div>
         <div class="card-body">
-          <div v-if="pwdMsg" :class="['alert', pwdMsg.includes('失败') ? 'alert-error' : 'alert-success']">{{ pwdMsg }}</div>
+          <div v-if="pwdMsg" :class="['alert', pwdIsError ? 'alert-error' : 'alert-success']">{{ pwdMsg }}</div>
           <div class="form-group">
             <label class="form-label">{{ t('settings.currentPassword') }}</label>
             <input v-model="pwdForm.current_password" type="password" class="form-input" :placeholder="t('settings.enterCurrentPassword')">
@@ -186,7 +202,7 @@ function savePassword() {
           <div class="alert alert-info" style="margin-bottom:16px;">
             <strong>💡 {{ t('settings.apiKeyDescTitle') }}</strong>{{ t('settings.apiKeyDesc') }}
           </div>
-          <div v-if="apiKeyMsg" :class="['alert', apiKeyMsg.includes('失败') ? 'alert-error' : 'alert-success']">{{ apiKeyMsg }}</div>
+          <div v-if="apiKeyMsg" :class="['alert', apiKeyIsError ? 'alert-error' : 'alert-success']">{{ apiKeyMsg }}</div>
 
           <!-- 展示态 -->
           <div v-if="settings?.api_key && !apiKeyEditMode">
@@ -239,7 +255,7 @@ function savePassword() {
             <strong>⚠️ {{ t('settings.proxyInvalid') }}</strong>{{ proxyLegacyMessage || t('settings.proxyRemoved') }}<br>
             {{ t('settings.proxySelectHint') }}
           </div>
-          <div v-if="proxyMsg" :class="['alert', proxyMsg.includes('失败') ? 'alert-error' : 'alert-success']">{{ proxyMsg }}</div>
+          <div v-if="proxyMsg" :class="['alert', proxyIsError ? 'alert-error' : 'alert-success']">{{ proxyMsg }}</div>
           <div v-if="proxyWarning" class="alert alert-warning" style="margin-bottom:16px;">{{ proxyWarning }}</div>
 
           <div class="form-group">
