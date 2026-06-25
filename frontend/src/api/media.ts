@@ -19,10 +19,10 @@ export interface MediaDownloadResult {
 }
 
 /**
- * 获取媒体文件的缓存状态
+ * 获取媒体文件的缓存状态（account_id 由后端从 cookie 解析）
  */
-export function getMediaStatus(messageId: number, peerRef: string, accountId: number): Promise<MediaStatus> {
-  return apiGet<MediaStatus>(`/api/media/${messageId}/status?peer_ref=${encodeURIComponent(peerRef)}&account_id=${accountId}`)
+export function getMediaStatus(messageId: number, peerRef: string): Promise<MediaStatus> {
+  return apiGet<MediaStatus>(`/api/media/${messageId}/status?peer_ref=${encodeURIComponent(peerRef)}`)
 }
 
 /**
