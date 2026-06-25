@@ -258,26 +258,26 @@ window.addEventListener('offline', onNetworkChange)
 // 综合 WebSocket 连接状态 + runtime 状态 + HTTP fetch 可达性
 const runtimeLabel = computed(() => {
   // WebSocket 断开/重连中 → 不能显示"实时更新中"
-  if (wsState.value === 'reconnecting') return '正在重连'
-  if (wsState.value === 'connecting') return '正在连接'
+  if (wsState.value === 'reconnecting') return t('chat.runtimeReconnecting')
+  if (wsState.value === 'connecting') return t('chat.runtimeConnecting')
   if (wsState.value === 'disconnected' || wsState.value === 'error') {
     // WS 断开 + runtime fetch 也失败 → 服务不可达
-    if (runtimeFetchError.value || runtimeState.value === 'offline') return '服务已断开'
+    if (runtimeFetchError.value || runtimeState.value === 'offline') return t('chat.runtimeServiceDown')
     // WS 断开但 runtime 状态已知 → 连接断开
-    return '连接已断开'
+    return t('chat.runtimeDisconnected')
   }
 
   // runtime start 正在进行中 → 正在恢复
-  if (startMutation.isPending.value) return '正在恢复实时更新'
+  if (startMutation.isPending.value) return t('chat.runtimeRestoring')
 
   // WebSocket 已连接 → 看 runtime 状态
   switch (runtimeState.value) {
-    case 'connecting': return '正在连接'
-    case 'syncing': return '正在同步'
-    case 'live': return '实时更新中'
-    case 'degraded': return '同步异常'
-    case 'offline': return '连接断开'
-    case 'stopped': return '未启动'
+    case 'connecting': return t('chat.runtimeConnecting')
+    case 'syncing': return t('chat.runtimeSyncing')
+    case 'live': return t('chat.runtimeLive')
+    case 'degraded': return t('chat.runtimeDegraded')
+    case 'offline': return t('chat.runtimeOffline')
+    case 'stopped': return t('chat.runtimeStopped')
     default: return ''
   }
 })
@@ -288,11 +288,11 @@ const runtimeTooltip = computed(() => {
   if (lastErr) parts.push(lastErr)
   const execReady = runtimeData.value?.executor_ready as boolean | undefined
   if (execReady === false && runtimeState.value !== 'stopped') {
-    parts.push('执行器未就绪')
+    parts.push(t('chat.executorNotReady'))
   }
   // WS 断开时附加提示
-  if (wsState.value === 'reconnecting') parts.push('WebSocket 重连中')
-  if (wsState.value === 'error') parts.push('WebSocket 连接异常')
+  if (wsState.value === 'reconnecting') parts.push(t('chat.wsReconnecting'))
+  if (wsState.value === 'error') parts.push(t('chat.wsError'))
   return parts.join(' · ') || ''
 })
 

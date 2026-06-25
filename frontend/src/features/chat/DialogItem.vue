@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import type { Dialog } from '@/types/chat'
 import AvatarInitials from '@/components/AvatarInitials.vue'
+import { useI18n } from '@/i18n'
 
 defineProps<{
   dialog: Dialog
   selected: boolean
 }>()
+
+const { t } = useI18n()
 
 function formatTime(iso: string | undefined): string {
   if (!iso) return ''
@@ -27,7 +30,7 @@ function formatTime(iso: string | undefined): string {
         <span class="dialog-time">{{ formatTime(dialog.last_message_at) }}</span>
       </div>
       <div class="dialog-preview-row">
-        <span class="dialog-preview">{{ dialog.last_message_preview || '暂无消息' }}</span>
+        <span class="dialog-preview">{{ dialog.last_message_preview || t('chat.noMessages') }}</span>
         <span v-if="dialog.unread_count" class="dialog-unread">{{ dialog.unread_count }}</span>
       </div>
     </div>
