@@ -510,51 +510,26 @@ func (s *Server) handleAPIAudit(c *gin.Context) {
 	})
 }
 
-// handleAPIAuditEventTypes 返回已使用的审计事件类型列表。
+// handleAPIAuditEventTypes 返回已使用的审计事件类型列表（仅 value + count，标签由前端 i18n 提供）。
 func (s *Server) handleAPIAuditEventTypes(c *gin.Context) {
-	var actions []string
-	s.db.Model(&model.AuditLog{}).Distinct("action").Pluck("action", &actions)
+	type eventTypeRow struct {
+		Action string
+		Count  int64
+	}
+	var rows []eventTypeRow
+	s.db.Model(&model.AuditLog{}).
+		Select("action, count(*) as count").
+		Group("action").
+		Order("count DESC").
+		Find(&rows)
 
 	type eventTypeDTO struct {
 		Value string `json:"value"`
-		Label string `json:"label"`
+		Count int64  `json:"count"`
 	}
-
-	// 事件类型中文标签映射
-	labelMap := map[string]string{
-		"admin.login":               "管理员登录",
-		"admin.login_success":       "管理员登录",
-		"admin.login_failed":        "管理员登录失败",
-		"admin.logout":              "管理员登出",
-		"admin.initialized":         "初始化管理员",
-		"admin.password_changed":    "修改密码",
-		"api_credential.create":     "创建 API Key",
-		"api_credential.update":     "更新 API Key",
-		"api_credential.delete":     "删除 API Key",
-		"account.login_start":       "开始登录账号",
-		"account.code_sent":         "发送验证码",
-		"account.code_failed":       "验证码错误",
-		"account.password_required": "需要 2FA 密码",
-		"account.password_failed":   "2FA 密码错误",
-		"account.login_authorized":  "账号授权成功",
-		"account.select":            "切换当前账号",
-		"runtime.start":             "启动 Runtime",
-		"runtime.stop":              "停止 Runtime",
-		"settings.proxy.save":       "保存代理配置",
-		"chat.send_message":         "发送消息",
-		"test.action1":              "测试事件",
-		"test.action2":              "测试事件",
-		"test.action_old":           "测试事件",
-		"test.event":                "测试事件",
-	}
-
-	dtos := make([]eventTypeDTO, 0, len(actions))
-	for _, a := range actions {
-		label := labelMap[a]
-		if label == "" {
-			label = a
-		}
-		dtos = append(dtos, eventTypeDTO{Value: a, Label: label})
+	dtos := make([]eventTypeDTO, 0, len(rows))
+	for _, r := range rows {
+		dtos = append(dtos, eventTypeDTO{Value: r.Action, Count: r.Count})
 	}
 
 	c.JSON(http.StatusOK, gin.H{

@@ -32,10 +32,10 @@ interface AuditResponse {
 
 interface EventTypeOption {
   value: string
-  label: string
+  count: number
 }
 
-// Fetch event types from API
+// Fetch event types from API (backend returns value + count, no label)
 const { data: eventTypesData } = useQuery({
   queryKey: ['audit-event-types'],
   queryFn: () => apiGet<{ ok: boolean; event_types: EventTypeOption[] }>('/api/audit/event-types'),
@@ -45,7 +45,10 @@ const { data: eventTypesData } = useQuery({
 
 const eventTypes = computed(() => {
   const fromApi = eventTypesData.value?.event_types || []
-  return [{ value: '', label: t('audit.allTypes') }, ...fromApi]
+  return [
+    { value: '', label: t('audit.allTypes') },
+    ...fromApi.map(et => ({ value: et.value, label: t('event.' + et.value) || et.value }))
+  ]
 })
 
 const riskLevels = computed(() => [

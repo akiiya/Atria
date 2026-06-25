@@ -12,6 +12,7 @@ const navItems: Array<{ path: string; icon: string; label: string; disabled?: bo
   { path: '/chats', icon: '💬', label: 'nav.chats' },
   { path: '/contacts', icon: '👥', label: 'nav.contacts' },
   { path: '/audit', icon: '📋', label: 'nav.audit' },
+  { path: '/maintenance', icon: '🔧', label: 'nav.maintenance' },
 ]
 
 function isActive(path: string): boolean {

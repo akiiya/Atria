@@ -376,6 +376,17 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPISaveAPIKey(c)
 	})
 
+	// 维护 API
+	r.GET("/api/maintenance/status", authMiddleware, func(c *gin.Context) {
+		s.handleAPIMaintenanceStatus(c)
+	})
+	r.POST("/api/maintenance/cleanup/chat-cache", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPICleanupChatCache(c)
+	})
+	r.POST("/api/maintenance/cleanup/orphans", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPICleanupOrphans(c)
+	})
+
 	// ===== SPA Shell =====
 
 	// Vue SPA 入口 - 读取 dist/index.html 并注入 CSRF token
