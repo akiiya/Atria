@@ -177,30 +177,53 @@ func extractMediaInfo(media tg.MessageMediaClass) *telegramclient.Media {
 	case *tg.MessageMediaDocument:
 		if m.Document != nil {
 			if doc, ok := m.Document.(*tg.Document); ok {
-				med := &telegramclient.Media{
-					FileName: getDocumentFilename(doc),
-					MIMEType: doc.MimeType,
-					Size:     doc.Size,
-				}
-				for _, attr := range doc.Attributes {
-					switch a := attr.(type) {
-					case *tg.DocumentAttributeVideo:
-						med.Width = int(a.W)
-						med.Height = int(a.H)
-						med.Duration = int(a.Duration)
-					case *tg.DocumentAttributeAudio:
-						med.Duration = int(a.Duration)
-					case *tg.DocumentAttributeSticker:
-						med.Emoji = a.Alt
-					case *tg.DocumentAttributeFilename:
-						med.FileName = a.FileName
+				return extractDocumentMedia(doc)
+			}
+		}
+	case *tg.MessageMediaWebPage:
+		if m.Webpage != nil {
+			if wp, ok := m.Webpage.(*tg.WebPage); ok {
+				if wp.Photo != nil {
+					if photo, ok := wp.Photo.(*tg.Photo); ok {
+						return &telegramclient.Media{
+							Width:  getPhotoWidth(photo),
+							Height: getPhotoHeight(photo),
+						}
 					}
 				}
-				return med
+				if wp.Document != nil {
+					if doc, ok := wp.Document.(*tg.Document); ok {
+						return extractDocumentMedia(doc)
+					}
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// extractDocumentMedia 从 Document 中提取媒体元信息。
+func extractDocumentMedia(doc *tg.Document) *telegramclient.Media {
+	med := &telegramclient.Media{
+		FileName: getDocumentFilename(doc),
+		MIMEType: doc.MimeType,
+		Size:     doc.Size,
+	}
+	for _, attr := range doc.Attributes {
+		switch a := attr.(type) {
+		case *tg.DocumentAttributeVideo:
+			med.Width = int(a.W)
+			med.Height = int(a.H)
+			med.Duration = int(a.Duration)
+		case *tg.DocumentAttributeAudio:
+			med.Duration = int(a.Duration)
+		case *tg.DocumentAttributeSticker:
+			med.Emoji = a.Alt
+		case *tg.DocumentAttributeFilename:
+			med.FileName = a.FileName
+		}
+	}
+	return med
 }
 
 // getPhotoWidth 获取照片宽度（取最大尺寸）。
@@ -270,6 +293,21 @@ func classifyMessageKind(m *tg.Message) telegramclient.MessageKind {
 		case *tg.MessageMediaPoll:
 			return "poll"
 		case *tg.MessageMediaWebPage:
+			// 网页预览中可能包含图片或视频
+			wp, ok := m.Media.(*tg.MessageMediaWebPage)
+			if ok && wp.Webpage != nil {
+				if webPage, ok := wp.Webpage.(*tg.WebPage); ok {
+					if webPage.Photo != nil {
+						return telegramclient.MessageKindPhoto
+					}
+					if webPage.Document != nil {
+						if d, ok := webPage.Document.(*tg.Document); ok {
+							return classifyDocument(d)
+						}
+						return telegramclient.MessageKindDocument
+					}
+				}
+			}
 			return "webpage"
 		default:
 			return telegramclient.MessageKindUnsupported
