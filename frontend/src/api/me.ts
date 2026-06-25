@@ -10,7 +10,5 @@ export function fetchDashboardStats(): Promise<DashboardStats> {
 }
 
 export function selectAccount(accountId: number): Promise<{ ok: boolean }> {
-  const form = new FormData()
-  form.append('account_id', String(accountId))
   return apiPost('/api/accounts/select', { account_id: accountId })
 }

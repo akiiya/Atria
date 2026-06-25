@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from '@/i18n'
 
+const { t } = useI18n()
 const props = defineProps<{
   src: string
   alt?: string
@@ -111,12 +113,12 @@ onUnmounted(() => {
     <Transition name="lightbox">
       <div v-if="visible" class="lightbox-overlay" @click.self="close">
         <div class="lightbox-toolbar">
-          <button class="lightbox-btn" title="缩小" @click="zoomOut">➖</button>
+          <button class="lightbox-btn" :title="t('lightbox.zoomOut')" @click="zoomOut">➖</button>
           <span class="lightbox-zoom">{{ Math.round(scale * 100) }}%</span>
-          <button class="lightbox-btn" title="放大" @click="zoomIn">➕</button>
-          <button class="lightbox-btn" title="重置" @click="zoomReset">↺</button>
-          <button class="lightbox-btn" title="下载" @click="handleDownload">⬇</button>
-          <button class="lightbox-btn lightbox-close" title="关闭 (Esc)" @click="close">✕</button>
+          <button class="lightbox-btn" :title="t('lightbox.zoomIn')" @click="zoomIn">➕</button>
+          <button class="lightbox-btn" :title="t('lightbox.reset')" @click="zoomReset">↺</button>
+          <button class="lightbox-btn" :title="t('lightbox.download')" @click="handleDownload">⬇</button>
+          <button class="lightbox-btn lightbox-close" :title="t('lightbox.close')" @click="close">✕</button>
         </div>
         <div
           class="lightbox-viewport"

@@ -9,6 +9,25 @@ import ErrorBanner from '@/components/ErrorBanner.vue'
 const { t } = useI18n()
 const router = useRouter()
 
+function escapeHtml(str: string): string {
+  const div = document.createElement('div')
+  div.appendChild(document.createTextNode(str))
+  return div.innerHTML
+}
+
+function highlightSnippet(html: string): string {
+  // 后端返回的 text_snippet 可能包含 <b> 高亮标签，其余内容需要转义
+  // 策略：先按 <b> 分段，对非高亮段做 HTML 转义，保留 <b> 标签
+  const parts = html.split(/(<b>.*?<\/b>)/g)
+  return parts.map(part => {
+    if (part.startsWith('<b>') && part.endsWith('</b>')) {
+      const inner = part.slice(3, -4)
+      return '<b>' + escapeHtml(inner) + '</b>'
+    }
+    return escapeHtml(part)
+  }).join('')
+}
+
 const query = ref('')
 const results = ref<SearchResult[]>([])
 const total = ref(0)
@@ -36,10 +55,10 @@ async function doSearch() {
       total.value = resp.total
       searched.value = true
     } else {
-      error.value = '搜索失败'
+      error.value = t('search.failed')
     }
   } catch {
-    error.value = '搜索失败'
+    error.value = t('search.failed')
   }
   loading.value = false
 }
@@ -126,7 +145,7 @@ function onKeydown(e: KeyboardEvent) {
           <span class="result-sender">{{ r.sender_name || r.peer_ref }}</span>
           <span class="result-time">{{ r.sent_at }}</span>
         </div>
-        <div class="result-snippet" v-html="r.text_snippet"></div>
+        <div class="result-snippet" v-html="highlightSnippet(r.text_snippet || '')"></div>
         <div class="result-meta">
           <span class="result-peer">{{ r.peer_ref }}</span>
           <span v-if="r.is_outgoing" class="result-outgoing">&#x2191; {{ t('search.sender') }}</span>

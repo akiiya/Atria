@@ -755,7 +755,8 @@ func (s *Server) handleAPISaveAPIKey(c *gin.Context) {
 			RiskPolicy:  "disabled",
 		})
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "创建 API Key 失败: " + err.Error()})
+			slog.Error("创建 API Key 失败", "error", err)
+			c.JSON(http.StatusOK, gin.H{"ok": false, "message": "创建 API Key 失败: " + security.SanitizeErrorMessage(err.Error())})
 			return
 		}
 		if !newCred.IsDefault {
@@ -783,7 +784,8 @@ func (s *Server) handleAPISaveAPIKey(c *gin.Context) {
 		RiskPolicy:  string(systemKey.RiskPolicy),
 	})
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "更新 API Key 失败: " + err.Error()})
+		slog.Error("更新 API Key 失败", "error", err)
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "更新 API Key 失败: " + security.SanitizeErrorMessage(err.Error())})
 		return
 	}
 
@@ -852,7 +854,7 @@ func (s *Server) handleAPIRuntimeStart(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
 			"code":    "runtime_start_failed",
-			"message": "启动运行时失败: " + err.Error(),
+			"message": "启动运行时失败: " + security.SanitizeErrorMessage(err.Error()),
 		})
 		return
 	}
@@ -900,7 +902,7 @@ func (s *Server) handleAPIRuntimeStop(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
 			"code":    "runtime_stop_failed",
-			"message": "停止运行时失败: " + err.Error(),
+			"message": "停止运行时失败: " + security.SanitizeErrorMessage(err.Error()),
 		})
 		return
 	}

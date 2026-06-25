@@ -7,8 +7,10 @@ import {
   replaceLocalMessageInMessagesCache,
   upsertMessageInMessagesCache,
 } from '@/realtime/handler'
+import { useI18n } from '@/i18n'
 import type { ChatMessage, SendMessageResponse } from '@/types/chat'
 
+const { t } = useI18n()
 const props = defineProps<{ peerRef: string; accountId: number }>()
 const emit = defineEmits<{ sent: [] }>()
 
@@ -62,12 +64,12 @@ const sendMutation = useMutation({
       queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
       emit('sent')
     } else {
-      error.value = data.error || (typeof data.message === 'string' ? data.message : '') || '发送失败'
+      error.value = data.error || (typeof data.message === 'string' ? data.message : '') || t('chat.sendFailed')
       markLocalMessageFailedInMessagesCache(queryClient, props.accountId, props.peerRef, vars.localId, error.value)
     }
   },
   onError: (err: Error, vars) => {
-    error.value = err.message || '网络请求失败'
+    error.value = err.message || t('chat.networkError')
     markLocalMessageFailedInMessagesCache(queryClient, props.accountId, props.peerRef, vars.localId, error.value)
   },
 })
@@ -83,7 +85,7 @@ function send() {
   const trimmed = text.value.trim()
   if (!trimmed || sendMutation.isPending.value) return
   if (trimmed.length > 4096) {
-    error.value = '消息内容不能超过 4096 个字符'
+    error.value = t('chat.messageTooLong')
     return
   }
   error.value = ''
@@ -110,7 +112,7 @@ function negativeLocalID(seed: string): number {
       <textarea
         v-model="text"
         class="composer-input"
-        placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+        :placeholder="t('chat.inputPlaceholder')"
         rows="1"
         maxlength="4096"
         @keydown="handleKeydown"
@@ -120,7 +122,7 @@ function negativeLocalID(seed: string): number {
         :disabled="!text.trim() || sendMutation.isPending.value"
         @click="send"
       >
-        {{ sendMutation.isPending.value ? '发送中...' : '发送' }}
+        {{ sendMutation.isPending.value ? t('chat.sending') : t('chat.send') }}
       </button>
     </div>
   </div>

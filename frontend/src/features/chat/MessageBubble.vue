@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from '@/i18n'
 import type { ChatMessage, PeerType } from '@/types/chat'
 import MediaMessage from './MediaMessage.vue'
 
+const { t } = useI18n()
 const props = defineProps<{ message: ChatMessage; peerType?: PeerType }>()
 
 // 是否显示 sender label：仅群聊/频道的 incoming 消息显示
@@ -38,7 +40,7 @@ const isMedia = ['photo', 'document', 'sticker', 'video', 'voice', 'audio'].incl
     <MediaMessage v-if="isMedia" :message="message" />
     <div v-else-if="message.message_type === 'text'" class="message-text" v-html="linkify(message.text)" />
     <div v-else class="message-unsupported">
-      暂不支持的消息类型：{{ message.message_type }}
+      {{ t('chat.unsupportedType').replace('{type}', message.message_type) }}
     </div>
     <div class="message-meta">
       <span class="message-time">{{ formatTime(message.sent_at) }}</span>

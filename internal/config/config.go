@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -336,6 +337,18 @@ func (c *Config) EnsureDirs() error {
 // ListenAddr 返回完整的监听地址。
 func (c *Config) ListenAddr() string {
 	return c.Host + ":" + c.Port
+}
+
+// CookieSameSiteMode 返回 http.SameSite 常量，用于 Gin 的 SetSameSite。
+func (c *Config) CookieSameSiteMode() http.SameSite {
+	switch c.CookieSameSite {
+	case "strict":
+		return http.SameSiteStrictMode
+	case "none":
+		return http.SameSiteNoneMode
+	default:
+		return http.SameSiteLaxMode
+	}
 }
 
 // MaskedDSN 返回脱敏的数据库连接字符串（用于日志）。

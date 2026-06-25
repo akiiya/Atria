@@ -4,12 +4,14 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { fetchMessages } from '@/api/chat'
 import { sortMessagesAsc } from '@/realtime/handler'
 import { useChatStore } from '@/stores/chat'
+import { useI18n } from '@/i18n'
 import MessageHeader from './MessageHeader.vue'
 import MessageList from './MessageList.vue'
 import MessageComposer from './MessageComposer.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import type { ChatMessage, Dialog, PeerType } from '@/types/chat'
 
+const { t } = useI18n()
 const props = defineProps<{ peerRef: string; accountId: number; dialogTitle?: string; peerType?: PeerType }>()
 const queryClient = useQueryClient()
 const chat = useChatStore()
@@ -194,7 +196,7 @@ async function loadOlder() {
       hasOlder.value = result.has_older ?? false
     }
   } catch (e: unknown) {
-    olderError.value = e instanceof Error ? e.message : '加载历史消息失败'
+    olderError.value = e instanceof Error ? e.message : t('chat.loadHistoryFailed')
   } finally {
     loadingOlder.value = false
   }
@@ -234,7 +236,7 @@ function handleSent() {
       <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
     </div>
     <div v-else class="message-body">
-      <div v-if="isFetching && !isLoading" class="message-stale-hint">正在刷新...</div>
+      <div v-if="isFetching && !isLoading" class="message-stale-hint">{{ t('chat.refreshing') }}</div>
       <MessageList
         ref="messageListRef"
         :messages="visibleMessages"

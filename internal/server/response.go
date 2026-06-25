@@ -49,14 +49,26 @@ func LogAndError(c *gin.Context, status int, logMsg string, err error, userMsg s
 	RenderError(c, status, "错误", userMsg)
 }
 
+// escapeHTML 对用户可见内容做 HTML 实体转义，防止 XSS。
+func escapeHTML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	return s
+}
+
 // errorPageHTML 生成简单的错误页面 HTML。
 func errorPageHTML(status int, title string, message string) string {
+	safeTitle := escapeHTML(title)
+	safeMessage := escapeHTML(message)
 	return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>` + title + ` - Atria</title>
+    <title>` + safeTitle + ` - Atria</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5; color: #333; }
         .error-card { text-align: center; padding: 48px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
@@ -70,8 +82,8 @@ func errorPageHTML(status int, title string, message string) string {
 <body>
     <div class="error-card">
         <div class="error-code">` + itoa(status) + `</div>
-        <div class="error-title">` + title + `</div>
-        <div class="error-desc">` + message + `</div>
+        <div class="error-title">` + safeTitle + `</div>
+        <div class="error-desc">` + safeMessage + `</div>
         <a href="/">返回首页</a>
     </div>
 </body>

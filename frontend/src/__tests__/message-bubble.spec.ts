@@ -82,7 +82,7 @@ describe('MessageBubble', () => {
       props: { message: makeMessage({ message_type: 'unsupported' }) },
     })
     expect(wrapper.find('.message-unsupported').exists()).toBe(true)
-    expect(wrapper.find('.message-unsupported').text()).toContain('暂不支持')
+    expect(wrapper.find('.message-unsupported').text()).toContain('unsupported')
   })
 
   it('shows failed status indicator', () => {

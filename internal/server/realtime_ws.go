@@ -65,16 +65,16 @@ func (s *Server) handleRealtimeWS(c *gin.Context) {
 		return
 	}
 
-	// Origin 校验
+	// Origin 校验：无 Origin header 或不匹配则拒绝
 	origin := c.GetHeader("Origin")
-	if origin != "" && !isSameOrigin(origin, c.Request.Host) {
+	if origin == "" || !isSameOrigin(origin, c.Request.Host) {
 		c.JSON(http.StatusForbidden, gin.H{"ok": false, "code": "forbidden", "message": "Origin 不允许"})
 		return
 	}
 
 	// 升级为 WebSocket
 	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
+		OriginPatterns: []string{c.Request.Host},
 	})
 	if err != nil {
 		slog.Error("WebSocket 升级失败", "error", err)
