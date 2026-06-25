@@ -684,6 +684,7 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 	var fileName string
 	var mimeType string
 	var fileSize int64
+	var fetchedMsg *tg.Message // 用于错误日志
 
 	// 尝试通过 ChannelsGetMessages 获取（channel/supergroup 类型）
 	if req.PeerType == telegramclient.PeerTypeChannel || req.PeerType == telegramclient.PeerTypeSupergroup {
@@ -720,6 +721,7 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 		if msg == nil || msg.Media == nil {
 			return telegramclient.DownloadMediaResult{}, fmt.Errorf("消息无媒体内容")
 		}
+		fetchedMsg = msg
 		inputFileLocation, fileName, mimeType, fileSize = extractFileLocationFromMedia(msg.Media)
 	} else {
 		// user/chat 类型使用 MessagesGetMessages
@@ -729,37 +731,33 @@ func (a *Adapter) doDownloadMedia(ctx context.Context, api *tg.Client, req teleg
 		if err != nil {
 			return telegramclient.DownloadMediaResult{}, fmt.Errorf("获取消息失败: %w", err)
 		}
-		messages, ok := result.(*tg.MessagesMessages)
-		if !ok {
-			// 尝试其他类型
-			switch r := result.(type) {
-			case *tg.MessagesMessagesSlice:
-				if len(r.Messages) > 0 {
-					msg, ok := r.Messages[0].(*tg.Message)
-					if ok && msg.Media != nil {
-						inputFileLocation, fileName, mimeType, fileSize = extractFileLocationFromMedia(msg.Media)
-					}
-				}
-			case *tg.MessagesMessages:
-				if len(r.Messages) > 0 {
-					msg, ok := r.Messages[0].(*tg.Message)
-					if ok && msg.Media != nil {
-						inputFileLocation, fileName, mimeType, fileSize = extractFileLocationFromMedia(msg.Media)
-					}
-				}
+		var msg *tg.Message
+		switch r := result.(type) {
+		case *tg.MessagesMessages:
+			if len(r.Messages) > 0 {
+				msg, _ = r.Messages[0].(*tg.Message)
 			}
+		case *tg.MessagesMessagesSlice:
+			if len(r.Messages) > 0 {
+				msg, _ = r.Messages[0].(*tg.Message)
+			}
+		}
+		if msg != nil && msg.Media != nil {
+			fetchedMsg = msg
+			inputFileLocation, fileName, mimeType, fileSize = extractFileLocationFromMedia(msg.Media)
+		} else if msg == nil {
+			return telegramclient.DownloadMediaResult{}, fmt.Errorf("消息不存在 (msg_id=%d)", req.MessageID)
 		} else {
-			if len(messages.Messages) > 0 {
-				msg, ok := messages.Messages[0].(*tg.Message)
-				if ok && msg.Media != nil {
-					inputFileLocation, fileName, mimeType, fileSize = extractFileLocationFromMedia(msg.Media)
-				}
-			}
+			return telegramclient.DownloadMediaResult{}, fmt.Errorf("消息无媒体内容 (msg_id=%d, media=%T)", req.MessageID, msg.Media)
 		}
 	}
 
 	if inputFileLocation == nil {
-		return telegramclient.DownloadMediaResult{}, fmt.Errorf("无法提取媒体文件位置")
+		mediaType := "nil"
+		if fetchedMsg != nil && fetchedMsg.Media != nil {
+			mediaType = fmt.Sprintf("%T", fetchedMsg.Media)
+		}
+		return telegramclient.DownloadMediaResult{}, fmt.Errorf("无法提取媒体文件位置 (media_type=%s, msg_id=%d)", mediaType, req.MessageID)
 	}
 
 	// 下载文件
