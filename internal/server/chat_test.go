@@ -235,9 +235,12 @@ func TestAuditEventTypes_ReturnsDistinctActions(t *testing.T) {
 	if !strings.Contains(body, `"admin.logout"`) {
 		t.Errorf("应包含 admin.logout，实际: %s", body)
 	}
-	// 验证中文标签
-	if !strings.Contains(body, "管理员登录") {
-		t.Errorf("应包含中文标签'管理员登录'，实际: %s", body)
+	// 验证返回的是 value + count 格式（不再有 label 字段）
+	if !strings.Contains(body, `"count"`) {
+		t.Errorf("应包含 count 字段，实际: %s", body)
+	}
+	if strings.Contains(body, `"label"`) {
+		t.Errorf("不应包含 label 字段，实际: %s", body)
 	}
 }
 
