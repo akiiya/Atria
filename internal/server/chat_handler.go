@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/user/atria/internal/audit"
 	"github.com/user/atria/internal/chat"
 	"github.com/user/atria/internal/mtproto"
 
@@ -151,6 +153,21 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "code": errCode, "message": errMsg})
 		return
 	}
+
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		Action:       "chat.send_message",
+		ResourceType: "peer",
+		ResourceID:   peerRef,
+		AccountID:    selectedID,
+		RiskLevel:    "low",
+		IP:           c.ClientIP(),
+		Metadata: map[string]any{
+			"peer_ref": peerRef,
+			"text_len": len(text),
+		},
+		Message: fmt.Sprintf("发送消息到 %s (text_len=%d)", peerRef, len(text)),
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,

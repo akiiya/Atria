@@ -7,6 +7,7 @@ type AuditLog struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	ActorType    string    `gorm:"size:32;not null" json:"actor_type"` // admin, system
 	ActorID      uint      `gorm:"not null" json:"actor_id"`
+	AccountID    uint      `gorm:"index" json:"account_id"`
 	Action       string    `gorm:"index;size:64;not null" json:"action"`
 	ResourceType string    `gorm:"size:64;not null" json:"resource_type"`
 	ResourceID   uint      `json:"resource_id"`
