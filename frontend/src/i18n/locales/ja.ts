@@ -7,6 +7,7 @@ export const ja: Record<string, string> = {
   'nav.audit': '監査ログ',
   'nav.settings': '設定',
   'nav.maintenance': 'データメンテナンス',
+  'nav.search': '検索',
   'nav.features': '機能',
 
   // Common
@@ -191,11 +192,17 @@ export const ja: Record<string, string> = {
   'accounts.stopRuntime': '停止',
   'accounts.runtimeStarted': 'Runtimeを開始しました',
   'accounts.runtimeStopped': 'Runtimeを停止しました',
+  'accounts.enable': '有効にする',
+  'accounts.disable': '無効にする',
+  'accounts.enabled': 'アカウントを有効にしました',
+  'accounts.disabled': 'アカウントを無効にしました',
+  'accounts.confirmDisable': 'このアカウントを無効にしますか？Runtimeが停止されます。',
 
   'accounts.status.active': '有効',
   'accounts.status.banned': 'Banned',
   'accounts.status.logged_out': 'ログアウト済み',
   'accounts.status.restricted': '制限付き',
+  'accounts.status.disabled': '無効',
 
   'accounts.sessionActive': '有効',
   'accounts.sessionExpired': '期限切れ',
@@ -215,4 +222,16 @@ export const ja: Record<string, string> = {
   'risk.medium': '中',
   'risk.high': '高',
   'risk.critical': '重大',
+
+  // Search
+  'search.title': 'メッセージ検索',
+  'search.placeholder': 'メッセージキャッシュを検索...',
+  'search.noResults': '結果なし',
+  'search.noResultsDesc': '"{query}" に一致するメッセージがありません',
+  'search.total': '{count} 件の結果',
+  'search.openChat': 'チャットを開く',
+  'search.sender': '送信者',
+  'search.time': '時刻',
+  'search.allChats': 'すべてのチャット',
+  'search.currentChat': '現在のチャットのみ',
 }

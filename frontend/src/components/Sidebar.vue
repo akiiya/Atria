@@ -11,6 +11,7 @@ const navItems: Array<{ path: string; icon: string; label: string; disabled?: bo
   { path: '/accounts', icon: '📱', label: 'nav.accounts' },
   { path: '/chats', icon: '💬', label: 'nav.chats' },
   { path: '/contacts', icon: '👥', label: 'nav.contacts' },
+  { path: '/search', icon: '🔍', label: 'nav.search' },
   { path: '/audit', icon: '📋', label: 'nav.audit' },
   { path: '/maintenance', icon: '🔧', label: 'nav.maintenance' },
 ]

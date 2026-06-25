@@ -346,7 +346,7 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 // handleAPIAccounts 返回账号列表 JSON，包含运行时状态。
 func (s *Server) handleAPIAccounts(c *gin.Context) {
 	var accounts []model.TelegramAccount
-	s.db.Preload("Session").Where("status IN ?", []string{"active", "logged_out", "banned", "restricted"}).
+	s.db.Preload("Session").Where("status IN ?", []string{"active", "logged_out", "banned", "restricted", "disabled"}).
 		Order("id ASC").Find(&accounts)
 
 	type accountDTO struct {
@@ -825,10 +825,19 @@ func (s *Server) handleAPIRuntimeStatus(c *gin.Context) {
 	})
 }
 
-// handleAPIRuntimeStart 启动当前 selected account 的 runtime。
+// handleAPIRuntimeStart 启动 runtime。支持通过 JSON body 传入 account_id。
 func (s *Server) handleAPIRuntimeStart(c *gin.Context) {
-	selectedID := s.resolveCurrentAccountID(c)
-	if selectedID == 0 {
+	// 尝试从请求体读取 account_id
+	var req struct {
+		AccountID uint `json:"account_id"`
+	}
+	c.ShouldBindJSON(&req) // 忽略错误，body 可能为空
+
+	accountID := req.AccountID
+	if accountID == 0 {
+		accountID = s.resolveCurrentAccountID(c)
+	}
+	if accountID == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
 			"code":    "no_current_account",
@@ -837,9 +846,9 @@ func (s *Server) handleAPIRuntimeStart(c *gin.Context) {
 		return
 	}
 
-	err := s.runtimeManager.StartAccount(selectedID)
+	err := s.runtimeManager.StartAccount(accountID)
 	if err != nil {
-		slog.Error("启动 runtime 失败", "account_id", selectedID, "error", err)
+		slog.Error("启动 runtime 失败", "account_id", accountID, "error", err)
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
 			"code":    "runtime_start_failed",
@@ -848,27 +857,36 @@ func (s *Server) handleAPIRuntimeStart(c *gin.Context) {
 		return
 	}
 
-	status := s.runtimeManager.Status(selectedID)
+	status := s.runtimeManager.Status(accountID)
 	audit.Log(c.Request.Context(), s.db, audit.Event{
 		ActorType:    "admin",
 		Action:       "runtime.start",
 		ResourceType: "account",
-		AccountID:    selectedID,
+		AccountID:    accountID,
 		RiskLevel:    "low",
 		IP:           c.ClientIP(),
-		Message:      fmt.Sprintf("启动 runtime (account_id=%d)", selectedID),
+		Message:      fmt.Sprintf("启动 runtime (account_id=%d)", accountID),
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"ok":         true,
-		"account_id": selectedID,
+		"account_id": accountID,
 		"state":      string(status.State),
 	})
 }
 
-// handleAPIRuntimeStop 停止当前 selected account 的 runtime。
+// handleAPIRuntimeStop 停止 runtime。支持通过 JSON body 传入 account_id。
 func (s *Server) handleAPIRuntimeStop(c *gin.Context) {
-	selectedID := s.resolveCurrentAccountID(c)
-	if selectedID == 0 {
+	// 尝试从请求体读取 account_id
+	var req struct {
+		AccountID uint `json:"account_id"`
+	}
+	c.ShouldBindJSON(&req) // 忽略错误，body 可能为空
+
+	accountID := req.AccountID
+	if accountID == 0 {
+		accountID = s.resolveCurrentAccountID(c)
+	}
+	if accountID == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
 			"code":    "no_current_account",
@@ -877,7 +895,7 @@ func (s *Server) handleAPIRuntimeStop(c *gin.Context) {
 		return
 	}
 
-	err := s.runtimeManager.StopAccount(selectedID)
+	err := s.runtimeManager.StopAccount(accountID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":      false,
@@ -891,16 +909,89 @@ func (s *Server) handleAPIRuntimeStop(c *gin.Context) {
 		ActorType:    "admin",
 		Action:       "runtime.stop",
 		ResourceType: "account",
-		AccountID:    selectedID,
+		AccountID:    accountID,
 		RiskLevel:    "low",
 		IP:           c.ClientIP(),
-		Message:      fmt.Sprintf("停止 runtime (account_id=%d)", selectedID),
+		Message:      fmt.Sprintf("停止 runtime (account_id=%d)", accountID),
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"ok":         true,
-		"account_id": selectedID,
+		"account_id": accountID,
 		"state":      "stopped",
 	})
+}
+
+// handleAPIAccountEnable 启用指定账号。
+func (s *Server) handleAPIAccountEnable(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的账号 ID"})
+		return
+	}
+
+	var account model.TelegramAccount
+	if err := s.db.First(&account, uint(id)).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "账号不存在"})
+		return
+	}
+
+	if account.Status == model.TelegramAccountStatusActive {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "账号已是启用状态"})
+		return
+	}
+
+	s.db.Model(&account).Update("status", model.TelegramAccountStatusActive)
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		Action:       "account.enable",
+		ResourceType: "account",
+		ResourceID:   idStr,
+		AccountID:    uint(id),
+		RiskLevel:    "medium",
+		IP:           c.ClientIP(),
+		Message:      fmt.Sprintf("启用账号 %s (id=%d)", account.DisplayName, id),
+	})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "账号已启用"})
+}
+
+// handleAPIAccountDisable 禁用指定账号。禁用前会停止 runtime。
+func (s *Server) handleAPIAccountDisable(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "无效的账号 ID"})
+		return
+	}
+
+	var account model.TelegramAccount
+	if err := s.db.First(&account, uint(id)).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "message": "账号不存在"})
+		return
+	}
+
+	if account.Status != model.TelegramAccountStatusActive {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "账号已是禁用状态"})
+		return
+	}
+
+	// 先停止 runtime
+	if s.runtimeManager != nil {
+		s.runtimeManager.StopAccount(uint(id))
+	}
+
+	s.db.Model(&account).Update("status", "disabled")
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		Action:       "account.disable",
+		ResourceType: "account",
+		ResourceID:   idStr,
+		AccountID:    uint(id),
+		RiskLevel:    "medium",
+		IP:           c.ClientIP(),
+		Message:      fmt.Sprintf("禁用账号 %s (id=%d)", account.DisplayName, id),
+	})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "账号已禁用"})
 }
 
 // formatTimePtr 格式化时间指针为 ISO 字符串。

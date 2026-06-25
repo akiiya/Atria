@@ -7,6 +7,7 @@ export const en: Record<string, string> = {
   'nav.audit': 'Audit Logs',
   'nav.settings': 'Settings',
   'nav.maintenance': 'Data Maintenance',
+  'nav.search': 'Search',
   'nav.features': 'Features',
 
   // Common
@@ -191,11 +192,17 @@ export const en: Record<string, string> = {
   'accounts.stopRuntime': 'Stop',
   'accounts.runtimeStarted': 'Runtime started',
   'accounts.runtimeStopped': 'Runtime stopped',
+  'accounts.enable': 'Enable',
+  'accounts.disable': 'Disable',
+  'accounts.enabled': 'Account enabled',
+  'accounts.disabled': 'Account disabled',
+  'accounts.confirmDisable': 'Disable this account? Runtime will be stopped.',
 
   'accounts.status.active': 'Active',
   'accounts.status.banned': 'Banned',
   'accounts.status.logged_out': 'Logged Out',
   'accounts.status.restricted': 'Restricted',
+  'accounts.status.disabled': 'Disabled',
 
   'accounts.sessionActive': 'Valid',
   'accounts.sessionExpired': 'Expired',
@@ -215,4 +222,16 @@ export const en: Record<string, string> = {
   'risk.medium': 'Medium',
   'risk.high': 'High',
   'risk.critical': 'Critical',
+
+  // Search
+  'search.title': 'Search Messages',
+  'search.placeholder': 'Search in message cache...',
+  'search.noResults': 'No results',
+  'search.noResultsDesc': 'No messages matching "{query}"',
+  'search.total': '{count} results',
+  'search.openChat': 'Open Chat',
+  'search.sender': 'Sender',
+  'search.time': 'Time',
+  'search.allChats': 'All Chats',
+  'search.currentChat': 'Current Chat Only',
 }

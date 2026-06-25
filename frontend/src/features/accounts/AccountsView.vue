@@ -62,10 +62,10 @@ async function selectAccount(id: number) {
   }
 }
 
-async function startRuntime(_id: number) {
+async function startRuntime(id: number) {
   actionLoading.value = true
   try {
-    const result = await apiPost<{ ok: boolean; message?: string }>('/api/chats/runtime/start', {})
+    const result = await apiPost<{ ok: boolean; message?: string }>('/api/chats/runtime/start', { account_id: id })
     if (result.ok) {
       actionMsg.value = t('accounts.runtimeStarted')
       refetch()
@@ -78,12 +78,47 @@ async function startRuntime(_id: number) {
   actionLoading.value = false
 }
 
-async function stopRuntime(_id: number) {
+async function stopRuntime(id: number) {
   actionLoading.value = true
   try {
-    const result = await apiPost<{ ok: boolean; message?: string }>('/api/chats/runtime/stop', {})
+    const result = await apiPost<{ ok: boolean; message?: string }>('/api/chats/runtime/stop', { account_id: id })
     if (result.ok) {
       actionMsg.value = t('accounts.runtimeStopped')
+      refetch()
+    } else {
+      actionMsg.value = result.message || t('common.error')
+    }
+  } catch {
+    actionMsg.value = t('common.error')
+  }
+  actionLoading.value = false
+}
+
+async function enableAccount(id: number) {
+  actionLoading.value = true
+  actionMsg.value = ''
+  try {
+    const result = await apiPost<{ ok: boolean; message?: string }>(`/api/accounts/${id}/enable`, {})
+    if (result.ok) {
+      actionMsg.value = t('accounts.enabled')
+      refetch()
+    } else {
+      actionMsg.value = result.message || t('common.error')
+    }
+  } catch {
+    actionMsg.value = t('common.error')
+  }
+  actionLoading.value = false
+}
+
+async function disableAccount(id: number) {
+  if (!confirm(t('accounts.confirmDisable'))) return
+  actionLoading.value = true
+  actionMsg.value = ''
+  try {
+    const result = await apiPost<{ ok: boolean; message?: string }>(`/api/accounts/${id}/disable`, {})
+    if (result.ok) {
+      actionMsg.value = t('accounts.disabled')
       refetch()
     } else {
       actionMsg.value = result.message || t('common.error')
@@ -190,7 +225,7 @@ function accountStatusLabel(status: string): string {
                 <td><strong>{{ acc.display_name }}</strong></td>
                 <td style="color:var(--text-secondary);">{{ acc.username ? '@' + acc.username : '-' }}</td>
                 <td>
-                  <span :class="['badge', acc.status === 'active' ? 'badge-success' : 'badge-warning']">
+                  <span :class="['badge', acc.status === 'active' ? 'badge-success' : acc.status === 'disabled' ? 'badge-info' : 'badge-warning']">
                     {{ accountStatusLabel(acc.status) }}
                   </span>
                 </td>
@@ -213,11 +248,17 @@ function accountStatusLabel(status: string): string {
                     <button v-if="!acc.is_current_account && acc.status === 'active'" class="btn btn-sm btn-outline" @click="selectAccount(acc.id)" :disabled="actionLoading">
                       {{ t('accounts.select') }}
                     </button>
-                    <button v-if="acc.is_current_account && (acc.runtime_state === 'stopped' || acc.runtime_state === 'offline')" class="btn btn-sm btn-primary" @click="startRuntime(acc.id)" :disabled="actionLoading">
+                    <button v-if="acc.status === 'active' && (acc.runtime_state === 'stopped' || acc.runtime_state === 'offline')" class="btn btn-sm btn-primary" @click="startRuntime(acc.id)" :disabled="actionLoading">
                       {{ t('accounts.startRuntime') }}
                     </button>
-                    <button v-if="acc.is_current_account && (acc.runtime_state === 'live' || acc.runtime_state === 'syncing' || acc.runtime_state === 'connecting')" class="btn btn-sm btn-outline" @click="stopRuntime(acc.id)" :disabled="actionLoading">
+                    <button v-if="acc.status === 'active' && (acc.runtime_state === 'live' || acc.runtime_state === 'syncing' || acc.runtime_state === 'connecting')" class="btn btn-sm btn-outline" @click="stopRuntime(acc.id)" :disabled="actionLoading">
                       {{ t('accounts.stopRuntime') }}
+                    </button>
+                    <button v-if="acc.status === 'active'" class="btn btn-sm btn-outline" @click="disableAccount(acc.id)" :disabled="actionLoading" style="color:var(--color-danger);">
+                      {{ t('accounts.disable') }}
+                    </button>
+                    <button v-if="acc.status === 'disabled'" class="btn btn-sm btn-primary" @click="enableAccount(acc.id)" :disabled="actionLoading">
+                      {{ t('accounts.enable') }}
                     </button>
                   </div>
                 </td>

@@ -253,6 +253,14 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostAccountCheckSession(c)
 	})
 
+	// 启用/禁用账号
+	r.POST("/api/accounts/:id/enable", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPIAccountEnable(c)
+	})
+	r.POST("/api/accounts/:id/disable", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPIAccountDisable(c)
+	})
+
 	// ===== 异步登录 API =====
 
 	// 发送验证码
@@ -354,6 +362,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	// 审计日志 JSON
 	r.GET("/api/audit", authMiddleware, func(c *gin.Context) {
 		s.handleAPIAudit(c)
+	})
+
+	// 搜索消息
+	r.GET("/api/search/messages", authMiddleware, func(c *gin.Context) {
+		s.handleAPISearchMessages(c)
 	})
 
 	// 审计事件类型
