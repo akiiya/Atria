@@ -252,7 +252,6 @@ function handleWheel(e: WheelEvent) {
   // 触发条件：无滚动条（max=0）或已在最旧位置附近（scrollTop 接近 -max）
   if (e.deltaY < 0 && props.hasOlder && !props.loadingOlder) {
     if (max === 0 || el.scrollTop < -(max - 300)) {
-      console.info('[wheel] → loadOlder', { scrollTop: Math.round(el.scrollTop), max: Math.round(max) })
       shouldPreserveOlderPosition.value = true
       scrollIntent.value = 'preserve-position'
       emit('load-older')

@@ -159,35 +159,22 @@ const visibleCap = ref(INITIAL_LATEST_LIMIT)
 const visibleMessages = computed(() => {
   const all = allMessages.value
   const cap = visibleCap.value
-  if (all.length <= cap) {
-    console.info('[visibleMessages]', { peer: props.peerRef, allCount: all.length, cap, rendered: all.length })
-    return all
-  }
-  const sliced = all.slice(-cap)
-  console.info('[visibleMessages]', { peer: props.peerRef, allCount: all.length, cap, rendered: sliced.length })
-  return sliced
+  if (all.length <= cap) return all
+  return all.slice(-cap)
 })
 
 // ── Older Pagination ──
 async function loadOlder() {
-  if (loadingOlder.value || !hasOlder.value) {
-    console.info('[loadOlder] blocked', { loading: loadingOlder.value, hasOlder: hasOlder.value })
-    return
-  }
+  if (loadingOlder.value || !hasOlder.value) return
 
   const oldestMsg = allMessages.value[0]
-  if (!oldestMsg) {
-    console.info('[loadOlder] no oldest message')
-    return
-  }
+  if (!oldestMsg) return
 
-  console.info('[loadOlder] starting', { peer: props.peerRef, beforeId: messagePaginationID(oldestMsg), allCount: allMessages.value.length })
   loadingOlder.value = true
   olderError.value = null
 
   try {
     const result = await fetchMessages(props.peerRef, LOAD_OLDER_LIMIT, messagePaginationID(oldestMsg))
-    console.info('[loadOlder] result', { ok: result.ok, count: result.messages?.length, hasOlder: result.has_older })
     if (result.ok && result.messages) {
       if (result.messages.length === 0) {
         hasOlder.value = false
