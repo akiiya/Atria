@@ -525,11 +525,11 @@ func (a *Adapter) getContactsFallback(ctx context.Context, req telegramclient.Ge
 // buildInputPeerFromInfo 从 peer 信息构造 gotd InputPeerClass。
 func buildInputPeerFromInfo(peerID int64, peerType telegramclient.PeerType, accessHash int64) tg.InputPeerClass {
 	switch peerType {
-	case telegramclient.PeerTypeUser:
+	case telegramclient.PeerTypeUser, telegramclient.PeerTypeBot:
 		return &tg.InputPeerUser{UserID: peerID, AccessHash: accessHash}
 	case telegramclient.PeerTypeChat:
 		return &tg.InputPeerChat{ChatID: peerID}
-	case telegramclient.PeerTypeChannel:
+	case telegramclient.PeerTypeChannel, telegramclient.PeerTypeSupergroup:
 		return &tg.InputPeerChannel{ChannelID: peerID, AccessHash: accessHash}
 	}
 	return nil
@@ -632,6 +632,14 @@ func (a *Adapter) downloadMediaViaExecutor(ctx context.Context, executor *Runtim
 		return err
 	})
 	if err != nil {
+		a.logger.Error("媒体下载失败",
+			"operation", "download_media",
+			"account_id", req.AccountID,
+			"peer_ref", req.PeerRef,
+			"message_id", req.MessageID,
+			"peer_type", string(req.PeerType),
+			"error", err,
+		)
 		return telegramclient.DownloadMediaResult{}, classifyError(err)
 	}
 	return result, nil
