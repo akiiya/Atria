@@ -83,7 +83,7 @@ const startMutation = useMutation({
 let lastStartAttempt = 0
 const START_DEBOUNCE_MS = 8_000
 
-function ensureRuntimeStarted(reason: string) {
+function ensureRuntimeStarted(_reason: string) {
   const id = account.currentAccountId
   if (!id) return
   if (startMutation.isPending.value) return // 已有 in-flight start
@@ -97,7 +97,6 @@ function ensureRuntimeStarted(reason: string) {
   if (now - lastStartAttempt < START_DEBOUNCE_MS) return
   lastStartAttempt = now
 
-  console.info('[runtime] ensureRuntimeStarted', { reason, state })
   startMutation.mutate()
 }
 
