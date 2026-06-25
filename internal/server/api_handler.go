@@ -343,30 +343,37 @@ func (s *Server) handleAPIMessages(c *gin.Context) {
 	})
 }
 
-// handleAPIAccounts 返回账号列表 JSON。
+// handleAPIAccounts 返回账号列表 JSON，包含运行时状态。
 func (s *Server) handleAPIAccounts(c *gin.Context) {
 	var accounts []model.TelegramAccount
 	s.db.Preload("Session").Where("status IN ?", []string{"active", "logged_out", "banned", "restricted"}).
 		Order("id ASC").Find(&accounts)
 
 	type accountDTO struct {
-		ID            uint   `json:"id"`
-		DisplayName   string `json:"display_name"`
-		Username      string `json:"username"`
-		UserID        int64  `json:"user_id"`
-		Status        string `json:"status"`
-		SessionStatus string `json:"session_status"`
-		LastSync      string `json:"last_sync"`
+		ID               uint   `json:"id"`
+		DisplayName      string `json:"display_name"`
+		Username         string `json:"username"`
+		UserID           int64  `json:"user_id"`
+		Status           string `json:"status"`
+		SessionStatus    string `json:"session_status"`
+		RuntimeState     string `json:"runtime_state"`
+		LastError        string `json:"last_error,omitempty"`
+		IsCurrentAccount bool   `json:"is_current_account"`
+		LastSync         string `json:"last_sync"`
+		UpdatedAt        string `json:"updated_at"`
 	}
+
+	selectedID := s.resolveCurrentAccountID(c)
 
 	dtos := make([]accountDTO, 0, len(accounts))
 	for _, acc := range accounts {
 		dto := accountDTO{
-			ID:          acc.ID,
-			DisplayName: acc.DisplayName,
-			Username:    acc.Username,
-			UserID:      acc.UserID,
-			Status:      string(acc.Status),
+			ID:               acc.ID,
+			DisplayName:      acc.DisplayName,
+			Username:         acc.Username,
+			UserID:           acc.UserID,
+			Status:           string(acc.Status),
+			IsCurrentAccount: acc.ID == selectedID,
 		}
 		if acc.Session != nil {
 			dto.SessionStatus = acc.Session.Status
@@ -374,6 +381,19 @@ func (s *Server) handleAPIAccounts(c *gin.Context) {
 		if acc.LastSyncAt != nil {
 			dto.LastSync = acc.LastSyncAt.Format("2006-01-02 15:04")
 		}
+		dto.UpdatedAt = acc.UpdatedAt.Format("2006-01-02 15:04")
+
+		// 运行时状态
+		if s.runtimeManager != nil {
+			rtStatus := s.runtimeManager.Status(acc.ID)
+			dto.RuntimeState = string(rtStatus.State)
+			if rtStatus.LastError != "" {
+				dto.LastError = security.SanitizeErrorMessage(rtStatus.LastError)
+			}
+		} else {
+			dto.RuntimeState = "unknown"
+		}
+
 		dtos = append(dtos, dto)
 	}
 
