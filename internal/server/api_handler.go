@@ -91,16 +91,74 @@ func (s *Server) handleAPIDashboardStats(c *gin.Context) {
 	var auditTodayCount int64
 	s.db.Model(&model.AuditLog{}).Where("created_at >= ?", todayStart).Count(&auditTodayCount)
 
+	// Runtime 状态统计
+	var runtimeLive, runtimeOffline, runtimeStopped int
+	if s.runtimeManager != nil {
+		var accounts []model.TelegramAccount
+		s.db.Where("status = ?", model.TelegramAccountStatusActive).Find(&accounts)
+		for _, acc := range accounts {
+			status := s.runtimeManager.Status(acc.ID)
+			switch status.State {
+			case "live", "syncing":
+				runtimeLive++
+			case "connecting", "degraded":
+				runtimeOffline++
+			case "stopped", "offline":
+				runtimeStopped++
+			}
+		}
+	}
+
+	// 近 24 小时错误数（risk_level high/critical）
+	var recentErrors int64
+	s.db.Model(&model.AuditLog{}).
+		Where("risk_level IN ? AND created_at > ?", []string{"high", "critical"}, now.Add(-24*time.Hour)).
+		Count(&recentErrors)
+
+	// 近 24 小时审计事件总数
+	var recentAuditCount int64
+	s.db.Model(&model.AuditLog{}).
+		Where("created_at > ?", now.Add(-24*time.Hour)).
+		Count(&recentAuditCount)
+
+	// 最近 5 条审计日志
+	var recentLogs []model.AuditLog
+	s.db.Order("id DESC").Limit(5).Find(&recentLogs)
+
+	type recentLogDTO struct {
+		ID        uint   `json:"id"`
+		Action    string `json:"action"`
+		Message   string `json:"message"`
+		RiskLevel string `json:"risk_level"`
+		CreatedAt string `json:"created_at"`
+	}
+	recentLogDTOs := make([]recentLogDTO, 0, len(recentLogs))
+	for _, l := range recentLogs {
+		recentLogDTOs = append(recentLogDTOs, recentLogDTO{
+			ID:        l.ID,
+			Action:    l.Action,
+			Message:   l.Message,
+			RiskLevel: l.RiskLevel,
+			CreatedAt: l.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"ok":            true,
-		"api_key_count": apiKeyCount,
-		"account_count": accountCount,
-		"session_count": sessionCount,
-		"audit_today":   auditTodayCount,
-		"version":       version.Short(),
-		"db_driver":     s.cfg.DatabaseDriver,
-		"data_dir":      s.cfg.DataDir,
-		"listen_addr":   s.cfg.ListenAddr(),
+		"ok":              true,
+		"api_key_count":   apiKeyCount,
+		"account_count":   accountCount,
+		"session_count":   sessionCount,
+		"audit_today":     auditTodayCount,
+		"runtime_live":    runtimeLive,
+		"runtime_offline": runtimeOffline,
+		"runtime_stopped": runtimeStopped,
+		"recent_errors":   recentErrors,
+		"recent_audit":    recentAuditCount,
+		"recent_logs":     recentLogDTOs,
+		"version":         version.Short(),
+		"db_driver":       s.cfg.DatabaseDriver,
+		"data_dir":        s.cfg.DataDir,
+		"listen_addr":     s.cfg.ListenAddr(),
 	})
 }
 
@@ -371,8 +429,10 @@ func (s *Server) handleAPIAccountDetail(c *gin.Context) {
 func (s *Server) handleAPIAudit(c *gin.Context) {
 	query := s.db.Model(&model.AuditLog{})
 
-	// 过滤条件
-	if action := c.Query("action"); action != "" {
+	// 过滤条件（支持 event_type 作为 action 的别名）
+	if eventType := c.Query("event_type"); eventType != "" {
+		query = query.Where("action = ?", eventType)
+	} else if action := c.Query("action"); action != "" {
 		query = query.Where("action = ?", action)
 	}
 	if accountID := c.Query("account_id"); accountID != "" {
@@ -447,6 +507,59 @@ func (s *Server) handleAPIAudit(c *gin.Context) {
 		"total":  total,
 		"limit":  limit,
 		"offset": offset,
+	})
+}
+
+// handleAPIAuditEventTypes 返回已使用的审计事件类型列表。
+func (s *Server) handleAPIAuditEventTypes(c *gin.Context) {
+	var actions []string
+	s.db.Model(&model.AuditLog{}).Distinct("action").Pluck("action", &actions)
+
+	type eventTypeDTO struct {
+		Value string `json:"value"`
+		Label string `json:"label"`
+	}
+
+	// 事件类型中文标签映射
+	labelMap := map[string]string{
+		"admin.login":               "管理员登录",
+		"admin.login_success":       "管理员登录",
+		"admin.login_failed":        "管理员登录失败",
+		"admin.logout":              "管理员登出",
+		"admin.initialized":         "初始化管理员",
+		"admin.password_changed":    "修改密码",
+		"api_credential.create":     "创建 API Key",
+		"api_credential.update":     "更新 API Key",
+		"api_credential.delete":     "删除 API Key",
+		"account.login_start":       "开始登录账号",
+		"account.code_sent":         "发送验证码",
+		"account.code_failed":       "验证码错误",
+		"account.password_required": "需要 2FA 密码",
+		"account.password_failed":   "2FA 密码错误",
+		"account.login_authorized":  "账号授权成功",
+		"account.select":            "切换当前账号",
+		"runtime.start":             "启动 Runtime",
+		"runtime.stop":              "停止 Runtime",
+		"settings.proxy.save":       "保存代理配置",
+		"chat.send_message":         "发送消息",
+		"test.action1":              "测试事件",
+		"test.action2":              "测试事件",
+		"test.action_old":           "测试事件",
+		"test.event":                "测试事件",
+	}
+
+	dtos := make([]eventTypeDTO, 0, len(actions))
+	for _, a := range actions {
+		label := labelMap[a]
+		if label == "" {
+			label = a
+		}
+		dtos = append(dtos, eventTypeDTO{Value: a, Label: label})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"event_types": dtos,
 	})
 }
 

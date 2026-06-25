@@ -356,6 +356,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPIAudit(c)
 	})
 
+	// 审计事件类型
+	r.GET("/api/audit/event-types", authMiddleware, func(c *gin.Context) {
+		s.handleAPIAuditEventTypes(c)
+	})
+
 	// 系统设置 JSON
 	r.GET("/api/settings", authMiddleware, func(c *gin.Context) {
 		s.handleAPISettings(c)

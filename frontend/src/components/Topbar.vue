@@ -5,14 +5,17 @@ import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { useQuery } from '@tanstack/vue-query'
 import { fetchMe } from '@/api/me'
+import { useI18n } from '@/i18n'
 
 const router = useRouter()
 const route = useRoute()
 
 const account = useAccountStore()
 const app = useAppStore()
+const { t, locale, setLocale, locales } = useI18n()
 const showAccountMenu = ref(false)
 const showSettingsMenu = ref(false)
+const showLangMenu = ref(false)
 
 const { data: meData } = useQuery({
   queryKey: ['me'],
@@ -38,16 +41,25 @@ watch(meData, (val) => {
 watch(() => route.path, () => {
   showAccountMenu.value = false
   showSettingsMenu.value = false
+  showLangMenu.value = false
 })
 
 function toggleAccountMenu() {
   showAccountMenu.value = !showAccountMenu.value
   showSettingsMenu.value = false
+  showLangMenu.value = false
 }
 
 function toggleSettingsMenu() {
   showSettingsMenu.value = !showSettingsMenu.value
   showAccountMenu.value = false
+  showLangMenu.value = false
+}
+
+function toggleLangMenu() {
+  showLangMenu.value = !showLangMenu.value
+  showAccountMenu.value = false
+  showSettingsMenu.value = false
 }
 
 function switchAccount(id: number) {
@@ -74,7 +86,7 @@ function switchAccount(id: number) {
 }
 
 function logout() {
-  if (confirm('确定要退出登录吗？')) {
+  if (confirm(t('topbar.logoutConfirm'))) {
     const form = document.createElement('form')
     form.method = 'POST'
     form.action = '/logout'
@@ -95,12 +107,14 @@ function closeMenus(e: Event) {
   const target = e.target as HTMLElement
   if (!target.closest('.account-switcher')) showAccountMenu.value = false
   if (!target.closest('.topbar-settings')) showSettingsMenu.value = false
+  if (!target.closest('.lang-switcher')) showLangMenu.value = false
 }
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     showAccountMenu.value = false
     showSettingsMenu.value = false
+    showLangMenu.value = false
   }
 }
 
@@ -118,15 +132,15 @@ onUnmounted(() => {
   <header class="topbar">
     <div class="topbar-left">
       <div class="account-switcher" v-if="meData?.ok">
-        <div v-if="account.currentAccountId" class="account-current" @click="toggleAccountMenu" title="切换账号">
+        <div v-if="account.currentAccountId" class="account-current" @click="toggleAccountMenu" :title="t('topbar.switchAccount')">
           <span class="account-avatar">👤</span>
           <span class="account-name">{{ account.currentAccountDisplayName }}</span>
           <span v-if="meData?.current_account?.username" class="account-username">@{{ meData.current_account.username }}</span>
           <span class="account-arrow">▾</span>
         </div>
-        <a v-else href="#" @click.prevent="router.push('/accounts/login')" class="account-empty" title="接入账号">
+        <a v-else href="#" @click.prevent="router.push('/accounts/login')" class="account-empty" :title="t('topbar.connectAccount')">
           <span class="account-avatar">👤</span>
-          <span class="account-name">未接入账号</span>
+          <span class="account-name">{{ t('topbar.noAccount') }}</span>
         </a>
 
         <div :class="['account-dropdown', { show: showAccountMenu }]">
@@ -137,24 +151,35 @@ onUnmounted(() => {
             <span v-if="acc.username" class="dropdown-item-detail">@{{ acc.username }}</span>
           </a>
           <div class="dropdown-divider"></div>
-          <a href="#" @click.prevent="showAccountMenu = false; router.push('/accounts/login')" class="dropdown-item">接入新账号</a>
+          <a href="#" @click.prevent="showAccountMenu = false; router.push('/accounts/login')" class="dropdown-item">{{ t('topbar.addAccount') }}</a>
         </div>
       </div>
     </div>
 
     <div class="topbar-right">
       <div class="theme-switcher">
-        <button class="theme-btn" :class="{ active: app.theme === 'light' }" @click="app.setTheme('light')" title="浅色模式">☀️</button>
-        <button class="theme-btn" :class="{ active: app.theme === 'dark' }" @click="app.setTheme('dark')" title="深色模式">🌙</button>
-        <button class="theme-btn" :class="{ active: app.theme === 'system' }" @click="app.setTheme('system')" title="跟随系统">💻</button>
+        <button class="theme-btn" :class="{ active: app.theme === 'light' }" @click="app.setTheme('light')" :title="t('topbar.themeLight')">☀️</button>
+        <button class="theme-btn" :class="{ active: app.theme === 'dark' }" @click="app.setTheme('dark')" :title="t('topbar.themeDark')">🌙</button>
+        <button class="theme-btn" :class="{ active: app.theme === 'system' }" @click="app.setTheme('system')" :title="t('topbar.themeSystem')">💻</button>
+      </div>
+
+      <div class="lang-switcher">
+        <button class="theme-btn" @click="toggleLangMenu" title="Language">🌐</button>
+        <div :class="['settings-dropdown', { show: showLangMenu }]">
+          <a v-for="loc in locales" :key="loc.code"
+             :class="['dropdown-item', { active: locale === loc.code }]"
+             href="#" @click.prevent="setLocale(loc.code); showLangMenu = false">
+            {{ loc.label }}
+          </a>
+        </div>
       </div>
 
       <div class="topbar-settings">
-        <button class="topbar-settings-btn" @click="toggleSettingsMenu" title="设置">⚙️</button>
+        <button class="topbar-settings-btn" @click="toggleSettingsMenu" :title="t('topbar.settings')">⚙️</button>
         <div :class="['settings-dropdown', { show: showSettingsMenu }]">
-          <a href="#" @click.prevent="router.push('/settings')" class="dropdown-item">系统设置</a>
+          <a href="#" @click.prevent="router.push('/settings')" class="dropdown-item">{{ t('topbar.settings') }}</a>
           <div class="dropdown-divider"></div>
-          <a href="#" class="dropdown-item" @click.prevent="logout()">退出登录</a>
+          <a href="#" class="dropdown-item" @click.prevent="logout()">{{ t('topbar.logout') }}</a>
         </div>
       </div>
 

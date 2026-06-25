@@ -4,10 +4,12 @@ import { useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useAccountStore } from '@/stores/account'
 import { fetchContacts } from '@/api/contacts'
+import { useI18n } from '@/i18n'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import type { Contact } from '@/types/contacts'
 
+const { t } = useI18n()
 const router = useRouter()
 const account = useAccountStore()
 const searchQuery = ref('')
@@ -47,8 +49,8 @@ function getInitial(name: string): string {
 <template>
   <div class="contacts-page">
     <div class="contacts-header">
-      <h1 class="contacts-title">联系人</h1>
-      <span class="contacts-count" v-if="contacts.length">{{ contacts.length }} 位联系人</span>
+      <h1 class="contacts-title">{{ t('contacts.title') }}</h1>
+      <span class="contacts-count" v-if="contacts.length">{{ t('contacts.count').replace('{count}', String(contacts.length)) }}</span>
     </div>
 
     <!-- 搜索栏 -->
@@ -57,7 +59,7 @@ function getInitial(name: string): string {
         v-model="searchQuery"
         class="contacts-search-input"
         type="text"
-        placeholder="搜索联系人..."
+        :placeholder="t('contacts.search')"
       />
     </div>
 
@@ -65,8 +67,8 @@ function getInitial(name: string): string {
     <div v-if="!account.currentAccountId" class="contacts-body">
       <EmptyState
         icon="🔑"
-        title="请先接入 Telegram 账号"
-        description="联系人功能需要先接入一个 Telegram 账号。"
+        :title="t('contacts.noAccount')"
+        :description="t('contacts.noAccountDesc')"
       />
     </div>
 
@@ -92,8 +94,8 @@ function getInitial(name: string): string {
     <div v-else-if="contacts.length === 0" class="contacts-body">
       <EmptyState
         icon="👥"
-        title="暂无联系人"
-        description="当前账号没有同步到联系人数据。"
+        :title="t('contacts.empty')"
+        :description="t('contacts.emptyDesc')"
       />
     </div>
 
@@ -101,8 +103,8 @@ function getInitial(name: string): string {
     <div v-else-if="filteredContacts.length === 0" class="contacts-body">
       <EmptyState
         icon="🔍"
-        title="未找到联系人"
-        :description="`没有匹配「${searchQuery}」的联系人`"
+        :title="t('contacts.noResults')"
+        :description="t('contacts.noResultsDesc').replace('{query}', searchQuery)"
       />
     </div>
 
@@ -120,7 +122,7 @@ function getInitial(name: string): string {
         <div class="contact-info">
           <div class="contact-name-row">
             <span class="contact-name">{{ contact.display_name }}</span>
-            <span v-if="contact.has_dialog" class="contact-badge">已会话</span>
+            <span v-if="contact.has_dialog" class="contact-badge">{{ t('contacts.hasDialog') }}</span>
           </div>
           <div class="contact-meta">
             <span v-if="contact.username" class="contact-username">@{{ contact.username }}</span>
