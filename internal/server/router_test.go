@@ -36,6 +36,7 @@ func setupTestServer(t *testing.T) (*Server, *gorm.DB) {
 		&model.SystemSetting{},
 		&model.ChatPeerCache{},
 		&model.ChatMessageCache{},
+		&model.MediaCache{},
 	); err != nil {
 		t.Fatalf("数据库迁移失败: %s", err)
 	}
