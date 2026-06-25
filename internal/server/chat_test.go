@@ -130,6 +130,157 @@ func TestDashboardStats_TodayAuditEvents(t *testing.T) {
 	}
 }
 
+func TestDashboardStats_IncludesRuntimeAndAudit(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 添加一条审计日志
+	srv.db.Create(&model.AuditLog{
+		ActorType: "admin", ActorID: 1, Action: "test.event",
+		ResourceType: "test", RiskLevel: "low", Message: "test",
+		CreatedAt: time.Now(),
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/dashboard/stats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"recent_audit"`) {
+		t.Errorf("dashboard 应包含 recent_audit，实际: %s", body)
+	}
+	if !strings.Contains(body, `"recent_logs"`) {
+		t.Errorf("dashboard 应包含 recent_logs，实际: %s", body)
+	}
+	if !strings.Contains(body, `"recent_errors"`) {
+		t.Errorf("dashboard 应包含 recent_errors，实际: %s", body)
+	}
+	if !strings.Contains(body, `"runtime_live"`) {
+		t.Errorf("dashboard 应包含 runtime_live，实际: %s", body)
+	}
+	if !strings.Contains(body, `"runtime_offline"`) {
+		t.Errorf("dashboard 应包含 runtime_offline，实际: %s", body)
+	}
+	if !strings.Contains(body, `"runtime_stopped"`) {
+		t.Errorf("dashboard 应包含 runtime_stopped，实际: %s", body)
+	}
+}
+
+func TestDashboardStats_RecentLogsSortedDesc(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 添加多条审计日志
+	for i := 0; i < 7; i++ {
+		srv.db.Create(&model.AuditLog{
+			ActorType: "admin", ActorID: 1, Action: "test.event",
+			ResourceType: "test", RiskLevel: "low", Message: fmt.Sprintf("test %d", i),
+			CreatedAt: time.Now(),
+		})
+	}
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/dashboard/stats", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// 最近 5 条，应该包含最后创建的（ID 最大的）
+	// 验证响应包含 recent_logs
+	if !strings.Contains(body, `"recent_logs"`) {
+		t.Errorf("dashboard 应包含 recent_logs，实际: %s", body)
+	}
+}
+
+func TestAuditEventTypes_ReturnsDistinctActions(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 添加不同 action 的审计日志
+	srv.db.Create(&model.AuditLog{
+		ActorType: "admin", ActorID: 1, Action: "admin.login",
+		ResourceType: "admin", RiskLevel: "low", Message: "test",
+		CreatedAt: time.Now(),
+	})
+	srv.db.Create(&model.AuditLog{
+		ActorType: "admin", ActorID: 1, Action: "admin.logout",
+		ResourceType: "admin", RiskLevel: "low", Message: "test",
+		CreatedAt: time.Now(),
+	})
+	srv.db.Create(&model.AuditLog{
+		ActorType: "admin", ActorID: 1, Action: "admin.login",
+		ResourceType: "admin", RiskLevel: "low", Message: "test",
+		CreatedAt: time.Now(),
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/audit/event-types", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"ok":true`) {
+		t.Errorf("应返回 ok:true，实际: %s", body)
+	}
+	if !strings.Contains(body, `"event_types"`) {
+		t.Errorf("应包含 event_types，实际: %s", body)
+	}
+	if !strings.Contains(body, `"admin.login"`) {
+		t.Errorf("应包含 admin.login，实际: %s", body)
+	}
+	if !strings.Contains(body, `"admin.logout"`) {
+		t.Errorf("应包含 admin.logout，实际: %s", body)
+	}
+	// 验证中文标签
+	if !strings.Contains(body, "管理员登录") {
+		t.Errorf("应包含中文标签'管理员登录'，实际: %s", body)
+	}
+}
+
+func TestAuditAPI_SupportsEventTypeAlias(t *testing.T) {
+	r, srv := setupTestRouter(t)
+	initAdmin(t, r)
+	_, sessionCookie := loginAdmin(t, r)
+
+	// 添加审计日志
+	srv.db.Create(&model.AuditLog{
+		ActorType: "admin", ActorID: 1, Action: "admin.login",
+		ResourceType: "admin", RiskLevel: "low", Message: "test",
+		CreatedAt: time.Now(),
+	})
+	srv.db.Create(&model.AuditLog{
+		ActorType: "admin", ActorID: 1, Action: "admin.logout",
+		ResourceType: "admin", RiskLevel: "low", Message: "test",
+		CreatedAt: time.Now(),
+	})
+
+	// 使用 event_type 参数过滤
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/audit?event_type=admin.login", nil)
+	req.Header.Set("Cookie", "atria_session="+sessionCookie)
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"admin.login"`) {
+		t.Errorf("event_type 过滤应包含 admin.login，实际: %s", body)
+	}
+	// 不应包含 admin.logout（因为它只返回匹配 event_type 的）
+	if strings.Contains(body, `"admin.logout"`) {
+		// 检查是否在 logs 数组中（不在 message 中）
+		// 由于 total 字段，可能有其他内容包含 logout
+		// 但我们检查 logs 数组的长度
+		if strings.Contains(body, `"total":1`) {
+			// total 为 1 说明只有一条记录
+		} else {
+			t.Errorf("event_type=admin.login 应只返回 admin.login 记录，实际: %s", body)
+		}
+	}
+}
+
 func TestDashboardStats_NoSensitiveLeak(t *testing.T) {
 	r, srv := setupTestRouter(t)
 

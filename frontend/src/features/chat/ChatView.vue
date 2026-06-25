@@ -6,6 +6,7 @@ import { fetchDialogs } from '@/api/chat'
 import { fetchRuntimeStatus, startRuntime } from '@/api/runtime'
 import { useChatStore } from '@/stores/chat'
 import { useAccountStore } from '@/stores/account'
+import { useI18n } from '@/i18n'
 import { RealtimeClient } from '@/realtime/ws'
 import { handleRealtimeEvent } from '@/realtime/handler'
 import DialogList from './DialogList.vue'
@@ -20,6 +21,7 @@ const router = useRouter()
 const chat = useChatStore()
 const account = useAccountStore()
 const queryClient = useQueryClient()
+const { t } = useI18n()
 
 // Skeleton 超时提示：loading 超过 10 秒时显示提示
 const slowLoading = ref(false)
@@ -342,13 +344,13 @@ const runtimeClass = computed(() => {
   <div class="chat-layout">
     <div class="chat-sidebar" :class="{ 'mobile-hidden': chat.selectedPeerRef }">
       <div class="chat-sidebar-header">
-        <h2 class="chat-sidebar-title">会话</h2>
+        <h2 class="chat-sidebar-title">{{ t('chat.title') }}</h2>
         <div class="chat-sidebar-actions">
           <span v-if="account.currentAccountId && runtimeLabel" :class="['runtime-badge', runtimeClass]" :title="runtimeTooltip || runtimeLabel">
             <span class="runtime-dot"></span>
             {{ runtimeLabel }}
           </span>
-          <span :class="['sync-icon', syncIconClass]" :title="runtimeTooltip || runtimeLabel || '同步状态'">
+          <span :class="['sync-icon', syncIconClass]" :title="runtimeTooltip || runtimeLabel || t('chat.title')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
             </svg>
@@ -359,8 +361,8 @@ const runtimeClass = computed(() => {
       <div v-if="noAccount" class="chat-sidebar-body">
         <EmptyState
           icon="🔑"
-          title="请先接入 Telegram 账号"
-          description="聊天功能需要先接入一个 Telegram 账号。"
+          :title="t('chat.noAccount')"
+          :description="t('chat.noAccountDesc')"
         />
       </div>
       <div v-else-if="isLoading" class="chat-sidebar-body">
@@ -374,7 +376,7 @@ const runtimeClass = computed(() => {
           </div>
         </div>
         <div v-if="slowLoading" class="slow-hint">
-          <span>加载时间较长，请检查网络或 <button class="btn-link" @click="forceRefresh()">强制刷新</button></span>
+          <span>{{ t('chat.staleHint') }} <button class="btn-link" @click="forceRefresh()">{{ t('common.refresh') }}</button></span>
         </div>
       </div>
       <div v-else-if="error" class="chat-sidebar-body">
@@ -397,8 +399,8 @@ const runtimeClass = computed(() => {
       <div v-else class="chat-main-empty">
         <EmptyState
           icon="💬"
-          title="选择一个会话"
-          description="从左侧列表中选择一个会话开始聊天。"
+          :title="t('chat.selectChat')"
+          :description="t('chat.selectChatDesc')"
         />
       </div>
     </div>

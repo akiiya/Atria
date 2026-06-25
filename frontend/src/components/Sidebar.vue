@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from '@/i18n'
 
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
 
 const navItems: Array<{ path: string; icon: string; label: string; disabled?: boolean; badge?: string }> = [
-  { path: '/dashboard', icon: '🏠', label: '仪表盘' },
-  { path: '/accounts', icon: '📱', label: '账号会话' },
-  { path: '/chats', icon: '💬', label: '聊天' },
-  { path: '/contacts', icon: '👥', label: '联系人' },
-  { path: '/audit', icon: '📋', label: '审计日志' },
+  { path: '/dashboard', icon: '🏠', label: 'nav.dashboard' },
+  { path: '/accounts', icon: '📱', label: 'nav.accounts' },
+  { path: '/chats', icon: '💬', label: 'nav.chats' },
+  { path: '/contacts', icon: '👥', label: 'nav.contacts' },
+  { path: '/audit', icon: '📋', label: 'nav.audit' },
 ]
 
 function isActive(path: string): boolean {
@@ -40,7 +42,7 @@ function navigate(path: string, disabled?: boolean) {
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">
-        <div class="nav-section-title">功能</div>
+        <div class="nav-section-title">{{ t('nav.features') }}</div>
         <a
           v-for="item in navItems"
           :key="item.path"
@@ -50,7 +52,7 @@ function navigate(path: string, disabled?: boolean) {
           href="#"
         >
           <span class="nav-icon">{{ item.icon }}</span>
-          <span class="nav-label">{{ item.label }}</span>
+          <span class="nav-label">{{ t(item.label) }}</span>
           <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
         </a>
       </div>
