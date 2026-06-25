@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/user/atria/internal/audit"
 	"github.com/user/atria/internal/auth"
 	"github.com/user/atria/internal/chat"
 	"github.com/user/atria/internal/credential"
@@ -366,19 +367,61 @@ func (s *Server) handleAPIAccountDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// handleAPIAudit 返回审计日志 JSON。
+// handleAPIAudit 返回审计日志 JSON，支持过滤和分页。
 func (s *Server) handleAPIAudit(c *gin.Context) {
+	query := s.db.Model(&model.AuditLog{})
+
+	// 过滤条件
+	if action := c.Query("action"); action != "" {
+		query = query.Where("action = ?", action)
+	}
+	if accountID := c.Query("account_id"); accountID != "" {
+		if id, err := strconv.Atoi(accountID); err == nil && id > 0 {
+			query = query.Where("account_id = ?", id)
+		}
+	}
+	if riskLevel := c.Query("risk_level"); riskLevel != "" {
+		query = query.Where("risk_level = ?", riskLevel)
+	}
+	if since := c.Query("since"); since != "" {
+		query = query.Where("created_at >= ?", since)
+	}
+	if until := c.Query("until"); until != "" {
+		query = query.Where("created_at <= ?", until)
+	}
+
+	// 分页
+	limit := 50
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	// 总数
+	var total int64
+	query.Count(&total)
+
+	// 查询
 	var logs []model.AuditLog
-	s.db.Order("id DESC").Limit(100).Find(&logs)
+	query.Order("id DESC").Limit(limit).Offset(offset).Find(&logs)
 
 	type logDTO struct {
 		ID           uint   `json:"id"`
+		AccountID    uint   `json:"account_id"`
 		Action       string `json:"action"`
 		ResourceType string `json:"resource_type"`
 		ResourceID   uint   `json:"resource_id"`
 		RiskLevel    string `json:"risk_level"`
 		IP           string `json:"ip"`
 		Message      string `json:"message"`
+		MetadataJSON string `json:"metadata_json"`
 		CreatedAt    string `json:"created_at"`
 	}
 
@@ -386,19 +429,24 @@ func (s *Server) handleAPIAudit(c *gin.Context) {
 	for _, l := range logs {
 		dtos = append(dtos, logDTO{
 			ID:           l.ID,
+			AccountID:    l.AccountID,
 			Action:       l.Action,
 			ResourceType: l.ResourceType,
 			ResourceID:   l.ResourceID,
 			RiskLevel:    l.RiskLevel,
 			IP:           l.IP,
 			Message:      l.Message,
+			MetadataJSON: l.MetadataJSON,
 			CreatedAt:    l.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":   true,
-		"logs": dtos,
+		"ok":     true,
+		"logs":   dtos,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 
@@ -693,6 +741,15 @@ func (s *Server) handleAPIRuntimeStart(c *gin.Context) {
 	}
 
 	status := s.runtimeManager.Status(selectedID)
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		Action:       "runtime.start",
+		ResourceType: "account",
+		AccountID:    selectedID,
+		RiskLevel:    "low",
+		IP:           c.ClientIP(),
+		Message:      fmt.Sprintf("启动 runtime (account_id=%d)", selectedID),
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"ok":         true,
 		"account_id": selectedID,
@@ -722,6 +779,15 @@ func (s *Server) handleAPIRuntimeStop(c *gin.Context) {
 		return
 	}
 
+	audit.Log(c.Request.Context(), s.db, audit.Event{
+		ActorType:    "admin",
+		Action:       "runtime.stop",
+		ResourceType: "account",
+		AccountID:    selectedID,
+		RiskLevel:    "low",
+		IP:           c.ClientIP(),
+		Message:      fmt.Sprintf("停止 runtime (account_id=%d)", selectedID),
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"ok":         true,
 		"account_id": selectedID,

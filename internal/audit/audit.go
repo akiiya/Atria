@@ -15,6 +15,7 @@ import (
 type Event struct {
 	ActorType    string         // 操作者类型：admin、system
 	ActorID      string         // 操作者 ID
+	AccountID    uint           // 关联的 Telegram 账号 ID（可选）
 	Action       string         // 操作标识，如 api_credential.create
 	ResourceType string         // 资源类型，如 api_credential
 	ResourceID   string         // 资源 ID
@@ -89,6 +90,7 @@ func Log(ctx context.Context, db *gorm.DB, event Event) error {
 	auditLog := model.AuditLog{
 		ActorType:    event.ActorType,
 		ActorID:      0, // 由调用方在需要时设置
+		AccountID:    event.AccountID,
 		Action:       event.Action,
 		ResourceType: event.ResourceType,
 		ResourceID:   0, // 由调用方在需要时设置

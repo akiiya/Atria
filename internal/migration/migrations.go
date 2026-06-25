@@ -3,6 +3,7 @@ package migration
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/user/atria/internal/model"
@@ -79,6 +80,13 @@ func init() {
 		Name:        "fix_peer_cache_unique_index_and_phantom_records",
 		Description: "修复 chat_peer_cache 唯一索引为 per-account 复合索引，并清理 PeerRef 为空的幽灵记录",
 		Run:         migration010FixPeerCacheIndexAndPhantoms,
+	})
+
+	Register(Migration{
+		Version:     11,
+		Name:        "add_audit_log_account_id",
+		Description: "为 audit_logs 表添加 account_id 字段，支持按账号筛选审计日志",
+		Run:         migration011AddAuditLogAccountID,
 	})
 }
 
@@ -434,5 +442,19 @@ func migration010FixPeerCacheIndexAndPhantoms(db *gorm.DB, _ []byte) error {
 	}
 
 	slog.Info("迁移 10: chat_peer_cache 索引修复完成")
+	return nil
+}
+
+// migration011AddAuditLogAccountID 为 audit_logs 表添加 account_id 字段。
+// 用于按 Telegram 账号筛选审计日志。
+// 幂等：重复执行时如果列已存在会忽略错误。
+func migration011AddAuditLogAccountID(db *gorm.DB, _ []byte) error {
+	if err := db.Exec("ALTER TABLE audit_logs ADD COLUMN account_id INTEGER DEFAULT 0").Error; err != nil {
+		// Column might already exist
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("add account_id to audit_logs: %w", err)
+		}
+	}
+	slog.Info("迁移 11: audit_logs 表 account_id 字段添加完成")
 	return nil
 }

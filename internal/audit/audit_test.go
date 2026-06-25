@@ -1,7 +1,12 @@
 package audit
 
 import (
+	"context"
 	"testing"
+
+	"github.com/glebarez/sqlite"
+	"github.com/user/atria/internal/model"
+	"gorm.io/gorm"
 )
 
 func TestFilterMetadata_SensitiveKeys(t *testing.T) {
@@ -80,5 +85,40 @@ func TestFilterMetadata_PartialMatch(t *testing.T) {
 		if filtered[field] != "***REDACTED***" {
 			t.Errorf("%s 应被替换（包含敏感关键词）", field)
 		}
+	}
+}
+
+func setupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("创建测试数据库失败: %s", err)
+	}
+	if err := db.AutoMigrate(&model.AuditLog{}); err != nil {
+		t.Fatalf("数据库迁移失败: %s", err)
+	}
+	return db
+}
+
+func TestLog_SavesAccountID(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	err := Log(ctx, db, Event{
+		ActorType:    "admin",
+		Action:       "test.action",
+		ResourceType: "test",
+		AccountID:    42,
+		RiskLevel:    "low",
+		Message:      "test with account",
+	})
+	if err != nil {
+		t.Fatalf("Log failed: %v", err)
+	}
+
+	var log model.AuditLog
+	db.First(&log)
+	if log.AccountID != 42 {
+		t.Errorf("expected AccountID=42, got %d", log.AccountID)
 	}
 }
