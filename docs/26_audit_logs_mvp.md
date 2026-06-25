@@ -58,8 +58,12 @@ Migration 11: 为 `audit_logs` 表添加 `account_id` 字段（INTEGER DEFAULT 0
 - proxy_password
 - CSRF token
 
-**自动脱敏：**
-- `audit.Log` 的 Metadata 中，包含敏感关键词（password, api_hash, session, token, code, secret 等）的字段自动替换为 `***REDACTED***`
+**自动脱敏（17 类敏感 key）：**
+- `audit.Log` 的 Metadata 中，包含以下敏感关键词的字段自动替换为 `***REDACTED***`：
+  - password, password_hash, api_hash, session, token, code, two_factor
+  - secret, secret_key, csrf_token, cookie, authorization
+  - access_hash, file_reference, local_path, message_body, search_keyword
+- 匹配规则：key 名称包含敏感关键词（大小写不敏感，子串匹配）
 
 ## 前端页面
 

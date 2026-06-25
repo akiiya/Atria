@@ -112,3 +112,7 @@ frontend/src/
 - Content-Security-Policy: `default-src 'none'; style-src 'unsafe-inline'`
 - X-Content-Type-Options: `nosniff`
 - Content-Disposition 使用 sanitize 后的文件名
+
+## i18n
+
+媒体相关文案走 i18n（media.photo, media.document, media.sticker, media.video, media.voice, media.audio, media.download, media.downloading, media.downloadFailed, media.unsupported 等），10 种语言支持。
