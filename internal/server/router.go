@@ -369,6 +369,17 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handleAPISearchMessages(c)
 	})
 
+	// 媒体 API
+	r.GET("/api/media/:message_id/status", authMiddleware, func(c *gin.Context) {
+		s.handleAPIMediaStatus(c)
+	})
+	r.POST("/api/media/:message_id/download", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handleAPIMediaDownload(c)
+	})
+	r.GET("/api/media/:message_id/content", authMiddleware, func(c *gin.Context) {
+		s.handleAPIMediaContent(c)
+	})
+
 	// 审计事件类型
 	r.GET("/api/audit/event-types", authMiddleware, func(c *gin.Context) {
 		s.handleAPIAuditEventTypes(c)

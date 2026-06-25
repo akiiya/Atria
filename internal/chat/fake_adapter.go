@@ -95,5 +95,10 @@ func (f *FakeAdapter) GetContacts(ctx context.Context, req telegramclient.GetCon
 	}, nil
 }
 
+// DownloadMedia 返回预设的下载结果。
+func (f *FakeAdapter) DownloadMedia(ctx context.Context, req telegramclient.DownloadMediaRequest) (telegramclient.DownloadMediaResult, error) {
+	return telegramclient.DownloadMediaResult{Success: true}, nil
+}
+
 // 确保 FakeAdapter 实现 ClientAdapter。
 var _ telegramclient.ClientAdapter = (*FakeAdapter)(nil)

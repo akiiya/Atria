@@ -88,6 +88,13 @@ func init() {
 		Description: "为 audit_logs 表添加 account_id 字段，支持按账号筛选审计日志",
 		Run:         migration011AddAuditLogAccountID,
 	})
+
+	Register(Migration{
+		Version:     12,
+		Name:        "create_media_cache",
+		Description: "创建 media_cache 表，用于缓存已下载的媒体文件元数据",
+		Run:         migration012CreateMediaCache,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -456,5 +463,16 @@ func migration011AddAuditLogAccountID(db *gorm.DB, _ []byte) error {
 		}
 	}
 	slog.Info("迁移 11: audit_logs 表 account_id 字段添加完成")
+	return nil
+}
+
+// migration012CreateMediaCache 创建 media_cache 表。
+// 用于缓存已下载的媒体文件元数据，支持媒体文件的本地缓存管理。
+// 幂等：AutoMigrate 会跳过已存在的表。
+func migration012CreateMediaCache(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.MediaCache{}); err != nil {
+		return fmt.Errorf("创建 media_cache 表失败: %w", err)
+	}
+	slog.Info("迁移 12: media_cache 表创建/更新完成")
 	return nil
 }

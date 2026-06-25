@@ -56,7 +56,7 @@ func TestMapMessage_IncomingMessage(t *testing.T) {
 	}
 }
 
-func TestMapMessage_UnsupportedMessage(t *testing.T) {
+func TestMapMessage_EmptyMessage(t *testing.T) {
 	m := &tg.Message{
 		ID:      789,
 		Date:    1700000000,
@@ -65,8 +65,9 @@ func TestMapMessage_UnsupportedMessage(t *testing.T) {
 
 	result := mapMessage(m, "u_1")
 
-	if result.Kind != telegramclient.MessageKindUnsupported {
-		t.Errorf("期望 kind unsupported，实际 %s", result.Kind)
+	// 空消息（无文本、无媒体）在新分类逻辑中视为 text
+	if result.Kind != telegramclient.MessageKindText {
+		t.Errorf("期望 kind text，实际 %s", result.Kind)
 	}
 }
 
@@ -259,10 +260,11 @@ func TestClassifyMessageKind_Text(t *testing.T) {
 	}
 }
 
-func TestClassifyMessageKind_Unsupported(t *testing.T) {
+func TestClassifyMessageKind_EmptyMessage(t *testing.T) {
 	m := &tg.Message{Message: ""}
-	if classifyMessageKind(m) != telegramclient.MessageKindUnsupported {
-		t.Error("期望 unsupported")
+	// 空消息（无文本、无媒体）在新分类逻辑中视为 text
+	if classifyMessageKind(m) != telegramclient.MessageKindText {
+		t.Error("期望 text")
 	}
 }
 

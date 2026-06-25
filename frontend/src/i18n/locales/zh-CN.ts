@@ -95,6 +95,12 @@ export const zhCN: Record<string, string> = {
   'media.voiceMessage': '语音消息',
   'media.voicePlaceholder': '语音（播放暂未实现）',
   'media.audio': '音频',
+  'media.photo': '图片',
+  'media.view': '查看',
+  'media.open': '打开',
+  'media.downloading': '下载中...',
+  'media.downloadFailed': '下载失败',
+  'media.unsupported': '不支持的媒体',
 
   // Contacts
   'contacts.title': '联系人',

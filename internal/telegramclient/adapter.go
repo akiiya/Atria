@@ -25,6 +25,9 @@ type ClientAdapter interface {
 
 	// GetContacts 获取联系人列表。
 	GetContacts(ctx context.Context, req GetContactsRequest) (ContactsResult, error)
+
+	// DownloadMedia 下载消息媒体文件。
+	DownloadMedia(ctx context.Context, req DownloadMediaRequest) (DownloadMediaResult, error)
 }
 
 // AdapterConfig 是适配器的通用配置。

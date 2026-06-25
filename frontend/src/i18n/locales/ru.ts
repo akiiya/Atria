@@ -95,6 +95,12 @@ export const ru: Record<string, string> = {
   'media.voiceMessage': 'Голосовое сообщение',
   'media.voicePlaceholder': 'Голос (воспроизведение недоступно)',
   'media.audio': 'Аудио',
+  'media.photo': 'Фото',
+  'media.view': 'Просмотр',
+  'media.open': 'Открыть',
+  'media.downloading': 'Загрузка...',
+  'media.downloadFailed': 'Ошибка загрузки',
+  'media.unsupported': 'Неподдерживаемый тип файла',
 
   // Contacts
   'contacts.title': 'Контакты',

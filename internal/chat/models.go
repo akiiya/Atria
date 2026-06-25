@@ -58,6 +58,22 @@ type Message struct {
 	IsOutgoing        bool             `json:"is_outgoing"`
 	Status            MessageStatus    `json:"status"`
 	MessageType       string           `json:"message_type"` // text, photo, sticker, etc.
+	Caption           string           `json:"caption,omitempty"`
+	HasMedia          bool             `json:"has_media"`
+	MediaInfo         *MediaInfo       `json:"media_info,omitempty"`
+}
+
+// MediaInfo 媒体元信息（中立 DTO）。
+type MediaInfo struct {
+	FileName          string `json:"file_name,omitempty"`
+	MIMEType          string `json:"mime_type,omitempty"`
+	Size              int64  `json:"size,omitempty"`
+	Width             int    `json:"width,omitempty"`
+	Height            int    `json:"height,omitempty"`
+	Duration          int    `json:"duration,omitempty"`
+	Emoji             string `json:"emoji,omitempty"`
+	DownloadAvailable bool   `json:"download_available"`
+	LocalStatus       string `json:"local_status"` // none / cached / downloading / failed
 }
 
 // SendResult 表示发送消息的结果。
