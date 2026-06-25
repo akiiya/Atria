@@ -139,6 +139,10 @@ type Contact struct {
 
 联系人写入 `chat_peer_cache` 后，chat 模块的 `GetMessages` 可以直接通过 `peer_ref` 查找 `access_hash`，无需依赖已有 dialog。
 
+## i18n
+
+联系人页全部文案走 i18n（contacts.title, contacts.count, contacts.search, contacts.noAccount, contacts.empty, contacts.noResults, contacts.hasDialog 等），10 种语言支持。
+
 ## 限制
 
 - 不支持分页（Telegram contacts API 一次性返回全部）

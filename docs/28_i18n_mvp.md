@@ -8,7 +8,7 @@
 frontend/src/i18n/
   index.ts              ← useI18n() composable
   locales/
-    en.ts               ← English (base/reference, ~120 keys)
+    en.ts               ← English (base/reference, 341 keys)
     zh-CN.ts            ← 简体中文
     zh-TW.ts            ← 繁體中文
     ja.ts               ← 日本語
@@ -64,17 +64,25 @@ locales                // 可用语言列表 [{code, label}]
 
 ## 翻译 key 结构
 
-采用扁平 key 结构，按模块前缀分组：
+采用扁平 key 结构，按模块前缀分组（共 341 key/locale）：
 
 - `nav.*` — 导航
 - `common.*` — 通用操作
 - `dashboard.*` — 仪表盘
-- `chat.*` — 聊天
+- `chat.*` — 聊天（含 composer、灯箱、会话搜索、服务消息）
+- `media.*` — 媒体类型与操作
 - `contacts.*` — 联系人
 - `audit.*` — 审计日志
 - `event.*` — 审计事件类型
 - `risk.*` — 风险等级
-- `settings.*` — 设置
+- `settings.*` — 设置（密码、API Key、代理）
+- `maintenance.*` — 数据维护
+- `accounts.*` — 账号会话（含 runtime 状态）
+- `search.*` — 搜索
+- `login.*` — 登录流程
+- `accountDetail.*` — 账号详情
+- `peerType.*` — peer 类型标签
+- `lightbox.*` — 图片灯箱工具栏
 
 ## 已接入 i18n 的页面
 
@@ -82,10 +90,16 @@ locales                // 可用语言列表 [{code, label}]
 |------|---------|
 | Sidebar | 导航标签、分区标题 |
 | Topbar | 账号切换、主题、语言切换、退出确认 |
-| Dashboard | 全部文案 |
-| Chat | 标题、空态、状态标签 |
+| Dashboard | 全部文案、审计事件类型标签 |
+| Chat | 标题、空态、状态标签、composer、消息气泡、服务消息、会话搜索、图片灯箱 |
 | Contacts | 标题、搜索、空态、badge |
+| Search | 标题、placeholder、结果、分页、错误提示 |
 | Audit | 筛选、表头、分页、空态 |
+| Maintenance | 全部文案、媒体缓存、清理操作 |
+| Accounts | 全部文案、状态标签、操作按钮、runtime 标签 |
+| Settings | 全部文案（密码、API Key、代理） |
+| Login | 全部文案（手机号、验证码、2FA） |
+| Account Detail | 全部文案、危险操作 |
 
 ## 如何新增语言
 

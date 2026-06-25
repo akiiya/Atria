@@ -27,9 +27,17 @@
 - **Session 生命周期管理** — 完整处理登录→保存→同步→检测→失效→重新登录闭环
 - **API 凭据管理** — 配置和切换多组 API ID/Hash，支持独立的风险策略
 - **加密存储** — Session 文件加密存储，数据库中不保存明文 Session 数据
-- **审计日志** — 追踪所有管理操作的详细审计记录
+- **审计日志** — 追踪所有管理操作的详细审计记录，自动脱敏敏感字段
+- **聊天浏览** — 实时消息同步、历史加载、发送文本消息、new/edit/delete 实时推送
+- **联系人** — 联系人列表、搜索、cache-first、点击跳转聊天
+- **搜索** — 本地消息缓存全文搜索，支持 peer_ref 限定
+- **媒体** — 图片/文档/视频/音频识别、下载、预览、缓存管理
+- **群组与频道** — user/bot/chat/supergroup/channel 类型识别与展示
+- **数据维护** — 表统计、缓存统计、dry-run 清理、媒体缓存管理
+- **仪表盘** — 统计卡片、最近审计事件、快捷入口
+- **国际化** — 10 种语言（341 key/locale）、浏览器语言检测、localStorage 持久化
 - **Web 自更新** — 设置页可检查更新、下载、Dry-Run 验证、应用更新（alpha 能力）
-- **现代化 Web 界面** — 全屏管理面板，支持浅色/深色/跟随系统主题
+- **现代化 Web 界面** — Vue 3 SPA 全屏管理面板，支持浅色/深色/跟随系统主题
 - **单二进制部署** — 构建产物为单一可执行文件，所有 Web 资源内嵌，运行时无外部依赖
 - **SQLite 默认** — 零配置即可启动；可选 PostgreSQL / MySQL / MariaDB
 
@@ -130,12 +138,19 @@ data/
 
 ## 安全
 
-- 密码使用 bcrypt 或 argon2id 哈希存储（永不保存明文）
-- API Hash 在数据库中加密存储
+- 密码使用 bcrypt 哈希存储（永不保存明文）
+- API Hash、手机号在数据库中 AES-256-GCM 加密存储
 - Session 文件使用本地密钥加密
-- 日志中不出现敏感数据（密码、API Hash、Session 内容、验证码）
-- 所有状态变更操作提供 CSRF 保护
-- Cookie 安全属性（HttpOnly、Secure、SameSite）
+- 审计日志自动脱敏 17 类敏感字段（password、api_hash、session、token、code、secret、access_hash、file_reference、local_path、message_body、search_keyword 等）
+- 所有状态变更操作提供 CSRF 保护（double-submit cookie）
+- Cookie 安全属性：HttpOnly、SameSite（Lax/Strict/None 可配置）
+- Cookie Secure 默认关闭（本地开发），**生产环境必须设置 `ATRIA_COOKIE_SECURE=true`**
+- WebSocket 连接强制同源检查
+- 搜索结果 HTML 转义防 XSS
+- 错误页面 HTML 实体转义防 XSS
+- API 响应中的错误消息通过 `SanitizeErrorMessage` 脱敏
+- 媒体内容端点设置 CSP 和 X-Content-Type-Options 安全头
+- 路径穿越防护（媒体文件访问）
 
 详见 [docs/06_security_policy.md](docs/06_security_policy.md)。
 
@@ -168,45 +183,70 @@ data/
 - **Go** + **Gin** Web 框架
 - **GORM** ORM，默认 SQLite，可选 PostgreSQL / MySQL / MariaDB
 - **Go embed** 实现单二进制 Web 资源嵌入
-- **Go html/template** 服务端渲染，无 Node.js 构建链
+- **Vue 3** + **Pinia** + **TanStack Query** 前端 SPA
+- **gotd/td** MTProto 客户端（通过中立 DTO 边界隔离）
+- **nhooyr.io/websocket** WebSocket 实时推送
 
 ## 项目结构
 
 ```
 atria/
 ├── cmd/atria/              # 应用入口
+├── frontend/               # Vue 3 SPA 前端
+│   └── src/
+│       ├── api/            # API 封装
+│       ├── features/       # 页面组件（chat, contacts, search, audit...）
+│       ├── i18n/           # 国际化（10 种语言）
+│       ├── stores/         # Pinia 状态管理
+│       └── types/          # TypeScript 类型定义
 ├── internal/
+│   ├── account/            # 账号服务
+│   ├── audit/              # 审计日志（自动脱敏）
+│   ├── auth/               # 认证、CSRF、Session
+│   ├── chat/               # 聊天服务（gotd 无关）
 │   ├── config/             # 配置加载
-│   ├── crypto/             # 加密工具
+│   ├── crypto/             # AES-256-GCM 加密
 │   ├── database/           # 数据库初始化
+│   ├── media/              # 媒体下载与缓存
+│   ├── migration/          # 版本化数据迁移（当前 v13）
 │   ├── model/              # GORM 数据模型
-│   ├── server/             # HTTP 服务器和路由
-│   ├── updater/            # 自更新接口（预留）
+│   ├── mtproto/            # MTProto 客户端封装
+│   ├── network/            # 代理支持
+│   ├── security/           # 错误消息脱敏
+│   ├── server/             # HTTP 服务器、路由、WebSocket
+│   ├── telegramclient/     # Telegram 适配器（中立 DTO 边界）
+│   ├── updater/            # 自更新
 │   ├── version/            # 版本信息
 │   └── web/                # 嵌入式 Web 资源访问
 ├── web/
 │   ├── templates/          # HTML 模板
-│   └── static/             # CSS 和静态文件
+│   └── static/dist/        # Vue SPA 构建产物（Go embed）
 └── docs/                   # 项目文档
 ```
 
 ## 文档
 
 - [项目范围](docs/01_project_scope.md)
-- [Telegram API 调研](docs/02_telegram_api_research.md)
 - [架构设计](docs/03_architecture.md)
 - [数据模型](docs/04_data_model.md)
 - [开发计划](docs/05_development_plan.md)
 - [安全策略](docs/06_security_policy.md)
 - [UI 设计指南](docs/07_ui_design_guidelines.md)
-- [Release 与自更新设计](docs/08_release_and_self_update.md)
-- [手动验证指南](docs/09_manual_mtproto_login_test.md)
-- [真实环境验证报告](docs/10_real_world_validation_report.md)
-- [发布与安装指南](docs/11_release_and_installation.md)
-- [Web 自更新](docs/12_web_self_update.md)
+- [数据迁移](docs/17_data_migrations.md)
+- [Telegram 客户端适配器](docs/21_telegram_client_adapter.md)
+- [WebSocket 实时推送](docs/23_websocket_realtime_push.md)
+- [联系人 MVP](docs/25_contacts_mvp.md)
+- [审计日志 MVP](docs/26_audit_logs_mvp.md)
+- [仪表盘 MVP](docs/27_dashboard_mvp.md)
+- [国际化 MVP](docs/28_i18n_mvp.md)
+- [数据维护 MVP](docs/29_maintenance_mvp.md)
+- [账号会话 MVP](docs/30_accounts_sessions_mvp.md)
+- [搜索 MVP](docs/31_search_mvp.md)
+- [人工浏览器验收清单](docs/32_manual_browser_acceptance.md)
+- [媒体 MVP](docs/33_media_mvp.md)
+- [群组与频道 MVP](docs/34_groups_channels_mvp.md)
 - [更新日志](CHANGELOG.md)
 - [安全策略](SECURITY.md)
-- [贡献指南](CONTRIBUTING.md)
 
 ## 本地测试
 

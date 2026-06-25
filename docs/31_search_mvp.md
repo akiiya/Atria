@@ -59,9 +59,15 @@
 
 ## 安全
 
-- 搜索查询不记录到审计日志
+- 搜索查询不记录到审计日志（`search_keyword` 已加入审计脱敏列表）
 - 搜索范围限定为当前账号
 - 解密操作在内存中进行，不写入日志
+- 搜索结果 `text_snippet` 在前端做 HTML 转义后渲染（保留 `<b>` 高亮标签，其余内容转义），防止 XSS
+
+## i18n
+
+- 搜索页全部文案走 i18n（search.title, search.placeholder, search.noResults, search.total, search.failed 等）
+- 10 种语言支持
 
 ## 限制
 
