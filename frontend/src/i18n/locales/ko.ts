@@ -356,4 +356,10 @@ export const ko: Record<string, string> = {
   'accountDetail.developing': '기능 개발 중',
   'accountDetail.remoteLogout': '원격 로그아웃',
   'accountDetail.deleteSession': '로컬 Session 삭제',
+
+  // Peer Type
+  'peerType.bot': '봇',
+  'peerType.group': '그룹',
+  'peerType.supergroup': '슈퍼그룹',
+  'peerType.channel': '채널',
 }

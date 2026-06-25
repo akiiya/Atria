@@ -9,9 +9,11 @@ import "time"
 type PeerType string
 
 const (
-	PeerTypeUser    PeerType = "user"
-	PeerTypeChat    PeerType = "chat"
-	PeerTypeChannel PeerType = "channel"
+	PeerTypeUser       PeerType = "user"
+	PeerTypeBot        PeerType = "bot"
+	PeerTypeChat       PeerType = "chat"       // 基础群组
+	PeerTypeSupergroup PeerType = "supergroup" // 超级群组（从 chat 迁移或独立创建）
+	PeerTypeChannel    PeerType = "channel"
 )
 
 // MessageKind 表示消息类型。
@@ -68,8 +70,10 @@ type Dialog struct {
 	UnreadCount        int         `json:"unread_count"`
 	IsPinned           bool        `json:"is_pinned,omitempty"`
 	IsMuted            bool        `json:"is_muted,omitempty"`
-	AccessHash         int64       `json:"-"` // 不返回前端，仅内部使用
-	PeerID             int64       `json:"-"` // 不返回前端，仅内部使用
+	MemberCount        int         `json:"member_count,omitempty"`
+	Flags              string      `json:"flags,omitempty"` // 逗号分隔：verified,scam,fake,restricted,broadcast,megagroup
+	AccessHash         int64       `json:"-"`               // 不返回前端，仅内部使用
+	PeerID             int64       `json:"-"`               // 不返回前端，仅内部使用
 }
 
 // Message 表示一条消息（中立 DTO）。

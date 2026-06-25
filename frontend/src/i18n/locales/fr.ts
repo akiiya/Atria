@@ -356,4 +356,10 @@ export const fr: Record<string, string> = {
   'accountDetail.developing': 'Fonctionnalité en développement',
   'accountDetail.remoteLogout': 'Déconnexion à distance',
   'accountDetail.deleteSession': 'Supprimer la Session locale',
+
+  // Peer Type
+  'peerType.bot': 'Bot',
+  'peerType.group': 'Groupe',
+  'peerType.supergroup': 'Super-groupe',
+  'peerType.channel': 'Canal',
 }

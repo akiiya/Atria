@@ -356,4 +356,10 @@ export const ptBR: Record<string, string> = {
   'accountDetail.developing': 'Funcionalidade em desenvolvimento',
   'accountDetail.remoteLogout': 'Logout remoto',
   'accountDetail.deleteSession': 'Excluir Session local',
+
+  // Peer Type
+  'peerType.bot': 'Bot',
+  'peerType.group': 'Grupo',
+  'peerType.supergroup': 'Supergrupo',
+  'peerType.channel': 'Canal',
 }

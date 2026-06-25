@@ -356,4 +356,10 @@ export const ja: Record<string, string> = {
   'accountDetail.developing': '機能開発中',
   'accountDetail.remoteLogout': 'リモートログアウト',
   'accountDetail.deleteSession': 'ローカルSessionを削除',
+
+  // Peer Type
+  'peerType.bot': 'ボット',
+  'peerType.group': 'グループ',
+  'peerType.supergroup': 'スーパーグループ',
+  'peerType.channel': 'チャンネル',
 }
