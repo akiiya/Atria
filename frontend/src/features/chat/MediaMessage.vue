@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import type { ChatMessage } from '@/types/chat'
 import { useI18n } from '@/i18n'
-import { downloadMedia, getMediaContentUrl } from '@/api/media'
+import { getMediaStatus, downloadMedia, getMediaContentUrl } from '@/api/media'
 import ImageLightbox from './ImageLightbox.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
@@ -12,6 +12,23 @@ const mediaStatus = ref<string>('none') // none / cached / downloading / failed
 const mediaError = ref<string>('')
 const contentUrl = ref<string>('')
 const lightboxVisible = ref(false)
+
+// 挂载时检查本地缓存状态，已缓存的直接显示
+onMounted(async () => {
+  const mediaTypes = ['photo', 'document', 'video', 'voice', 'audio', 'sticker', 'animation']
+  if (!mediaTypes.includes(props.message.message_type)) return
+  const messageId = props.message.telegram_message_id || props.message.id
+  if (!messageId) return
+  try {
+    const status = await getMediaStatus(messageId, props.message.peer_ref)
+    if (status.ok && status.available) {
+      mediaStatus.value = 'cached'
+      contentUrl.value = getMediaContentUrl(messageId, props.message.peer_ref)
+    }
+  } catch {
+    // 忽略，保持 none 状态
+  }
+})
 
 function formatSize(bytes: number | undefined): string {
   if (!bytes) return ''
