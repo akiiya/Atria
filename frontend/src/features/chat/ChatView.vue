@@ -39,11 +39,12 @@ function clearSlowTimer() {
 
 const { data: dialogsData, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['dialogs', account.currentAccountId]),
-  queryFn: () => { startSlowTimer(); return fetchDialogs(30) },
+  queryFn: () => { startSlowTimer(); return fetchDialogs(30, true) },
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
-  staleTime: 30_000,
-  refetchOnWindowFocus: false,
+  staleTime: 15_000,
+  refetchInterval: 30_000,
+  refetchOnWindowFocus: true,
 })
 
 // loading 结束时清理 timer
