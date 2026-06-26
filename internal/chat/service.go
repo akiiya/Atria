@@ -813,6 +813,7 @@ func (s *ChatService) upsertPeerCacheFromDialog(accountID uint, dlg *telegramcli
 			"is_muted":              dlg.IsMuted,
 			"last_message_at":       cache.LastMessageAt,
 			"last_message_preview":  dlg.LastMessagePreview,
+			"unread_count":          dlg.UnreadCount,
 			"member_count":          dlg.MemberCount,
 			"flags":                 dlg.Flags,
 		})
