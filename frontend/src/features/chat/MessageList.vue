@@ -15,7 +15,7 @@ const props = defineProps<{
   peerRef?: string
 }>()
 
-const emit = defineEmits<{ 'load-older': [] }>()
+const emit = defineEmits<{ 'load-older': []; 'scroll-to-bottom': [] }>()
 
 const { t } = useI18n()
 
@@ -160,6 +160,7 @@ function handleScroll() {
     if (scrollIntent.value === 'manual') {
       scrollIntent.value = 'stick-to-bottom'
     }
+    emit('scroll-to-bottom')
   }
 
   // 非程序滚动 + 远离最新消息 → 用户在阅读历史

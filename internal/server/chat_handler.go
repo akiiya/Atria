@@ -175,6 +175,50 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 	})
 }
 
+// handlePostChatRead 处理 POST /api/chats/:peer_ref/read - 标记会话已读。
+func (s *Server) handlePostChatRead(c *gin.Context) {
+	peerRef := c.Param("peer_ref")
+	if peerRef == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "peer_invalid", "message": "缺少会话引用"})
+		return
+	}
+
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "no_current_account", "message": "请先接入 Telegram 账号"})
+		return
+	}
+
+	var req struct {
+		MaxID  int    `json:"max_id"`
+		Reason string `json:"reason"`
+	}
+	c.ShouldBindJSON(&req) // body 可为空
+
+	chatSvc := s.newChatService()
+
+	readCtx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	err := chatSvc.MarkRead(readCtx, selectedID, peerRef, req.MaxID)
+	if err != nil {
+		slog.Warn("标记已读失败",
+			"error", err,
+			"peer_ref_length", len(peerRef),
+			"max_id", req.MaxID,
+		)
+		errMsg := s.classifyChatError(err)
+		errCode := "telegram_error"
+		if chatErr, ok := err.(*chat.ChatError); ok {
+			errCode = chatErr.Code
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": errCode, "message": errMsg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 // classifyChatError 分类聊天错误为用户友好消息。
 func (s *Server) classifyChatError(err error) string {
 	if err == nil {

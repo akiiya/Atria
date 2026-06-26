@@ -301,6 +301,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostChatSend(c)
 	})
 
+	// 标记会话已读
+	r.POST("/api/chats/:peer_ref/read", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostChatRead(c)
+	})
+
 	// ===== JSON API (Vue SPA) =====
 
 	// 当前用户和账号信息

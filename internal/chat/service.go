@@ -452,6 +452,68 @@ func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef stri
 	}, nil
 }
 
+// MarkRead 标记会话消息为已读。
+// 调用 Telegram readHistory，成功后更新本地 dialog unread_count 为 0。
+func (s *ChatService) MarkRead(ctx context.Context, accountID uint, peerRef string, maxID int) error {
+	if peerRef == "" {
+		return &ChatError{Code: "peer_invalid", Message: "会话引用不能为空"}
+	}
+
+	account, cred, err := s.GetAccountAndCredential(accountID)
+	if err != nil {
+		return err
+	}
+
+	cache, err := s.GetPeerCache(accountID, peerRef)
+	if err != nil {
+		return err
+	}
+
+	// 解密 access_hash
+	var accessHash int64
+	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel || PeerType(cache.PeerType) == PeerTypeSupergroup {
+		if cache.AccessHashEncrypted != "" {
+			accessHash, err = s.DecryptAccessHash(cache.AccessHashEncrypted)
+			if err != nil {
+				return &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败"}
+			}
+		}
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		return &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
+	}
+
+	s.logger.Info("标记已读",
+		"peer_ref", peerRef,
+		"peer_type", cache.PeerType,
+		"max_id", maxID,
+	)
+
+	err = s.adapter.MarkRead(ctx, telegramclient.MarkReadRequest{
+		AccountID:       accountID,
+		PeerRef:         peerRef,
+		MaxID:           maxID,
+		APIID:           int(cred.APIID),
+		APIHash:         apiHash,
+		SessionFilePath: account.Session.SessionFilePath,
+		PeerID:          cache.PeerID,
+		PeerType:        telegramclient.PeerType(cache.PeerType),
+		AccessHash:      accessHash,
+	})
+	if err != nil {
+		return s.classifyError(err)
+	}
+
+	// 成功后更新本地 peer cache 的 unread_count 为 0
+	s.db.Model(&model.ChatPeerCache{}).
+		Where("peer_ref = ? AND account_id = ?", peerRef, accountID).
+		Update("unread_count", 0)
+
+	return nil
+}
+
 // GetPeerCache 从缓存获取 peer 信息，验证 account_id 匹配。
 func (s *ChatService) GetPeerCache(accountID uint, peerRef string) (*model.ChatPeerCache, error) {
 	var cache model.ChatPeerCache

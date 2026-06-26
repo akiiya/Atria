@@ -192,6 +192,7 @@ CSS 底部锚定：
 | `/chats/:peer_ref` | GET | 消息历史页面 |
 | `/api/chats/:peer_ref/messages` | GET | 获取消息历史（支持分页） |
 | `/api/chats/:peer_ref/messages` | POST | 发送消息（JSON） |
+| `/api/chats/:peer_ref/read` | POST | 标记会话已读 |
 
 ### GET /api/chats/:peer_ref/messages 参数
 
@@ -235,6 +236,37 @@ CSS 底部锚定：
 | `auth_restart` | Telegram 要求重新开始认证，请重新接入账号 |
 | `account_deactivated` | 该 Telegram 账号不可用或已被停用 |
 | `network_error` | 网络异常，请检查网络连接或代理配置 |
+
+## 标记已读（Mark Read）
+
+### POST /api/chats/:peer_ref/read
+
+标记会话消息为已读，使 Telegram 其他客户端的未读数同步消失或减少。
+
+**请求 body（可选）：**
+```json
+{
+  "max_id": 123,
+  "reason": "open_chat"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `max_id` | int | 最新已查看消息 ID，0 表示使用当前会话最新消息 |
+| `reason` | string | 触发原因：open_chat / scroll_bottom |
+
+**行为：**
+- 对 user/chat 调用 `messages.readHistory`
+- 对 channel/supergroup 调用 `channels.readHistory`
+- 成功后更新本地 `chat_peer_cache.unread_count` 为 0
+- 失败静默不影响用户体验
+
+**触发策略（前端）：**
+- 用户打开会话并消息加载完成后，debounce 1.5s 调用
+- 用户滚动到底部时，debounce 1.5s 调用
+- 只在 `unread_count > 0` 时调用
+- 切换会话时重置状态，避免误调用
 
 ## 真实聊天错误诊断
 
