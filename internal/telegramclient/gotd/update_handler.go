@@ -425,20 +425,38 @@ func (h *UpdateHandler) publishDialogUpdated(peerRef string) {
 func (h *UpdateHandler) updateDialogPreview(msg telegramclient.Message) {
 	preview := truncateText(msg.Text, 50)
 
-	// 先尝试更新
-	result := h.db.Model(&model.ChatPeerCache{}).
-		Where("account_id = ? AND peer_ref = ?", h.accountID, msg.PeerRef).
-		Updates(map[string]any{
-			"last_message_preview": preview,
-			"last_message_at":      &msg.SentAt,
-		})
-
-	if result.RowsAffected > 0 {
-		return
+	if msg.IsOutgoing {
+		// 自己发的消息：更新 preview + 清零 unread
+		result := h.db.Model(&model.ChatPeerCache{}).
+			Where("account_id = ? AND peer_ref = ?", h.accountID, msg.PeerRef).
+			Updates(map[string]any{
+				"last_message_preview": preview,
+				"last_message_at":      &msg.SentAt,
+				"unread_count":         0,
+			})
+		if result.RowsAffected > 0 {
+			return
+		}
+	} else {
+		// 收到的消息：更新 preview + unread_count +1（SQL 表达式避免竞态）
+		result := h.db.Model(&model.ChatPeerCache{}).
+			Where("account_id = ? AND peer_ref = ?", h.accountID, msg.PeerRef).
+			Updates(map[string]any{
+				"last_message_preview": preview,
+				"last_message_at":      &msg.SentAt,
+				"unread_count":         gorm.Expr("unread_count + 1"),
+			})
+		if result.RowsAffected > 0 {
+			return
+		}
 	}
 
 	// peer 不存在，创建新记录
 	peerType, peerID := decodePeerRef(msg.PeerRef)
+	unread := 0
+	if !msg.IsOutgoing {
+		unread = 1
+	}
 	cache := model.ChatPeerCache{
 		AccountID:          h.accountID,
 		PeerRef:            msg.PeerRef,
@@ -447,7 +465,7 @@ func (h *UpdateHandler) updateDialogPreview(msg telegramclient.Message) {
 		Title:              msg.SenderName,
 		LastMessagePreview: preview,
 		LastMessageAt:      &msg.SentAt,
-		UnreadCount:        1,
+		UnreadCount:        unread,
 	}
 	if err := h.db.Create(&cache).Error; err != nil {
 		h.logger.Warn("创建 ChatPeerCache 失败",
