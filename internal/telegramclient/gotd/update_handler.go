@@ -99,14 +99,14 @@ func (h *UpdateHandler) handleNewMessage(ctx context.Context, u *tg.UpdateNewMes
 	neutralMsg, event := mapUpdateNewMessage(msg, users)
 	event.AccountID = h.accountID
 
-	// 写入缓存
+	// 先发布 message.new 事件（不依赖 DB，立即推送到前端）
+	h.bus.Publish(h.accountID, event)
+
+	// DB 写入（消息缓存 + 会话预览 + unread_count）
 	h.upsertMessageCache(neutralMsg)
 	h.updateDialogPreview(neutralMsg)
 
-	// 发布 message.new 事件
-	h.bus.Publish(h.accountID, event)
-
-	// 发布 dialog.upserted 事件（让前端实时新增/更新会话）
+	// 发布 dialog.upserted 事件（携带更新后的 unread_count）
 	h.publishDialogUpdated(event.PeerRef)
 
 	h.logger.Info("新消息处理完成",
