@@ -133,6 +133,12 @@ Claude Code **不得**：
 
 ## 发布工程约束
 
+- **VERSION 文件是唯一发布版本来源**，格式必须为 SemVer（如 v0.1.0、v0.2.0-rc.1）
+- 发布流程：修改 VERSION → PR 合并到 main → GitHub Actions 自动创建 tag 并发布
+- 不需要手动 `git tag`，tag 由 release workflow 自动创建
+- 如果 VERSION 未升级且 tag 已存在，workflow 会失败
+- VERSION 含 `-rc`/`-alpha`/`-beta` 时自动标记为 prerelease
+- 本地构建：`VERSION=$(cat VERSION) bash scripts/build_release.sh`
 - 发布脚本不得删除用户数据
 - 安装脚本不得生成默认管理员
 - Release 包不得包含 data/、tmp/、secret.key、Session、日志

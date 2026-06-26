@@ -1,14 +1,14 @@
 # Atria Release 工作流
-# 触发条件：tag push (v*) 或手动触发
-# 构建多平台二进制并创建 GitHub Release
-# 支持同 tag 重复触发（alpha 阶段调试用）
+# 主流程：main push 且 VERSION 文件变更 → 读取 VERSION → 自动创建 tag → 构建 → 发布
+# 兼容：tag push v* 直接构建发布（用于手动 tag 场景）
+# 手动：workflow_dispatch
 
 name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths: [VERSION]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,47 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 读取 VERSION 并校验
+        id: version
+        run: |
+          if [ ! -f VERSION ]; then
+            echo "::error::VERSION 文件不存在"
+            exit 1
+          fi
+
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # 校验 SemVer 格式（vX.Y.Z 或 vX.Y.Z-rc/alpha/beta）
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::VERSION 格式无效: $VERSION（需要 vX.Y.Z 或 vX.Y.Z-prerelease）"
+            exit 1
+          fi
+
+          echo "VERSION: $VERSION"
+
+          # 检查 tag 是否已存在
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "::error::tag $VERSION 已存在，请升级 VERSION 文件"
+            exit 1
+          fi
+
+          # 判断是否 prerelease
+          if echo "$VERSION" | grep -qE '(-rc|-alpha|-beta)'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 自动创建 tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+          echo "已创建并推送 tag: $VERSION"
+
       - name: 安装 Go
         uses: actions/setup-go@v5
         with:
@@ -34,9 +75,9 @@ jobs:
       - name: 构建发布包
         run: bash scripts/build_release.sh
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
           COMMIT: ${{ github.sha }}
-          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp || github.sha }}
 
       - name: 检查发布产物
         run: bash scripts/check_release_artifacts.sh tmp/dist
@@ -48,22 +89,30 @@ jobs:
 
       - name: 生成 Release Notes
         run: |
-          cat > tmp/release-notes.md << 'NOTES_EOF'
-          ## Atria ${{ github.ref_name }}
+          VERSION="${{ steps.version.outputs.version }}"
+          IS_PRERELEASE="${{ steps.version.outputs.prerelease }}"
+
+          cat > tmp/release-notes.md << EOF
+          ## Atria ${VERSION}
 
           轻量级自托管 MTProto Session 管理面板。
 
+          EOF
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "⚠️ **这是一个预发布版本，不建议用于生产环境。**" >> tmp/release-notes.md
+            echo "" >> tmp/release-notes.md
+          fi
+
+          cat >> tmp/release-notes.md << 'EOF'
           ### Highlights
 
-          - 嵌入式 Web 管理界面
-          - 管理员初始化与登录
-          - 加密的 Telegram API 凭据管理
-          - MTProto 登录流程与加密 Session 存储
-          - 账号资料同步与 Session 状态检测
-          - 远端 Logout 与本地 Session 删除
+          - 嵌入式 Web 管理界面（Vue 3 SPA）
+          - 实时聊天：消息同步、发送、Mark Read、未读角标
+          - 联系人、搜索、媒体预览、群组/频道支持
+          - 10 种语言国际化
+          - 审计日志与安全加固
           - 多平台发布产物
-          - Linux 一键安装/卸载脚本
-          - Web 自更新流程（含 checksum 校验）
 
           ### 安装
 
@@ -75,38 +124,30 @@ jobs:
           **手动安装：**
           下载对应平台的压缩包，解压后运行 `./atria serve`
 
-          ### 重要说明
+          ### 生产环境注意事项
 
-          - 真实 Telegram 登录需要用户在真实环境中手动验证
-          - 这不是稳定的生产版本
-          - Atria 不支持批量登录、消息群发、刷量或绕过平台限制
-          - Atria 与 Telegram 无关（Atria is not affiliated with Telegram）
+          - 设置 `ATRIA_COOKIE_SECURE=true`
+          - 建议反向代理 + TLS
+          - 备份 `data/secret.key`
 
           ### 安全提醒
 
           - 请备份 `data/secret.key` 文件
           - 不要提交 `data/` 目录到代码仓库
           - 详见 [SECURITY.md](SECURITY.md)
-          NOTES_EOF
+          EOF
 
-      - name: 删除已有 Release（支持同 tag 重复触发）
+      - name: 创建 GitHub Release
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          echo "检查 tag $TAG 是否已有 Release..."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "发现已有 Release，删除中..."
-            gh release delete "$TAG" --yes --cleanup-tag=false
-            echo "旧 Release 已删除（tag 保留）"
-          else
-            echo "无已有 Release，直接创建"
+          VERSION="${{ steps.version.outputs.version }}"
+          IS_PRERELEASE="${{ steps.version.outputs.prerelease }}"
+
+          PRERELEASE_FLAG=""
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 创建 Release
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          gh release create "$TAG" \
+          gh release create "$VERSION" \
             tmp/dist/atria_linux_amd64.tar.gz \
             tmp/dist/atria_linux_arm64.tar.gz \
             tmp/dist/atria_windows_amd64.zip \
@@ -116,8 +157,8 @@ jobs:
             tmp/dist/checksums.txt \
             tmp/dist/install.sh \
             tmp/dist/uninstall.sh \
-            --title "$TAG" \
+            --title "$VERSION" \
             --notes-file tmp/release-notes.md \
-            --prerelease
+            $PRERELEASE_FLAG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

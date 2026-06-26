@@ -178,6 +178,29 @@ data/
 - 自更新仍为 alpha 能力，详见 [docs/12_web_self_update.md](docs/12_web_self_update.md)
 - 普通用户可继续使用 `install.sh` 手动升级
 
+## 发布流程
+
+发布版本以根目录 `VERSION` 文件为唯一来源。
+
+```bash
+# 发布步骤：
+# 1. 修改 VERSION 文件（如 v0.1.0、v0.2.0-rc.1）
+# 2. 在 dev 分支提交 VERSION 变更
+# 3. 创建 PR（dev → main）并合并
+# 4. GitHub Actions 自动完成：
+#    - 读取 VERSION
+#    - 校验格式
+#    - 检查 tag 是否已存在
+#    - 自动创建 tag
+#    - 构建多平台产物
+#    - 创建 GitHub Release
+
+# 本地构建：
+VERSION=$(cat VERSION) bash scripts/build_release.sh
+```
+
+**Prerelease 判断：** VERSION 包含 `-rc`、`-alpha`、`-beta` 时自动标记为 prerelease。
+
 ## 技术栈
 
 - **Go** + **Gin** Web 框架
@@ -191,6 +214,7 @@ data/
 
 ```
 atria/
+├── VERSION                 # 发布版本号（唯一版本来源）
 ├── cmd/atria/              # 应用入口
 ├── frontend/               # Vue 3 SPA 前端
 │   └── src/
