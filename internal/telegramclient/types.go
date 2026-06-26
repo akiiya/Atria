@@ -218,6 +218,19 @@ type ContactsResult struct {
 	Contacts []Contact  `json:"contacts"`
 }
 
+// MarkReadRequest 是标记会话已读的请求。
+type MarkReadRequest struct {
+	AccountID       uint
+	PeerRef         string
+	MaxID           int // 最新已查看消息 ID，0 表示使用当前会话最新消息
+	APIID           int
+	APIHash         string
+	SessionFilePath string
+	PeerID          int64
+	PeerType        PeerType
+	AccessHash      int64
+}
+
 // DownloadMediaRequest 是下载媒体的请求。
 type DownloadMediaRequest struct {
 	AccountID       uint

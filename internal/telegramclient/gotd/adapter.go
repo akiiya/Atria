@@ -612,6 +612,106 @@ func mapMTProtoError(mtprotoErr *mtproto.MTProtoError) *telegramclient.Error {
 	}
 }
 
+// MarkRead 标记会话消息为已读。
+// 对 user/chat 调用 messages.readHistory，对 channel/supergroup 调用 channels.readHistory。
+func (a *Adapter) MarkRead(ctx context.Context, req telegramclient.MarkReadRequest) error {
+	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
+	if inputPeer == nil {
+		return telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
+	}
+
+	// channel/supergroup 需要 channels.readHistory
+	if req.PeerType == telegramclient.PeerTypeChannel || req.PeerType == telegramclient.PeerTypeSupergroup {
+		return a.markReadChannel(ctx, req, inputPeer)
+	}
+
+	// user/chat 使用 messages.readHistory
+	return a.markReadMessages(ctx, req, inputPeer)
+}
+
+func (a *Adapter) markReadMessages(ctx context.Context, req telegramclient.MarkReadRequest, inputPeer tg.InputPeerClass) error {
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+			_, err := api.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{
+				Peer:  inputPeer,
+				MaxID: req.MaxID,
+			})
+			return err
+		})
+		if err != nil {
+			return classifyError(err)
+		}
+		return nil
+	}
+
+	// Fallback
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
+	if a.dialFunc != nil {
+		client.SetDialer(a.dialFunc)
+	}
+
+	err := client.RunWithSession(ctx, req.APIID, req.APIHash, req.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
+		_, err := api.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{
+			Peer:  inputPeer,
+			MaxID: req.MaxID,
+		})
+		return err
+	})
+	if err != nil {
+		return classifyError(err)
+	}
+	return nil
+}
+
+func (a *Adapter) markReadChannel(ctx context.Context, req telegramclient.MarkReadRequest, inputPeer tg.InputPeerClass) error {
+	chPeer, ok := inputPeer.(*tg.InputPeerChannel)
+	if !ok {
+		return telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "频道类型不匹配")
+	}
+	inputChannel := &tg.InputChannel{
+		ChannelID:  chPeer.ChannelID,
+		AccessHash: chPeer.AccessHash,
+	}
+
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+			_, err := api.ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{
+				Channel: inputChannel,
+				MaxID:   req.MaxID,
+			})
+			return err
+		})
+		if err != nil {
+			return classifyError(err)
+		}
+		return nil
+	}
+
+	// Fallback
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
+	if a.dialFunc != nil {
+		client.SetDialer(a.dialFunc)
+	}
+
+	err := client.RunWithSession(ctx, req.APIID, req.APIHash, req.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
+		_, err := api.ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{
+			Channel: inputChannel,
+			MaxID:   req.MaxID,
+		})
+		return err
+	})
+	if err != nil {
+		return classifyError(err)
+	}
+	return nil
+}
+
 // 确保 Adapter 实现 ClientAdapter。
 var _ telegramclient.ClientAdapter = (*Adapter)(nil)
 

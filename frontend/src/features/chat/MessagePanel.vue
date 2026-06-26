@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { fetchMessages } from '@/api/chat'
+import { fetchMessages, markRead } from '@/api/chat'
 import { sortMessagesAsc } from '@/realtime/handler'
 import { useChatStore } from '@/stores/chat'
 import { useI18n } from '@/i18n'
@@ -205,6 +205,80 @@ async function loadOlder() {
 function handleSent() {
   queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
 }
+
+// ── Mark Read 逻辑 ──
+// 保守触发：只在用户看到最新消息时标记已读
+let markReadTimer: ReturnType<typeof setTimeout> | null = null
+let lastMarkReadPeer = ''
+let markReadInFlight = false
+
+function getNewestMessageId(): number {
+  const msgs = allMessages.value
+  if (msgs.length === 0) return 0
+  return msgs[msgs.length - 1].telegram_message_id || msgs[msgs.length - 1].id || 0
+}
+
+function getDialogUnreadCount(): number {
+  const dialogsData = queryClient.getQueryData(['dialogs', props.accountId]) as { ok?: boolean; dialogs?: Dialog[] } | undefined
+  if (!dialogsData?.ok || !dialogsData.dialogs) return 0
+  const dialog = dialogsData.dialogs.find(d => d.peer_ref === props.peerRef)
+  return dialog?.unread_count || 0
+}
+
+function patchDialogUnreadCount() {
+  queryClient.setQueryData(['dialogs', props.accountId], (old: unknown) => {
+    const data = old as { ok?: boolean; dialogs?: Dialog[] } | undefined
+    if (!data?.ok || !data.dialogs) return data
+    return {
+      ...data,
+      dialogs: data.dialogs.map(d =>
+        d.peer_ref === props.peerRef ? { ...d, unread_count: 0 } : d
+      ),
+    }
+  })
+}
+
+function doMarkRead(reason: string) {
+  if (markReadInFlight) return
+  if (getDialogUnreadCount() <= 0) return
+  if (lastMarkReadPeer === props.peerRef && reason === 'debounce') return
+
+  markReadInFlight = true
+  const maxId = getNewestMessageId()
+  markRead(props.peerRef, maxId, reason)
+    .then(result => {
+      if (result.ok) {
+        patchDialogUnreadCount()
+        lastMarkReadPeer = props.peerRef
+      }
+    })
+    .catch(() => { /* 静默失败，不影响用户体验 */ })
+    .finally(() => { markReadInFlight = false })
+}
+
+function debouncedMarkRead(reason: string) {
+  if (markReadTimer) clearTimeout(markReadTimer)
+  markReadTimer = setTimeout(() => doMarkRead(reason), 1500)
+}
+
+// 消息加载完成后，如果用户在底部（latest window），标记已读
+watch(() => data.value, (newData) => {
+  if (newData?.ok && newData.messages && newData.messages.length > 0) {
+    // 初次打开或刷新，用户在最新消息位置
+    debouncedMarkRead('open_chat')
+  }
+}, { once: true })
+
+// peer 切换时重置
+watch(() => props.peerRef, () => {
+  lastMarkReadPeer = ''
+  if (markReadTimer) clearTimeout(markReadTimer)
+})
+
+// 暴露给 MessageList 的 scroll-to-bottom 回调
+function handleScrolledToBottom() {
+  debouncedMarkRead('scroll_bottom')
+}
 </script>
 
 <template>
@@ -246,6 +320,7 @@ function handleSent() {
         :peer-type="peerType"
         :peer-ref="peerRef"
         @load-older="loadOlder"
+        @scroll-to-bottom="handleScrolledToBottom"
       />
     </div>
 

@@ -20,3 +20,10 @@ export function sendMessage(peerRef: string, text: string, localId?: string): Pr
     localId ? { text, local_id: localId, client_pending_id: localId } : { text }
   )
 }
+
+export function markRead(peerRef: string, maxId?: number, reason?: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(
+    `/api/chats/${encodeURIComponent(peerRef)}/read`,
+    { max_id: maxId || 0, reason: reason || 'open_chat' }
+  )
+}

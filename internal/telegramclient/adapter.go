@@ -28,6 +28,9 @@ type ClientAdapter interface {
 
 	// DownloadMedia 下载消息媒体文件。
 	DownloadMedia(ctx context.Context, req DownloadMediaRequest) (DownloadMediaResult, error)
+
+	// MarkRead 标记会话消息为已读。
+	MarkRead(ctx context.Context, req MarkReadRequest) error
 }
 
 // AdapterConfig 是适配器的通用配置。

@@ -100,5 +100,10 @@ func (f *FakeAdapter) DownloadMedia(ctx context.Context, req telegramclient.Down
 	return telegramclient.DownloadMediaResult{Success: true}, nil
 }
 
+// MarkRead 模拟标记已读。
+func (f *FakeAdapter) MarkRead(ctx context.Context, req telegramclient.MarkReadRequest) error {
+	return nil
+}
+
 // 确保 FakeAdapter 实现 ClientAdapter。
 var _ telegramclient.ClientAdapter = (*FakeAdapter)(nil)
