@@ -202,27 +202,16 @@ async function loadOlder() {
   }
 }
 
-function handleSent() {
-  queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
-}
-
 // ── Mark Read 逻辑 ──
-// 保守触发：只在用户看到最新消息时标记已读
+// 打开会话或滚动到底部时，调用 Telegram readHistory 标记已读
+// Telegram API 幂等，重复调用无副作用
 let markReadTimer: ReturnType<typeof setTimeout> | null = null
-let lastMarkReadPeer = ''
 let markReadInFlight = false
 
 function getNewestMessageId(): number {
   const msgs = allMessages.value
   if (msgs.length === 0) return 0
   return msgs[msgs.length - 1].telegram_message_id || msgs[msgs.length - 1].id || 0
-}
-
-function getDialogUnreadCount(): number {
-  const dialogsData = queryClient.getQueryData(['dialogs', props.accountId]) as { ok?: boolean; dialogs?: Dialog[] } | undefined
-  if (!dialogsData?.ok || !dialogsData.dialogs) return 0
-  const dialog = dialogsData.dialogs.find(d => d.peer_ref === props.peerRef)
-  return dialog?.unread_count || 0
 }
 
 function patchDialogUnreadCount() {
@@ -240,8 +229,6 @@ function patchDialogUnreadCount() {
 
 function doMarkRead(reason: string) {
   if (markReadInFlight) return
-  if (getDialogUnreadCount() <= 0) return
-  if (lastMarkReadPeer === props.peerRef && reason === 'debounce') return
 
   markReadInFlight = true
   const maxId = getNewestMessageId()
@@ -249,7 +236,6 @@ function doMarkRead(reason: string) {
     .then(result => {
       if (result.ok) {
         patchDialogUnreadCount()
-        lastMarkReadPeer = props.peerRef
       }
     })
     .catch(() => { /* 静默失败，不影响用户体验 */ })
@@ -258,26 +244,31 @@ function doMarkRead(reason: string) {
 
 function debouncedMarkRead(reason: string) {
   if (markReadTimer) clearTimeout(markReadTimer)
-  markReadTimer = setTimeout(() => doMarkRead(reason), 1500)
+  markReadTimer = setTimeout(() => doMarkRead(reason), 1000)
 }
 
-// 消息加载完成后，如果用户在底部（latest window），标记已读
+// peer 切换时重置 markRead 状态
+watch(() => props.peerRef, () => {
+  if (markReadTimer) clearTimeout(markReadTimer)
+  markReadInFlight = false
+}, { immediate: false })
+
+// 消息加载完成后，标记已读（用户在 latest window）
 watch(() => data.value, (newData) => {
   if (newData?.ok && newData.messages && newData.messages.length > 0) {
-    // 初次打开或刷新，用户在最新消息位置
     debouncedMarkRead('open_chat')
   }
 }, { once: true })
 
-// peer 切换时重置
-watch(() => props.peerRef, () => {
-  lastMarkReadPeer = ''
-  if (markReadTimer) clearTimeout(markReadTimer)
-})
-
 // 暴露给 MessageList 的 scroll-to-bottom 回调
 function handleScrolledToBottom() {
   debouncedMarkRead('scroll_bottom')
+}
+
+// 暴露给 MessageComposer 的 sent 回调（发送消息后用户一定在底部）
+function handleSent() {
+  queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
+  debouncedMarkRead('send_message')
 }
 </script>
 
