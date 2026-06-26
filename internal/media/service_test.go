@@ -2,6 +2,7 @@ package media
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,8 +20,8 @@ func TestSanitizeLocalPath(t *testing.T) {
 		{"", ""},
 		// Windows 路径
 		{"media\\1\\u_123\\photo.jpg", filepath.FromSlash("media/1/u_123/photo.jpg")},
-		// 空字节注入
-		{"media/1/photo\x00.jpg", filepath.FromSlash("media/1/photo\x00.jpg")},
+		// 空字节注入（应被移除）
+		{"media/1/photo\x00.jpg", filepath.FromSlash("media/1/photo.jpg")},
 	}
 	for _, tt := range tests {
 		got := sanitizeLocalPath(tt.input)
@@ -102,8 +103,12 @@ func TestIsPathInsideDir(t *testing.T) {
 }
 
 // ── isPathInsideDir Windows 兼容 ──
+// 仅在 Windows 上运行：Linux 的 filepath 不识别 drive letter，会将 C:\data 视为相对路径。
 
 func TestIsPathInsideDir_WindowsPaths(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("跳过：Windows 路径测试仅在 Windows 上运行")
+	}
 	tests := []struct {
 		base, target string
 		want         bool
