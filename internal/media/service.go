@@ -89,12 +89,17 @@ func isPathInsideDir(baseDir, targetPath string) bool {
 }
 
 // sanitizeLocalPath 防止路径穿越。
+// 将反斜杠统一为正斜杠后再清理，兼容 Windows 风格输入。
 func sanitizeLocalPath(path string) string {
 	if path == "" {
 		return ""
 	}
+	// 统一路径分隔符（兼容 Windows 风格输入）
+	path = strings.ReplaceAll(path, "\\", "/")
 	// 移除前导 /
 	path = strings.TrimLeft(path, "/")
+	// 移除空字节
+	path = strings.ReplaceAll(path, "\x00", "")
 	// 清理路径组件
 	cleaned := filepath.Clean(path)
 	// 检查是否包含 ..
@@ -105,15 +110,17 @@ func sanitizeLocalPath(path string) string {
 }
 
 // sanitizeFileName 清理文件名用于落盘。
+// 先统一路径分隔符再取 basename，兼容 Windows 风格输入。
 func sanitizeFileName(name string) string {
 	if name == "" {
 		return "unnamed"
 	}
+	// 统一路径分隔符（兼容 Windows 风格输入）
+	name = strings.ReplaceAll(name, "\\", "/")
 	// 只保留 basename
 	name = filepath.Base(name)
-	// 移除路径分隔符
+	// 移除残留的路径分隔符
 	name = strings.ReplaceAll(name, "/", "_")
-	name = strings.ReplaceAll(name, "\\", "_")
 	// 移除空字节
 	name = strings.ReplaceAll(name, "\x00", "")
 	if name == "" || name == "." || name == ".." {
