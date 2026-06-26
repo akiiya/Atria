@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useI18n } from '@/i18n'
 import type { Dialog } from '@/types/chat'
@@ -30,7 +30,12 @@ const virtualizer = useVirtualizer({
   count: filtered.value.length,
   getScrollElement: () => scrollParent.value,
   estimateSize: () => 72,
-  overscan: 5,
+  overscan: 10,
+})
+
+// 当 dialogs 数据变化时，通知 virtualizer 重新计算
+watch(() => filtered.value.length, () => {
+  virtualizer.value.measure()
 })
 </script>
 
