@@ -171,7 +171,8 @@ function handleMessageNew(
         ...dialogs[idx],
         last_message_preview: safeTruncateText(msg.text, 50),
         last_message_at: msg.sent_at,
-        unread_count: currentPeerRef === peerRef ? 0 : (dialogs[idx].unread_count || 0) + 1,
+        // 非当前 peer：未读数 +1；当前 peer：不修改（由 markRead 和 dialog list 刷新同步）
+        unread_count: currentPeerRef === peerRef ? dialogs[idx].unread_count : (dialogs[idx].unread_count || 0) + 1,
       }
       // 排序：移动到 pinned 之后的顶部
       if (idx > 0 && !dialogs[idx].is_pinned) {
@@ -193,7 +194,7 @@ function handleMessageNew(
       title: msg.sender_name || peerRef,
       last_message_preview: safeTruncateText(msg.text, 50),
       last_message_at: msg.sent_at,
-      unread_count: currentPeerRef === peerRef ? 0 : 1,
+      unread_count: 1,
     }
     // 插入到 pinned 之后的顶部
     let insertIdx = 0
