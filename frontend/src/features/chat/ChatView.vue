@@ -39,11 +39,11 @@ function clearSlowTimer() {
 
 const { data: dialogsData, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['dialogs', account.currentAccountId]),
-  queryFn: () => { startSlowTimer(); return fetchDialogs(30, true) },
+  queryFn: () => { startSlowTimer(); return fetchDialogs(50) },
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
-  staleTime: 15_000,
-  refetchInterval: 30_000,
+  staleTime: 10_000,
+  refetchInterval: 20_000,
   refetchOnWindowFocus: true,
 })
 
@@ -117,6 +117,7 @@ watch(runtimeState, (state) => {
 
 // Use computed to reactively derive dialogs from query data
 // 防御性去重：按 peer_ref 去重，保留最新条目（防止后端返回重复）
+// unread_count 合并：取本地和 Telegram 的较大值（防止 Telegram 数据覆盖 WebSocket 实时更新）
 const dialogs = computed(() => {
   const raw = dialogsData.value?.dialogs || []
   const seen = new Map<string, typeof raw[0]>()
@@ -126,11 +127,14 @@ const dialogs = computed(() => {
     if (!existing) {
       seen.set(d.peer_ref, d)
     } else {
-      // 保留 last_message_at 更新的条目
+      // 保留 last_message_at 更新的条目，但 unread_count 取较大值
       const existingTime = existing.last_message_at || ''
       const newTime = d.last_message_at || ''
       if (newTime > existingTime) {
-        seen.set(d.peer_ref, d)
+        seen.set(d.peer_ref, { ...d, unread_count: Math.max(d.unread_count || 0, existing.unread_count || 0) })
+      } else {
+        // 保留 existing，但更新 unread_count 为较大值
+        seen.set(d.peer_ref, { ...existing, unread_count: Math.max(existing.unread_count || 0, d.unread_count || 0) })
       }
     }
   }
