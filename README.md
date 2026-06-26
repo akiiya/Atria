@@ -6,7 +6,7 @@
 
 **Atria** 是一个轻量、自托管的 MTProto 多账号 Session 管理面板。它通过安全的内嵌 Web 界面，管理多个 Telegram 兼容的 MTProto 用户 Session、API 凭据配置、账号元信息和审计日志。
 
-> **当前版本：v0.1.0-alpha** — 首个 alpha 版本，真实 Telegram 登录需要用户在真实环境中手动验证。
+> **当前版本：v0.1.0-rc.1** — Release Candidate，已完成人工验收，支持聊天、联系人、搜索、媒体、群组/频道、国际化、审计、维护等核心功能。
 
 > **Atria 与 Telegram 无关（Atria is not affiliated with Telegram）。**
 >
