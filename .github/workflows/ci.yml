@@ -1,17 +1,18 @@
 # Atria CI 工作流
-# 触发条件：push 和 pull_request
+# 触发条件：dev push、PR 到 main
+# 只做验证，不创建 tag，不发布 Release
 # 不访问真实 Telegram 网络，不需要真实 API 凭据
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
     branches: [main]
 
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -21,6 +22,19 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+
+      - name: 检查 VERSION 格式
+        run: |
+          if [ -f VERSION ]; then
+            VERSION=$(cat VERSION | tr -d '[:space:]')
+            echo "VERSION: $VERSION"
+            if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+              echo "::error::VERSION 格式无效: $VERSION（需要 vX.Y.Z 或 vX.Y.Z-prerelease）"
+              exit 1
+            fi
+          else
+            echo "::warning::VERSION 文件不存在（发布时需要）"
+          fi
 
       - name: 检查 go mod tidy
         run: |
@@ -65,7 +79,6 @@ jobs:
       - name: install.sh Try-Run
         run: |
           mkdir -p tmp/mock-release tmp/install-root
-          # 复制 release 产物到 mock-release 目录（不解压，install.sh 会自行解压）
           cp tmp/dist/atria_linux_amd64.tar.gz tmp/mock-release/
           cp tmp/dist/checksums.txt tmp/mock-release/
           ATRIA_INSTALL_ROOT="$(pwd)/tmp/install-root" \
@@ -74,7 +87,6 @@ jobs:
           ATRIA_SKIP_USER_CREATE=1 \
           ATRIA_VERSION="v0.1.0-alpha-test" \
           bash scripts/install.sh
-          # 验证安装结果
           if [ -f tmp/install-root/usr/local/bin/atria ]; then
             echo "install.sh Try-Run 通过"
           else

@@ -1,7 +1,7 @@
 # Atria Release 工作流
-# 主流程：main push 且 VERSION 文件变更 → 读取 VERSION → 自动创建 tag → 构建 → 发布
-# 兼容：tag push v* 直接构建发布（用于手动 tag 场景）
-# 手动：workflow_dispatch
+# 只在 main push 且 VERSION 文件变更时触发
+# 读取根目录 VERSION → 校验 → 自动创建 tag → 构建 → 创建 GitHub Release
+# workflow_dispatch 可手动触发（也必须读取 VERSION）
 
 name: Release
 

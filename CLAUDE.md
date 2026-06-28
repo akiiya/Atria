@@ -134,8 +134,9 @@ Claude Code **不得**：
 ## 发布工程约束
 
 - **VERSION 文件是唯一发布版本来源**，格式必须为 SemVer（如 v0.1.0、v0.2.0-rc.1）
-- 发布流程：修改 VERSION → PR 合并到 main → GitHub Actions 自动创建 tag 并发布
-- 不需要手动 `git tag`，tag 由 release workflow 自动创建
+- **分支语义：** dev = 验证（测试/构建/VERSION 格式检查，不发布）；main = 发布（自动 tag + 构建 + Release）
+- 发布流程：修改 VERSION → PR dev→main → 合并 → GitHub Actions 自动创建 tag 并发布
+- 不需要手动 `git tag`，不需要手动创建 GitHub Release
 - 如果 VERSION 未升级且 tag 已存在，workflow 会失败
 - VERSION 含 `-rc`/`-alpha`/`-beta` 时自动标记为 prerelease
 - 本地构建：`VERSION=$(cat VERSION) bash scripts/build_release.sh`
