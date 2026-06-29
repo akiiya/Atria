@@ -133,13 +133,12 @@ Claude Code **不得**：
 
 ## 发布工程约束
 
-- **VERSION 文件是唯一发布版本来源**，格式必须为 SemVer（如 v0.1.0、v0.2.0-rc.1）
-- **分支语义：** dev = 验证（测试/构建/VERSION 格式检查，不发布）；main = 发布（自动 tag + 构建 + Release）
-- 发布流程：修改 VERSION → PR dev→main → 合并 → GitHub Actions 自动创建 tag 并发布
-- 不需要手动 `git tag`，不需要手动创建 GitHub Release
-- 如果 VERSION 未升级且 tag 已存在，workflow 会失败
-- VERSION 含 `-rc`/`-alpha`/`-beta` 时自动标记为 prerelease
-- 本地构建：`VERSION=$(cat VERSION) bash scripts/build_release.sh`
+- **Git tag 是唯一版本来源**，不使用 VERSION 文件
+- 正式版本号 = tag 去掉 `v` 前缀，通过 ldflags 注入
+- 日常/CI 构建版本号由 `git describe` 派生
+- 发版动作 = 打新 `v*` tag（命令行或 GitHub 网页），由 Actions 自动完成
+- 分支模型：main 受保护（必须 PR、禁止 force push），dev 开发
+- 本地构建：`make build` 或 `bash scripts/build.sh`
 - 发布脚本不得删除用户数据
 - 安装脚本不得生成默认管理员
 - Release 包不得包含 data/、tmp/、secret.key、Session、日志
@@ -148,8 +147,8 @@ Claude Code **不得**：
 - 所有测试临时文件优先放在根目录 tmp/
 - install.sh 不得覆盖已有 secret.key
 - install.sh Try-Run 不得写入真实系统路径
-- Release 产物必须通过 check_release_artifacts.sh 检查
-- full_check 和 artifact check 是发布前必须步骤
+- Release 产物通过 `scripts/release.sh` 自动检查（SHA256SUMS）
+- `make release` 是发布前必须步骤
 - CI 必须在 Ubuntu 上执行 install.sh Try-Run
 - 只有真实 GitHub token / 真实 Telegram 凭据 / root systemd 权限才允许请求人工
 
