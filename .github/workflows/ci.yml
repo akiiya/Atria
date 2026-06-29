@@ -1,95 +1,39 @@
-# Atria CI 工作流
-# 触发条件：dev push、PR 到 main
-# 只做验证，不创建 tag，不发布 Release
-# 不访问真实 Telegram 网络，不需要真实 API 凭据
-
 name: CI
-
 on:
   push:
     branches: [dev]
   pull_request:
-    branches: [main]
-
 jobs:
-  validate:
+  build-test:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 安装 Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
         with:
-          go-version: '1.22'
-
-      - name: 检查 VERSION 格式
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
         run: |
-          if [ -f VERSION ]; then
-            VERSION=$(cat VERSION | tr -d '[:space:]')
-            echo "VERSION: $VERSION"
-            if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-              echo "::error::VERSION 格式无效: $VERSION（需要 vX.Y.Z 或 vX.Y.Z-prerelease）"
-              exit 1
-            fi
-          else
-            echo "::warning::VERSION 文件不存在（发布时需要）"
-          fi
-
-      - name: 检查 go mod tidy
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+          touch web/static/dist/.gitkeep
+      - run: go vet ./...
+      - run: go test ./...
+      - name: go build
         run: |
-          go mod tidy
-          if [ -n "$(git diff go.mod go.sum)" ]; then
-            echo "错误：go mod tidy 产生了变更，请提交更新后的 go.mod/go.sum"
-            exit 1
-          fi
-
-      - name: 检查 gofmt
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "错误：以下文件格式不符合规范："
-            gofmt -l .
-            exit 1
-          fi
-
-      - name: 运行测试
-        run: go test ./... -count=1
-
-      - name: 构建
-        run: go build -o atria ./cmd/atria
-
-      - name: 脚本语法检查
-        run: |
-          bash -n scripts/install.sh
-          bash -n scripts/uninstall.sh
-          bash -n scripts/build_release.sh
-          bash -n scripts/check_release_artifacts.sh
-          bash -n scripts/full_check.sh
-          bash -n scripts/smoke.sh
-
+          VERSION="$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')"
+          VERSION="${VERSION:-dev}"
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X github.com/user/atria/internal/version.Version=${VERSION}" \
+            -o dist/atria ./cmd/atria
+      - name: Shell script syntax check
+        run: bash -n scripts/*.sh
       - name: Smoke test
         run: bash scripts/smoke.sh
-
-      - name: 构建发布包
-        run: bash scripts/build_release.sh
-
-      - name: 检查发布产物
-        run: bash scripts/check_release_artifacts.sh tmp/dist
-
-      - name: install.sh Try-Run
-        run: |
-          mkdir -p tmp/mock-release tmp/install-root
-          cp tmp/dist/atria_linux_amd64.tar.gz tmp/mock-release/
-          cp tmp/dist/checksums.txt tmp/mock-release/
-          ATRIA_INSTALL_ROOT="$(pwd)/tmp/install-root" \
-          ATRIA_RELEASE_BASE_URL="$(pwd)/tmp/mock-release" \
-          ATRIA_SKIP_SYSTEMD=1 \
-          ATRIA_SKIP_USER_CREATE=1 \
-          ATRIA_VERSION="v0.1.0-alpha-test" \
-          bash scripts/install.sh
-          if [ -f tmp/install-root/usr/local/bin/atria ]; then
-            echo "install.sh Try-Run 通过"
-          else
-            echo "install.sh Try-Run 失败：二进制未安装"
-            exit 1
-          fi

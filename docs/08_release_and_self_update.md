@@ -41,10 +41,8 @@ Atria 托管在 GitHub，通过 GitHub Actions 自动构建和发布。
 
 ```bash
 CGO_ENABLED=0 go build \
-  -ldflags "-s -w \
-    -X github.com/user/atria/internal/version.Version=${TAG} \
-    -X github.com/user/atria/internal/version.Commit=${GITHUB_SHA} \
-    -X github.com/user/atria/internal/version.BuildDate=${BUILD_DATE}" \
+  -trimpath -ldflags "-s -w \
+    -X github.com/user/atria/internal/version.Version=${VERSION}" \
   -o atria-${OS}-${ARCH}${EXT} \
   ./cmd/atria
 ```

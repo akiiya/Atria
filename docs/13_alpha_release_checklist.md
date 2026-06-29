@@ -29,8 +29,8 @@
 | go build ./... | ✅ 成功 |
 | go run ./cmd/atria version | ✅ 输出 0.1.0-dev |
 | bash scripts/smoke.sh | ✅ 通过 |
-| bash scripts/build_release.sh | ✅ 6 平台构建成功 |
-| bash scripts/check_release_artifacts.sh | ✅ 26 项检查通过 |
+| bash scripts/release.sh | ✅ 5 平台构建成功 |
+| SHA256SUMS 自动生成 | ✅ 校验和已生成 |
 | bash scripts/full_check.sh | ✅ 8 通过，1 跳过 |
 | bash -n scripts/*.sh | ✅ 语法正确 |
 | go run ./cmd/atria serve | ✅ 正常启动 |

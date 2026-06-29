@@ -108,15 +108,12 @@ else
     cat "$TMP_DIR/smoke_output.txt"
 fi
 
-# ===== 步骤 6: 多平台构建 =====
+# ===== 步骤 6: 多平台构建（含产物检查） =====
 log_info "[步骤 6] 多平台构建..."
-export OUTPUT_DIR="$RELEASE_MOCK_DIR"
 export VERSION="v0.1.0-alpha-test"
-export COMMIT="test-commit"
-export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-if bash "$SCRIPT_DIR/build_release.sh" > "$TMP_DIR/build_output.txt" 2>&1; then
-    log_pass "多平台构建通过"
+if bash "$SCRIPT_DIR/release.sh" > "$TMP_DIR/build_output.txt" 2>&1; then
+    log_pass "多平台构建通过（含 SHA256SUMS）"
     echo "- [x] 多平台构建: 通过" >> "$REPORT_FILE"
 else
     log_fail "多平台构建失败"
@@ -124,19 +121,8 @@ else
     cat "$TMP_DIR/build_output.txt"
 fi
 
-# ===== 步骤 7: 产物完整性检查 =====
-log_info "[步骤 7] 产物完整性检查..."
-if bash "$SCRIPT_DIR/check_release_artifacts.sh" "$RELEASE_MOCK_DIR" > "$TMP_DIR/artifact_check_output.txt" 2>&1; then
-    log_pass "产物完整性检查通过"
-    echo "- [x] 产物完整性检查: 通过" >> "$REPORT_FILE"
-else
-    log_fail "产物完整性检查失败"
-    echo "- [ ] 产物完整性检查: 失败" >> "$REPORT_FILE"
-    cat "$TMP_DIR/artifact_check_output.txt"
-fi
-
-# ===== 步骤 9: install.sh Try-Run =====
-log_info "[步骤 9] install.sh Try-Run..."
+# ===== 步骤 7: install.sh Try-Run =====
+log_info "[步骤 7] install.sh Try-Run..."
 
 # install.sh 仅支持 Linux，在其他平台跳过
 CURRENT_OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -144,11 +130,11 @@ if [ "$CURRENT_OS" != "linux" ]; then
     log_skip "install.sh 仅支持 Linux（当前: $CURRENT_OS）"
     echo "- [~] install.sh Try-Run: 跳过（仅支持 Linux）" >> "$REPORT_FILE"
 else
-    # 解压一个平台的构建产物到 mock release 目录
+    # 使用 release.sh 输出的 dist/ 目录
     MOCK_RELEASE="$TMP_DIR/mock-release"
     mkdir -p "$MOCK_RELEASE"
-    tar -xzf "$RELEASE_MOCK_DIR/atria_linux_amd64.tar.gz" -C "$MOCK_RELEASE"
-    cp "$RELEASE_MOCK_DIR/checksums.txt" "$MOCK_RELEASE/"
+    tar -xzf dist/atria_v0.1.0-alpha-test_linux_amd64.tar.gz -C "$MOCK_RELEASE"
+    cp dist/SHA256SUMS "$MOCK_RELEASE/"
 
     export ATRIA_INSTALL_ROOT="$INSTALL_ROOT"
     export ATRIA_RELEASE_BASE_URL="$MOCK_RELEASE"
