@@ -184,7 +184,7 @@ bash scripts/full_check.sh
 - go build 构建
 - smoke test
 - 多平台构建
-- 产物完整性检查（check_release_artifacts.sh）
+- 产物完整性检查（release.sh 自动执行）
 - checksum 校验
 - install.sh Try-Run（仅 Linux）
 - uninstall.sh Try-Run
@@ -193,13 +193,11 @@ bash scripts/full_check.sh
 
 ### 产物完整性检查
 
-```bash
-bash scripts/check_release_artifacts.sh tmp/dist
-```
+`scripts/release.sh` 构建完成后自动生成 SHA256SUMS，包含 5 个平台产物的校验和。
 
 检查内容：
-- 6 个平台产物存在
-- checksums.txt 校验通过
+- 5 个平台产物存在（linux/amd64, linux/arm64, windows/amd64, darwin/amd64, darwin/arm64）
+- SHA256SUMS 校验通过
 - 每个包包含 atria、README.md、LICENSE
 - 每个包不包含 data/、tmp/、secret.key、sessions/、日志
 

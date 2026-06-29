@@ -260,14 +260,13 @@
 **范围：**
 - GitHub Actions CI 工作流（ci.yml）
 - GitHub Actions Release 工作流（release.yml）
-- 多平台构建脚本（scripts/build_release.sh）
+- 多平台构建脚本（scripts/release.sh）
 - 版本注入（ldflags）
 - checksum 文件生成
 - Linux 一键安装脚本（scripts/install.sh）
 - Linux 卸载脚本（scripts/uninstall.sh）
 - install.sh Try-Run 支持
 - 全流程自动化测试（scripts/full_check.sh）
-- 产物完整性检查（scripts/check_release_artifacts.sh）
 - 发布与安装文档（docs/11_release_and_installation.md）
 - README 更新
 
