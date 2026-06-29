@@ -46,6 +46,7 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.tag }}
           generate_release_notes: true
+          append_body: true
           fail_on_unmatched_files: true
           files: |
             dist/atria_*.tar.gz
