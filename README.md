@@ -180,29 +180,27 @@ data/
 
 ## 发布流程
 
-版本号以 **Git tag 为唯一来源**，不使用 VERSION 文件。
+发布版本以根目录 `VERSION` 文件为唯一来源。
 
 **分支语义：**
-- `dev` — 验证流程（CI 自动检查），不发布
-- `main` — 受保护，必须 PR 合并，禁止 force push
+- `dev` — 验证流程（测试、构建、VERSION 格式检查），不发布
+- `main` — 发布流程（读取 VERSION → 自动创建 tag → 构建 → GitHub Release）
 
 **发布步骤：**
-1. 在 dev 开发，遵循 Conventional Commits
+1. 在 dev 分支修改 VERSION 文件（如 `v0.1.0`、`v0.2.0-rc.1`）
 2. 创建 PR（dev → main），CI 验证通过后合并
-3. 发版时打新 tag：
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-   或在 GitHub 网页 Draft a new release 时创建 tag
-4. Release workflow 自动：测试 → 多平台打包 → 发布 Release
+3. main push 触发 release workflow：
+   - 读取 VERSION → 校验 SemVer → 检查 tag 是否已存在
+   - tag 不存在则自动创建 → 构建多平台产物 → 创建 GitHub Release
+   - VERSION 含 `-rc`/`-alpha`/`-beta` 时标记为 prerelease
+4. 如果 VERSION 未升级且 tag 已存在，workflow 失败
 
 **本地构建：**
 ```bash
-make build            # 单二进制
-make release          # 多平台打包 + SHA256SUMS
-bash scripts/build.sh # 等效 make build
+VERSION=$(cat VERSION) bash scripts/build_release.sh
 ```
+
+不再需要手动 `git tag` 或手动创建 GitHub Release。
 
 ## 技术栈
 
@@ -217,6 +215,7 @@ bash scripts/build.sh # 等效 make build
 
 ```
 atria/
+├── VERSION                 # 发布版本号（唯一版本来源）
 ├── cmd/atria/              # 应用入口
 ├── frontend/               # Vue 3 SPA 前端
 │   └── src/
