@@ -1,164 +1,55 @@
-# Atria Release 工作流
-# 只在 main push 且 VERSION 文件变更时触发
-# 读取根目录 VERSION → 校验 → 自动创建 tag → 构建 → 创建 GitHub Release
-# workflow_dispatch 可手动触发（也必须读取 VERSION）
-
 name: Release
-
 on:
   push:
-    branches: [main]
-    paths: [VERSION]
+    tags: ["v*"]
   workflow_dispatch:
-
+    inputs:
+      tag:
+        description: "要重新构建发布的 tag（如 v0.1.0）"
+        required: true
 permissions:
   contents: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: 读取 VERSION 并校验
-        id: version
-        run: |
-          if [ ! -f VERSION ]; then
-            echo "::error::VERSION 文件不存在"
-            exit 1
-          fi
-
-          VERSION=$(cat VERSION | tr -d '[:space:]')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # 校验 SemVer 格式（vX.Y.Z 或 vX.Y.Z-rc/alpha/beta）
-          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-            echo "::error::VERSION 格式无效: $VERSION（需要 vX.Y.Z 或 vX.Y.Z-prerelease）"
-            exit 1
-          fi
-
-          echo "VERSION: $VERSION"
-
-          # 检查 tag 是否已存在
-          if git rev-parse "$VERSION" >/dev/null 2>&1; then
-            echo "::error::tag $VERSION 已存在，请升级 VERSION 文件"
-            exit 1
-          fi
-
-          # 判断是否 prerelease
-          if echo "$VERSION" | grep -qE '(-rc|-alpha|-beta)'; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: 自动创建 tag
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$VERSION"
-          git push origin "$VERSION"
-          echo "已创建并推送 tag: $VERSION"
-
-      - name: 安装 Go
-        uses: actions/setup-go@v5
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-
-      - name: 运行测试
-        run: go test ./... -count=1
-
-      - name: 构建发布包
-        run: bash scripts/build_release.sh
+          go-version: "1.22"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Resolve version
+        id: ver
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Build & package
+        run: bash ./scripts/release.sh
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          COMMIT: ${{ github.sha }}
-          BUILD_DATE: ${{ github.event.head_commit.timestamp || github.sha }}
-
-      - name: 检查发布产物
-        run: bash scripts/check_release_artifacts.sh tmp/dist
-
-      - name: 复制辅助脚本到 dist
+          VERSION: ${{ steps.ver.outputs.version }}
+      - name: Copy install scripts
         run: |
-          cp scripts/install.sh tmp/dist/
-          cp scripts/uninstall.sh tmp/dist/
-
-      - name: 生成 Release Notes
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          IS_PRERELEASE="${{ steps.version.outputs.prerelease }}"
-
-          cat > tmp/release-notes.md << EOF
-          ## Atria ${VERSION}
-
-          轻量级自托管 MTProto Session 管理面板。
-
-          EOF
-
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            echo "⚠️ **这是一个预发布版本，不建议用于生产环境。**" >> tmp/release-notes.md
-            echo "" >> tmp/release-notes.md
-          fi
-
-          cat >> tmp/release-notes.md << 'EOF'
-          ### Highlights
-
-          - 嵌入式 Web 管理界面（Vue 3 SPA）
-          - 实时聊天：消息同步、发送、Mark Read、未读角标
-          - 联系人、搜索、媒体预览、群组/频道支持
-          - 10 种语言国际化
-          - 审计日志与安全加固
-          - 多平台发布产物
-
-          ### 安装
-
-          **Linux 一键安装：**
-          ```
-          curl -fsSL https://raw.githubusercontent.com/akiiya/Atria/main/scripts/install.sh | bash
-          ```
-
-          **手动安装：**
-          下载对应平台的压缩包，解压后运行 `./atria serve`
-
-          ### 生产环境注意事项
-
-          - 设置 `ATRIA_COOKIE_SECURE=true`
-          - 建议反向代理 + TLS
-          - 备份 `data/secret.key`
-
-          ### 安全提醒
-
-          - 请备份 `data/secret.key` 文件
-          - 不要提交 `data/` 目录到代码仓库
-          - 详见 [SECURITY.md](SECURITY.md)
-          EOF
-
-      - name: 创建 GitHub Release
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          IS_PRERELEASE="${{ steps.version.outputs.prerelease }}"
-
-          PRERELEASE_FLAG=""
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            PRERELEASE_FLAG="--prerelease"
-          fi
-
-          gh release create "$VERSION" \
-            tmp/dist/atria_linux_amd64.tar.gz \
-            tmp/dist/atria_linux_arm64.tar.gz \
-            tmp/dist/atria_windows_amd64.zip \
-            tmp/dist/atria_windows_arm64.zip \
-            tmp/dist/atria_darwin_amd64.tar.gz \
-            tmp/dist/atria_darwin_arm64.tar.gz \
-            tmp/dist/checksums.txt \
-            tmp/dist/install.sh \
-            tmp/dist/uninstall.sh \
-            --title "$VERSION" \
-            --notes-file tmp/release-notes.md \
-            $PRERELEASE_FLAG
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          cp scripts/install.sh dist/
+          cp scripts/uninstall.sh dist/
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/atria_*.tar.gz
+            dist/atria_*.zip
+            dist/SHA256SUMS
+            dist/install.sh
+            dist/uninstall.sh
