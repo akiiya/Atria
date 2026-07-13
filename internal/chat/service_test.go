@@ -1422,3 +1422,357 @@ func TestDialogTitle_AvatarPlaceholderUsesGraphemeSafeInitial(t *testing.T) {
 		}
 	}
 }
+
+// ===== MarkRead 测试 =====
+
+func TestMarkRead_Success(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	// 创建 peer cache
+	encryptedHash, _ := encryptTestAccessHash(12345)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "u_999",
+		PeerType:            "user",
+		PeerID:              999,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test User",
+		UnreadCount:         5,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "u_999", 100)
+	if err != nil {
+		t.Fatalf("MarkRead 应成功，实际错误: %v", err)
+	}
+
+	// 验证 adapter 被调用
+	if adapter.MarkCallCount != 1 {
+		t.Errorf("adapter.MarkRead 应被调用 1 次，实际=%d", adapter.MarkCallCount)
+	}
+
+	// 验证 unread_count 被清零
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "u_999", account.ID).First(&cache)
+	if cache.UnreadCount != 0 {
+		t.Errorf("unread_count 应为 0，实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_PeerIDInvalid_StillUpdatesLocal(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{
+		MarkErr: telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "会话无效或已过期"),
+	}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(12345)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "u_888",
+		PeerType:            "user",
+		PeerID:              888,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Stale User",
+		UnreadCount:         3,
+	})
+
+	// PEER_ID_INVALID 应该被优雅处理，不返回错误
+	err := svc.MarkRead(context.Background(), account.ID, "u_888", 100)
+	if err != nil {
+		t.Fatalf("PEER_ID_INVALID 应被优雅处理，不应返回错误，实际: %v", err)
+	}
+
+	// 验证 adapter 被调用
+	if adapter.MarkCallCount != 1 {
+		t.Errorf("adapter.MarkRead 应被调用 1 次，实际=%d", adapter.MarkCallCount)
+	}
+
+	// 验证本地 unread_count 仍然被清零
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "u_888", account.ID).First(&cache)
+	if cache.UnreadCount != 0 {
+		t.Errorf("unread_count 应为 0（本地仍标记已读），实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_OtherError_Propagates(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{
+		MarkErr: telegramclient.NewError(telegramclient.ErrorCodeTelegramError, "Telegram 内部错误"),
+	}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(12345)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "u_777",
+		PeerType:            "user",
+		PeerID:              777,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test User",
+		UnreadCount:         2,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "u_777", 100)
+	if err == nil {
+		t.Fatal("非 PEER_ID_INVALID 错误应被传播")
+	}
+
+	chatErr, ok := err.(*ChatError)
+	if !ok {
+		t.Fatalf("应返回 ChatError，实际=%T", err)
+	}
+	if chatErr.Code != "telegram_error" {
+		t.Errorf("错误码应为 telegram_error，实际=%s", chatErr.Code)
+	}
+
+	// unread_count 不应被修改
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "u_777", account.ID).First(&cache)
+	if cache.UnreadCount != 2 {
+		t.Errorf("unread_count 不应被修改，期望 2，实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_EmptyPeerRef(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	err := svc.MarkRead(context.Background(), account.ID, "", 100)
+	if err == nil {
+		t.Fatal("空 peerRef 应返回错误")
+	}
+
+	chatErr, ok := err.(*ChatError)
+	if !ok {
+		t.Fatalf("应返回 ChatError，实际=%T", err)
+	}
+	if chatErr.Code != "peer_invalid" {
+		t.Errorf("错误码应为 peer_invalid，实际=%s", chatErr.Code)
+	}
+}
+
+func TestMarkRead_InvalidAccount(t *testing.T) {
+	db := setupTestDB(t)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	err := svc.MarkRead(context.Background(), 99999, "u_123", 100)
+	if err == nil {
+		t.Fatal("无效 accountID 应返回错误")
+	}
+}
+
+func TestMarkRead_PeerNotInCache(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	err := svc.MarkRead(context.Background(), account.ID, "u_nonexistent", 100)
+	if err == nil {
+		t.Fatal("不存在的 peer 应返回错误")
+	}
+
+	chatErr, ok := err.(*ChatError)
+	if !ok {
+		t.Fatalf("应返回 ChatError，实际=%T", err)
+	}
+	if chatErr.Code != "peer_invalid" {
+		t.Errorf("错误码应为 peer_invalid，实际=%s", chatErr.Code)
+	}
+}
+
+func TestMarkRead_ChannelPeer(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(67890)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "ch_12345",
+		PeerType:            "channel",
+		PeerID:              12345,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test Channel",
+		UnreadCount:         10,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "ch_12345", 200)
+	if err != nil {
+		t.Fatalf("Channel MarkRead 应成功，实际错误: %v", err)
+	}
+
+	if adapter.MarkCallCount != 1 {
+		t.Errorf("adapter.MarkRead 应被调用 1 次，实际=%d", adapter.MarkCallCount)
+	}
+
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "ch_12345", account.ID).First(&cache)
+	if cache.UnreadCount != 0 {
+		t.Errorf("unread_count 应为 0，实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_SupergroupPeer(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(11111)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "ch_99999",
+		PeerType:            "supergroup",
+		PeerID:              99999,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test Supergroup",
+		UnreadCount:         7,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "ch_99999", 300)
+	if err != nil {
+		t.Fatalf("Supergroup MarkRead 应成功，实际错误: %v", err)
+	}
+
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "ch_99999", account.ID).First(&cache)
+	if cache.UnreadCount != 0 {
+		t.Errorf("unread_count 应为 0，实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_ChatPeer(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(22222)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "c_55555",
+		PeerType:            "chat",
+		PeerID:              55555,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test Group",
+		UnreadCount:         4,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "c_55555", 400)
+	if err != nil {
+		t.Fatalf("Chat MarkRead 应成功，实际错误: %v", err)
+	}
+
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "c_55555", account.ID).First(&cache)
+	if cache.UnreadCount != 0 {
+		t.Errorf("unread_count 应为 0，实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_BotPeer(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(33333)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "u_44444",
+		PeerType:            "bot",
+		PeerID:              44444,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test Bot",
+		UnreadCount:         1,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "u_44444", 500)
+	if err != nil {
+		t.Fatalf("Bot MarkRead 应成功，实际错误: %v", err)
+	}
+
+	var cache model.ChatPeerCache
+	db.Where("peer_ref = ? AND account_id = ?", "u_44444", account.ID).First(&cache)
+	if cache.UnreadCount != 0 {
+		t.Errorf("unread_count 应为 0，实际=%d", cache.UnreadCount)
+	}
+}
+
+func TestMarkRead_AlreadyZeroUnread(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(12345)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "u_111",
+		PeerType:            "user",
+		PeerID:              111,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Already Read User",
+		UnreadCount:         0,
+	})
+
+	err := svc.MarkRead(context.Background(), account.ID, "u_111", 100)
+	if err != nil {
+		t.Fatalf("unread_count 为 0 时 MarkRead 仍应成功，实际错误: %v", err)
+	}
+
+	// adapter 仍应被调用（Telegram 需要知道）
+	if adapter.MarkCallCount != 1 {
+		t.Errorf("adapter.MarkRead 应被调用 1 次，实际=%d", adapter.MarkCallCount)
+	}
+}
+
+func TestMarkRead_MaxIDZero(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	encryptedHash, _ := encryptTestAccessHash(12345)
+	db.Create(&model.ChatPeerCache{
+		AccountID:           account.ID,
+		PeerRef:             "u_222",
+		PeerType:            "user",
+		PeerID:              222,
+		AccessHashEncrypted: encryptedHash,
+		Title:               "Test User",
+		UnreadCount:         3,
+	})
+
+	// max_id=0 表示标记所有消息已读
+	err := svc.MarkRead(context.Background(), account.ID, "u_222", 0)
+	if err != nil {
+		t.Fatalf("max_id=0 应成功，实际错误: %v", err)
+	}
+}
+
+func TestMarkRead_DisabledAccount(t *testing.T) {
+	db := setupTestDB(t)
+	account := createTestAccount(t, db)
+	adapter := &FakeAdapter{}
+	svc := NewChatService(db, testKey, adapter, slog.Default())
+
+	// 禁用账号
+	db.Model(&model.TelegramAccount{}).Where("id = ?", account.ID).Update("status", "disabled")
+
+	err := svc.MarkRead(context.Background(), account.ID, "u_123", 100)
+	if err == nil {
+		t.Fatal("禁用账号应返回错误")
+	}
+}

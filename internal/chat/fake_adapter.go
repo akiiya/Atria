@@ -18,8 +18,10 @@ type FakeAdapter struct {
 	SendErr       error
 	LoadErr       error
 	ContactsErr   error
+	MarkErr       error
 	HasOlder      bool
 	SendCallCount int
+	MarkCallCount int
 }
 
 // ListDialogs 返回预设的会话列表。
@@ -102,7 +104,8 @@ func (f *FakeAdapter) DownloadMedia(ctx context.Context, req telegramclient.Down
 
 // MarkRead 模拟标记已读。
 func (f *FakeAdapter) MarkRead(ctx context.Context, req telegramclient.MarkReadRequest) error {
-	return nil
+	f.MarkCallCount++
+	return f.MarkErr
 }
 
 // 确保 FakeAdapter 实现 ClientAdapter。
