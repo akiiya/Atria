@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chat'
 import { useQueryClient } from '@tanstack/vue-query'
 import { fetchMessages } from '@/api/chat'
 import { useI18n } from '@/i18n'
+import { usePeerType } from '@/composables/usePeerType'
 
 const props = defineProps<{
   peerRef: string
@@ -22,6 +23,7 @@ const router = useRouter()
 const chat = useChatStore()
 const queryClient = useQueryClient()
 const { t } = useI18n()
+const { peerTypeLabel } = usePeerType()
 
 function goBack() {
   chat.selectPeer(null)
@@ -36,17 +38,6 @@ function handleClick() {
     queryFn: () => fetchMessages(props.peerRef, 50, undefined, true),
   })
   emit('refresh')
-}
-
-function peerTypeLabel(type: string | undefined): string {
-  switch (type) {
-    case 'user': return ''
-    case 'bot': return t('peerType.bot')
-    case 'chat': return t('peerType.group')
-    case 'supergroup': return t('peerType.supergroup')
-    case 'channel': return t('peerType.channel')
-    default: return ''
-  }
 }
 </script>
 

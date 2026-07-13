@@ -45,9 +45,14 @@ func printUsage() {
 func runServe() {
 	cfg := config.Load()
 
-	// 初始化日志
+	// 初始化日志（支持 ATRIA_LOG_FORMAT=json 切换 JSON 格式）
 	logOpts := &slog.HandlerOptions{Level: slog.LevelInfo}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, logOpts))
+	var logger *slog.Logger
+	if os.Getenv("ATRIA_LOG_FORMAT") == "json" {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, logOpts))
+	} else {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, logOpts))
+	}
 	slog.SetDefault(logger)
 
 	slog.Info("启动 Atria",

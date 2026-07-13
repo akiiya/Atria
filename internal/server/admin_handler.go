@@ -22,7 +22,7 @@ func (s *Server) setCSRFToken(c *gin.Context) string {
 		return ""
 	}
 	c.SetSameSite(s.cfg.CookieSameSiteMode())
-	c.SetCookie(csrfCookieName, token, int(s.cfg.SessionTTL.Seconds()), "/", "", s.cfg.CookieSecure, false)
+	c.SetCookie(csrfCookieName, token, int(s.cfg.SessionTTL.Seconds()), "/", "", s.isTLSCookieSecure(c), false)
 	return token
 }
 
@@ -306,7 +306,7 @@ func (s *Server) setSessionCookie(c *gin.Context, adminID uint, username string)
 		int(s.cfg.SessionTTL.Seconds()),
 		"/",
 		"",
-		s.cfg.CookieSecure,
+		s.isTLSCookieSecure(c),
 		true, // HttpOnly
 	)
 }
@@ -314,8 +314,9 @@ func (s *Server) setSessionCookie(c *gin.Context, adminID uint, username string)
 // clearSessionCookie 清除 Session Cookie 和 CSRF Cookie。
 func (s *Server) clearSessionCookie(c *gin.Context) {
 	c.SetSameSite(s.cfg.CookieSameSiteMode())
-	c.SetCookie(s.cfg.CookieName, "", -1, "/", "", s.cfg.CookieSecure, true)
-	c.SetCookie(csrfCookieName, "", -1, "/", "", s.cfg.CookieSecure, false)
+	secure := s.isTLSCookieSecure(c)
+	c.SetCookie(s.cfg.CookieName, "", -1, "/", "", secure, true)
+	c.SetCookie(csrfCookieName, "", -1, "/", "", secure, false)
 }
 
 // isLoggedIn 检查当前请求是否已登录。
