@@ -581,6 +581,8 @@ func mapRPCError(rpcErr *tgerr.Error) *telegramclient.Error {
 		return telegramclient.NewError(telegramclient.ErrorCodeTelegramTimeout, "连接 Telegram 超时，请稍后重试或检查代理")
 	case "INTERNAL":
 		return telegramclient.NewError(telegramclient.ErrorCodeTelegramError, "Telegram 内部错误，请稍后重试")
+	case "PEER_ID_INVALID":
+		return telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "会话无效或已过期")
 	default:
 		return telegramclient.NewErrorf(telegramclient.ErrorCodeTelegramError, "Telegram 返回错误 (%s)，请稍后重试", rpcErr.Type)
 	}

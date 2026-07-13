@@ -10,6 +10,7 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/user/atria/internal/crypto"
@@ -20,6 +21,58 @@ import (
 	"gorm.io/gorm"
 )
 
+// decryptCacheEntry 缓存解密结果，避免重复 AES-GCM 解密。
+type decryptCacheEntry struct {
+	text    string
+	expires time.Time
+}
+
+// decryptCache 消息正文解密缓存。
+// key = encrypted text, value = decrypted text + expiry。
+// 简单 TTL 缓存，过期后自动淘汰。
+type decryptCache struct {
+	mu      sync.RWMutex
+	entries map[string]decryptCacheEntry
+	ttl     time.Duration
+}
+
+func newDecryptCache(ttl time.Duration) *decryptCache {
+	return &decryptCache{
+		entries: make(map[string]decryptCacheEntry),
+		ttl:     ttl,
+	}
+}
+
+func (c *decryptCache) get(encrypted string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := c.entries[encrypted]
+	if !ok || time.Now().After(entry.expires) {
+		return "", false
+	}
+	return entry.text, true
+}
+
+func (c *decryptCache) set(encrypted, decrypted string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// 限制缓存大小，防止内存泄漏
+	if len(c.entries) > 10000 {
+		// 简单策略：清空一半
+		count := 0
+		for k := range c.entries {
+			if count%2 == 0 {
+				delete(c.entries, k)
+			}
+			count++
+		}
+	}
+	c.entries[encrypted] = decryptCacheEntry{
+		text:    decrypted,
+		expires: time.Now().Add(c.ttl),
+	}
+}
+
 // ChatService 实现聊天服务。
 // 通过 telegramclient.ClientAdapter 与 Telegram 通信，不直接依赖 gotd 类型。
 type ChatService struct {
@@ -27,6 +80,7 @@ type ChatService struct {
 	key     []byte
 	adapter telegramclient.ClientAdapter
 	logger  *slog.Logger
+	decrypt *decryptCache
 }
 
 // NewChatService 创建聊天服务。
@@ -36,6 +90,7 @@ func NewChatService(db *gorm.DB, key []byte, adapter telegramclient.ClientAdapte
 		key:     key,
 		adapter: adapter,
 		logger:  logger,
+		decrypt: newDecryptCache(5 * time.Minute),
 	}
 }
 
@@ -503,7 +558,23 @@ func (s *ChatService) MarkRead(ctx context.Context, accountID uint, peerRef stri
 		AccessHash:      accessHash,
 	})
 	if err != nil {
-		return s.classifyError(err)
+		// PEER_ID_INVALID 表示 access_hash 过期或 peer 已变更
+		// 这不是致命错误，用户已经看到了消息，本地仍然标记已读
+		chatErr := s.classifyError(err)
+		if chatErr != nil {
+			if ce, ok := chatErr.(*ChatError); ok && ce.Code == "peer_invalid" {
+				s.logger.Warn("标记已读 peer 无效（access_hash 可能过期），本地仍标记已读",
+					"peer_ref", peerRef,
+					"error", err,
+				)
+				// 本地仍然更新 unread_count
+				s.db.Model(&model.ChatPeerCache{}).
+					Where("peer_ref = ? AND account_id = ?", peerRef, accountID).
+					Update("unread_count", 0)
+				return nil
+			}
+		}
+		return chatErr
 	}
 
 	// 成功后更新本地 peer cache 的 unread_count 为 0
@@ -623,18 +694,28 @@ func (s *ChatService) decryptCachedMessages(cached []model.ChatMessageCache) []M
 			Status:            MessageStatusSent,
 			MessageType:       c.Kind,
 		}
-		// 解密消息正文
+		// 解密消息正文（带缓存）
 		if c.TextEncrypted != "" {
-			text, err := crypto.DecryptString(s.key, c.TextEncrypted, []byte("atria:msg:v1"))
-			if err == nil {
-				msg.Text = text
+			if cached, ok := s.decrypt.get(c.TextEncrypted); ok {
+				msg.Text = cached
+			} else {
+				text, err := crypto.DecryptString(s.key, c.TextEncrypted, []byte("atria:msg:v1"))
+				if err == nil {
+					msg.Text = text
+					s.decrypt.set(c.TextEncrypted, text)
+				}
 			}
 		}
-		// 解密 caption
+		// 解密 caption（带缓存）
 		if c.CaptionEncrypted != "" {
-			caption, err := crypto.DecryptString(s.key, c.CaptionEncrypted, []byte("atria:msg:v1"))
-			if err == nil {
-				msg.Caption = caption
+			if cached, ok := s.decrypt.get(c.CaptionEncrypted); ok {
+				msg.Caption = cached
+			} else {
+				caption, err := crypto.DecryptString(s.key, c.CaptionEncrypted, []byte("atria:msg:v1"))
+				if err == nil {
+					msg.Caption = caption
+					s.decrypt.set(c.CaptionEncrypted, caption)
+				}
 			}
 		}
 		// 反序列化媒体信息

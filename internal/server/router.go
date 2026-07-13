@@ -30,6 +30,9 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	}
 	r.StaticFS("/static", http.FS(staticFS))
 
+	// TLS 检测中间件（自动设置 cookie Secure）
+	r.Use(s.tlsDetectMiddleware())
+
 	// CSRF 中间件
 	csrfMiddleware := s.csrfValidationMiddleware()
 
@@ -37,13 +40,7 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 	authMiddleware := auth.RequireAuth(s.key, s.cfg.CookieName)
 
 	// 健康检查（公开）
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"service": "atria",
-			"version": version.Short(),
-		})
-	})
+	r.GET("/healthz", s.handleHealthz)
 
 	// ===== 公开路由 =====
 

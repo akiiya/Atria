@@ -30,6 +30,9 @@ type Server struct {
 	runtimeManager *gotdadapter.RuntimeManagerImpl
 	eventBus       *telegramclient.EventBus
 	accountGate    *gotdadapter.AccountGate
+
+	// 健康检查
+	startTime time.Time
 }
 
 // New 创建新的 Server 实例。
@@ -83,6 +86,7 @@ func New(cfg *config.Config, db *gorm.DB, key []byte) *Server {
 		runtimeManager: runtimeMgr,
 		eventBus:       bus,
 		accountGate:    gate,
+		startTime:      time.Now(),
 	}
 }
 
