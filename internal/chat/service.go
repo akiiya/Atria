@@ -558,7 +558,23 @@ func (s *ChatService) MarkRead(ctx context.Context, accountID uint, peerRef stri
 		AccessHash:      accessHash,
 	})
 	if err != nil {
-		return s.classifyError(err)
+		// PEER_ID_INVALID 表示 access_hash 过期或 peer 已变更
+		// 这不是致命错误，用户已经看到了消息，本地仍然标记已读
+		chatErr := s.classifyError(err)
+		if chatErr != nil {
+			if ce, ok := chatErr.(*ChatError); ok && ce.Code == "peer_invalid" {
+				s.logger.Warn("标记已读 peer 无效（access_hash 可能过期），本地仍标记已读",
+					"peer_ref", peerRef,
+					"error", err,
+				)
+				// 本地仍然更新 unread_count
+				s.db.Model(&model.ChatPeerCache{}).
+					Where("peer_ref = ? AND account_id = ?", peerRef, accountID).
+					Update("unread_count", 0)
+				return nil
+			}
+		}
+		return chatErr
 	}
 
 	// 成功后更新本地 peer cache 的 unread_count 为 0
