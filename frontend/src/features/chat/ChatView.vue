@@ -37,13 +37,20 @@ function clearSlowTimer() {
   slowLoading.value = false
 }
 
+// WebSocket 连接状态（在会话列表查询之前声明，用于决定是否需要轮询兜底）
+const wsState = ref<WSState>('disconnected')
+
+// 会话列表。
+// WebSocket 连通时不轮询：dialog.upserted / message.new 已经实时维护列表，
+// 额外轮询会用服务端快照覆盖本地实时状态（造成未读数闪烁），且纯属多余流量。
+// WebSocket 不通时退化为 20s 轮询作为兜底。
 const { data: dialogsData, isLoading, error, refetch } = useQuery({
   queryKey: computed(() => ['dialogs', account.currentAccountId]),
   queryFn: () => { startSlowTimer(); return fetchDialogs(50) },
   enabled: computed(() => !!account.currentAccountId),
   retry: 1,
   staleTime: 10_000,
-  refetchInterval: 20_000,
+  refetchInterval: computed(() => (wsState.value === 'connected' ? false : 20_000)),
   refetchOnWindowFocus: true,
 })
 
@@ -181,8 +188,7 @@ function forceRefresh() {
 
 const noAccount = computed(() => !account.currentAccountId)
 
-// WebSocket 实时推送
-const wsState = ref<WSState>('disconnected')
+// WebSocket 实时推送（wsState 在上方声明，供 dialogs 查询决定是否需要轮询兜底）
 let wsClient: RealtimeClient | null = null
 
 function connectWebSocket() {
