@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import { VueQueryPlugin } from '@tanstack/vue-query'
 import App from './App.vue'
 import router from './router'
+import { initI18n } from './i18n'
 import './styles/variables.css'
 import './styles/base.css'
 import './styles/shell.css'
@@ -31,4 +32,9 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.use(VueQueryPlugin)
-app.mount('#app')
+
+// 先加载当前语言包再挂载，避免首屏闪烁英文文案。
+// en 已静态打包，即使加载失败也能正常渲染。
+initI18n().finally(() => {
+  app.mount('#app')
+})
