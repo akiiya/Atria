@@ -25,6 +25,8 @@ export interface MediaInfo {
   width?: number
   height?: number
   duration?: number
+  /** 内嵌预览图 data URI，随消息一起下发，无需额外请求 */
+  thumbnail?: string
 }
 
 export interface MediaInfoExtended extends MediaInfo {

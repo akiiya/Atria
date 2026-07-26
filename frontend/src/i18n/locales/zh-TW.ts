@@ -114,6 +114,7 @@ export const zhTW: Record<string, string> = {
   'media.voicePlaceholder': '語音（播放暫未實現）',
   'media.audio': '音訊',
   'media.photo': '圖片',
+  'media.video': '影片',
   'media.view': '檢視',
   'media.open': '開啟',
   'media.downloading': '下載中...',

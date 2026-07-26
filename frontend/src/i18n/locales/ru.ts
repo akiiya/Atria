@@ -114,6 +114,7 @@ export const ru: Record<string, string> = {
   'media.voicePlaceholder': 'Голос (воспроизведение недоступно)',
   'media.audio': 'Аудио',
   'media.photo': 'Фото',
+  'media.video': 'Видео',
   'media.view': 'Просмотр',
   'media.open': 'Открыть',
   'media.downloading': 'Загрузка...',

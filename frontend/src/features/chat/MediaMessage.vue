@@ -53,6 +53,9 @@ const contentUrl = computed(() =>
     : ''
 )
 
+// Telegram 随消息内嵌的极小预览图（data URI），无需额外请求即可立即展示。
+const thumbnail = computed(() => props.message.media?.thumbnail || '')
+
 // 用 Telegram 提供的原始宽高预留占位尺寸，避免图片加载时布局抖动。
 // 占位框与最终图片使用同一 aspect-ratio，因此下载完成后不会跳动。
 const PHOTO_MAX_W = 320
@@ -155,6 +158,24 @@ function openContent() {
           decoding="async"
         />
       </div>
+      <!-- 未下载：优先展示 Telegram 内嵌的模糊缩略图，无缩略图时退回灰框 -->
+      <div
+        v-else-if="thumbnail"
+        class="media-preview media-thumb-wrap"
+        :style="photoBoxStyle"
+        @click="handlePhotoClick"
+      >
+        <img
+          :src="thumbnail"
+          :alt="message.caption || t('media.photo')"
+          class="media-img media-thumb"
+          decoding="async"
+        />
+        <div class="media-thumb-overlay">
+          <span v-if="mediaStatus === 'downloading'" class="media-thumb-spinner" />
+          <span v-else class="media-thumb-badge">{{ t('media.view') }}</span>
+        </div>
+      </div>
       <div v-else class="media-placeholder" :style="photoBoxStyle" @click="handlePhotoClick">
         <span class="media-icon-large">🖼️</span>
         <div v-if="message.media?.width" class="media-meta">{{ message.media.width }}×{{ message.media.height }}</div>
@@ -234,6 +255,22 @@ function openContent() {
           playsinline
           class="media-video-player"
         />
+      </div>
+      <!-- 未下载：视频同样优先展示内嵌缩略图，叠加播放按钮 -->
+      <div
+        v-else-if="thumbnail"
+        class="media-preview media-thumb-wrap"
+        :style="photoBoxStyle"
+        @click="handleDownload"
+      >
+        <img :src="thumbnail" :alt="t('media.video')" class="media-img media-thumb" decoding="async" />
+        <div class="media-thumb-overlay">
+          <span v-if="mediaStatus === 'downloading'" class="media-thumb-spinner" />
+          <span v-else class="media-thumb-play">▶</span>
+        </div>
+        <div v-if="message.media?.duration" class="media-thumb-duration">
+          {{ formatDuration(message.media.duration) }}
+        </div>
       </div>
       <div v-else class="media-placeholder" :style="photoBoxStyle" @click="handleDownload">
         <span class="media-icon-large">🎬</span>
@@ -346,6 +383,78 @@ function openContent() {
   max-width: 100%;
   max-height: 300px;
   display: block;
+}
+
+/* ── 内嵌缩略图（未下载时的模糊预览）── */
+.media-thumb-wrap {
+  position: relative;
+  display: inline-block;
+  background: var(--bg-tertiary);
+}
+.media-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Telegram 内嵌缩略图只有几十像素，放大后本就模糊；
+     轻微 blur 让边缘更柔和，避免看起来像加载失败的低清图 */
+  filter: blur(4px);
+  transform: scale(1.06); /* 抵消 blur 在边缘产生的透明羽化 */
+}
+.media-thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.18);
+  transition: background 0.15s;
+}
+.media-thumb-wrap:hover .media-thumb-overlay {
+  background: rgba(0, 0, 0, 0.3);
+}
+.media-thumb-badge {
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+}
+.media-thumb-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding-left: 4px; /* 视觉居中三角形 */
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 18px;
+  backdrop-filter: blur(4px);
+}
+.media-thumb-duration {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.media-thumb-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: media-thumb-spin 0.8s linear infinite;
+}
+@keyframes media-thumb-spin {
+  to { transform: rotate(360deg); }
 }
 .media-video-player {
   max-width: 100%;

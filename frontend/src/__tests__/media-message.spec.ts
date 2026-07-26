@@ -79,6 +79,70 @@ describe('MediaMessage', () => {
     })
   })
 
+  describe('内嵌缩略图', () => {
+    const THUMB = 'data:image/jpeg;base64,/9j/2wBD'
+
+    it('未下载但有缩略图时展示模糊预览，而非灰色占位框', async () => {
+      const w = mountMedia(makeMessage({}, { thumbnail: THUMB }))
+      await vi.waitFor(() => expect(w.find('.media-thumb').exists()).toBe(true))
+
+      expect(w.find('.media-thumb').attributes('src')).toBe(THUMB)
+      expect(w.find('.media-placeholder').exists()).toBe(false)
+    })
+
+    it('无缩略图时仍回退到灰色占位框', async () => {
+      const w = mountMedia(makeMessage({}, { width: 800, height: 600 }))
+      await vi.waitFor(() => expect(w.find('.media-placeholder').exists()).toBe(true))
+      expect(w.find('.media-thumb').exists()).toBe(false)
+    })
+
+    it('缩略图上叠加查看提示', async () => {
+      const w = mountMedia(makeMessage({}, { thumbnail: THUMB }))
+      await vi.waitFor(() => expect(w.find('.media-thumb-overlay').exists()).toBe(true))
+      expect(w.find('.media-thumb-badge').exists()).toBe(true)
+    })
+
+    it('下载中时缩略图上显示加载指示器', async () => {
+      let resolveDownload: (v: unknown) => void = () => {}
+      mockDownload.mockReturnValue(new Promise((r) => { resolveDownload = r }) as never)
+
+      const w = mountMedia(makeMessage({}, { thumbnail: THUMB }))
+      await vi.waitFor(() => expect(w.find('.media-thumb').exists()).toBe(true))
+
+      await w.find('.media-thumb-wrap').trigger('click')
+      await vi.waitFor(() => expect(w.find('.media-thumb-spinner').exists()).toBe(true))
+      expect(w.find('.media-thumb-badge').exists()).toBe(false)
+
+      resolveDownload({ ok: true })
+    })
+
+    it('下载完成后缩略图被完整图片替换', async () => {
+      mockDownload.mockResolvedValue({ ok: true, status: 'cached' })
+      const w = mountMedia(makeMessage({}, { thumbnail: THUMB }))
+      await vi.waitFor(() => expect(w.find('.media-thumb').exists()).toBe(true))
+
+      await w.find('.media-thumb-wrap').trigger('click')
+      await vi.waitFor(() => expect(w.find('.media-thumb').exists()).toBe(false))
+      expect(w.find('img.media-img').attributes('src')).toContain('/content')
+    })
+
+    it('缩略图容器同样预留宽高，避免布局抖动', async () => {
+      const w = mountMedia(makeMessage({}, { thumbnail: THUMB, width: 800, height: 600 }))
+      await vi.waitFor(() => expect(w.find('.media-thumb-wrap').exists()).toBe(true))
+      expect(w.find('.media-thumb-wrap').attributes('style')).toContain('aspect-ratio')
+    })
+
+    it('视频缩略图叠加播放按钮和时长', async () => {
+      const w = mountMedia(
+        makeMessage({ message_type: 'video' }, { thumbnail: THUMB, duration: 125 })
+      )
+      await vi.waitFor(() => expect(w.find('.media-thumb').exists()).toBe(true))
+
+      expect(w.find('.media-thumb-play').exists()).toBe(true)
+      expect(w.find('.media-thumb-duration').text()).toBe('2:05')
+    })
+  })
+
   describe('图片布局稳定性', () => {
     it('图片设置 loading=lazy 和 decoding=async', async () => {
       mockGetStatus.mockResolvedValue({ ok: true, status: 'cached', available: true })

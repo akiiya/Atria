@@ -114,6 +114,7 @@ export const zhCN: Record<string, string> = {
   'media.voicePlaceholder': '语音（播放暂未实现）',
   'media.audio': '音频',
   'media.photo': '图片',
+  'media.video': '视频',
   'media.view': '查看',
   'media.open': '打开',
   'media.downloading': '下载中...',

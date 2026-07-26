@@ -14,7 +14,9 @@ type ChatMessageCache struct {
 	Kind              string    `gorm:"size:16;not null;default:text" json:"kind"` // text, photo, document, etc.
 	TextEncrypted     string    `gorm:"size:8192" json:"-"`                        // AES-256-GCM 加密
 	CaptionEncrypted  string    `gorm:"size:4096" json:"-"`                        // AES-256-GCM 加密
-	MediaJSON         string    `gorm:"size:2048" json:"media_json"`
+	// MediaJSON 存放媒体元信息，其中包含内嵌缩略图的 base64 data URI。
+	// 缩略图本身通常 ~1KB，加上其余字段需要 8192 才有足够余量。
+	MediaJSON string `gorm:"size:8192" json:"media_json"`
 	SentAt            time.Time `gorm:"index:idx_msg_account_sent;not null" json:"sent_at"`
 	CreatedAt         time.Time `gorm:"not null" json:"created_at"`
 	UpdatedAt         time.Time `gorm:"not null" json:"updated_at"`

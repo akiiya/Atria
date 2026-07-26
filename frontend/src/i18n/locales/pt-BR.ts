@@ -114,6 +114,7 @@ export const ptBR: Record<string, string> = {
   'media.voicePlaceholder': 'Voz (reprodução não disponível)',
   'media.audio': 'Áudio',
   'media.photo': 'Foto',
+  'media.video': 'Vídeo',
   'media.view': 'Ver',
   'media.open': 'Abrir',
   'media.downloading': 'Baixando...',

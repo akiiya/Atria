@@ -102,6 +102,11 @@ type Media struct {
 	Width    int    `json:"width,omitempty"`
 	Height   int    `json:"height,omitempty"`
 	Duration int    `json:"duration,omitempty"`
+
+	// Thumbnail 是内嵌的极小预览图（data URI）。
+	// 由 Telegram 随消息一起下发，无需额外网络请求即可立即展示模糊占位图，
+	// 待完整媒体下载后再替换。体积通常只有几百字节。
+	Thumbnail string `json:"thumbnail,omitempty"`
 }
 
 // ListDialogsRequest 是获取会话列表的请求。

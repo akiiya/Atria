@@ -114,6 +114,7 @@ export const ko: Record<string, string> = {
   'media.voicePlaceholder': '음성 (재생 미지원)',
   'media.audio': '오디오',
   'media.photo': '사진',
+  'media.video': '동영상',
   'media.view': '보기',
   'media.open': '열기',
   'media.downloading': '다운로드 중...',

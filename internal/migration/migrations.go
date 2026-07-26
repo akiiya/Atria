@@ -102,6 +102,13 @@ func init() {
 		Description: "为 chat_peer_cache 添加 member_count、flags、description 字段，支持群组/频道信息展示",
 		Run:         migration013AddPeerCacheGroupFields,
 	})
+
+	Register(Migration{
+		Version:     14,
+		Name:        "widen_message_cache_media_json",
+		Description: "扩大 chat_message_cache.media_json 容量，以容纳内嵌缩略图 data URI",
+		Run:         migration014WidenMessageCacheMediaJSON,
+	})
 }
 
 // migration001NormalizeAPICredentialDefaults 归一化 API Key 数据。
@@ -492,5 +499,17 @@ func migration013AddPeerCacheGroupFields(db *gorm.DB, _ []byte) error {
 		return fmt.Errorf("更新 chat_peer_cache 表失败: %w", err)
 	}
 	slog.Info("迁移 13: chat_peer_cache 表 member_count/flags/description 字段添加完成")
+	return nil
+}
+
+// migration014WidenMessageCacheMediaJSON 扩大 chat_message_cache.media_json 列容量。
+// 媒体元信息现在包含内嵌缩略图的 base64 data URI（约 1KB），
+// 原有的 2048 上限会导致内容被截断。
+// 幂等：AutoMigrate 检测到列定义变化时会修改列，无变化则跳过。
+func migration014WidenMessageCacheMediaJSON(db *gorm.DB, _ []byte) error {
+	if err := db.AutoMigrate(&model.ChatMessageCache{}); err != nil {
+		return fmt.Errorf("更新 chat_message_cache 表失败: %w", err)
+	}
+	slog.Info("迁移 14: chat_message_cache 表 media_json 容量扩展完成")
 	return nil
 }

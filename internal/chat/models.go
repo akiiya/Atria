@@ -76,6 +76,7 @@ type MediaInfo struct {
 	Height            int    `json:"height,omitempty"`
 	Duration          int    `json:"duration,omitempty"`
 	Emoji             string `json:"emoji,omitempty"`
+	Thumbnail         string `json:"thumbnail,omitempty"` // 内嵌预览图 data URI，随消息一起下发
 	DownloadAvailable bool   `json:"download_available"`
 	LocalStatus       string `json:"local_status"` // none / cached / downloading / failed
 }

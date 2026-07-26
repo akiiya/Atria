@@ -169,8 +169,9 @@ func extractMediaInfo(media tg.MessageMediaClass) *telegramclient.Media {
 		if m.Photo != nil {
 			if photo, ok := m.Photo.(*tg.Photo); ok {
 				return &telegramclient.Media{
-					Width:  getPhotoWidth(photo),
-					Height: getPhotoHeight(photo),
+					Width:     getPhotoWidth(photo),
+					Height:    getPhotoHeight(photo),
+					Thumbnail: extractPhotoThumbnail(photo),
 				}
 			}
 		}
@@ -186,8 +187,9 @@ func extractMediaInfo(media tg.MessageMediaClass) *telegramclient.Media {
 				if wp.Photo != nil {
 					if photo, ok := wp.Photo.(*tg.Photo); ok {
 						return &telegramclient.Media{
-							Width:  getPhotoWidth(photo),
-							Height: getPhotoHeight(photo),
+							Width:     getPhotoWidth(photo),
+							Height:    getPhotoHeight(photo),
+							Thumbnail: extractPhotoThumbnail(photo),
 						}
 					}
 				}
@@ -205,9 +207,10 @@ func extractMediaInfo(media tg.MessageMediaClass) *telegramclient.Media {
 // extractDocumentMedia 从 Document 中提取媒体元信息。
 func extractDocumentMedia(doc *tg.Document) *telegramclient.Media {
 	med := &telegramclient.Media{
-		FileName: getDocumentFilename(doc),
-		MIMEType: doc.MimeType,
-		Size:     doc.Size,
+		FileName:  getDocumentFilename(doc),
+		MIMEType:  doc.MimeType,
+		Size:      doc.Size,
+		Thumbnail: extractDocumentThumbnail(doc),
 	}
 	for _, attr := range doc.Attributes {
 		switch a := attr.(type) {

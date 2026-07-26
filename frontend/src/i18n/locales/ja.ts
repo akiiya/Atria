@@ -114,6 +114,7 @@ export const ja: Record<string, string> = {
   'media.voicePlaceholder': '音声（再生未対応）',
   'media.audio': '音声',
   'media.photo': '写真',
+  'media.video': '動画',
   'media.view': '表示',
   'media.open': '開く',
   'media.downloading': 'ダウンロード中...',

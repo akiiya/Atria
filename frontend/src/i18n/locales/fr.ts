@@ -114,6 +114,7 @@ export const fr: Record<string, string> = {
   'media.voicePlaceholder': 'Voix (lecture non disponible)',
   'media.audio': 'Audio',
   'media.photo': 'Photo',
+  'media.video': 'Vidéo',
   'media.view': 'Voir',
   'media.open': 'Ouvrir',
   'media.downloading': 'Téléchargement...',

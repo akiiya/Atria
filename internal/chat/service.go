@@ -1219,6 +1219,7 @@ func mapNeutralMessageToChatMessage(m telegramclient.Message) Message {
 			Height:            m.Media.Height,
 			Duration:          m.Media.Duration,
 			Emoji:             m.Media.Emoji,
+			Thumbnail:         m.Media.Thumbnail,
 			DownloadAvailable: true,
 			LocalStatus:       "none",
 		}
