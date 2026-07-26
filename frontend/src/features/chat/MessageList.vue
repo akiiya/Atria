@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import type { ChatMessage, PeerType } from '@/types/chat'
 import { useI18n } from '@/i18n'
 import MessageBubble from './MessageBubble.vue'
@@ -52,6 +52,8 @@ watch(() => props.peerRef, () => {
   stopStickObserver()
   shouldPreserveOlderPosition.value = false
   needsInitialScroll = true
+  // 新会话视为「尚未在底部」，这样首次滚到底时会发出一次 scroll-to-bottom
+  wasNearBottom = false
 })
 
 // ── column-reverse 方向下的滚动位置检测 ──
@@ -73,13 +75,6 @@ function getMaxScrollTop(): number {
 function isNearBottom(): boolean {
   if (!scrollParent.value) return true
   return scrollParent.value.scrollTop > -160
-}
-
-/** 视口是否在最旧消息附近（scrollTop ≈ -max） */
-function isNearTop(): boolean {
-  if (!scrollParent.value) return false
-  const max = getMaxScrollTop()
-  return max > 0 && scrollParent.value.scrollTop < -(max - 300)
 }
 
 // ── 核心：column-reverse 下滚动到最新消息 ──
@@ -150,27 +145,47 @@ let isProgrammaticScroll = false
 //   scrollTop ≈ max → 最旧消息（顶部）
 //   向上滑（看旧消息）→ scrollTop 增加
 //   向下滑（看新消息）→ scrollTop 减少
-function handleScroll() {
-  if (!scrollParent.value) return
-  const maxScroll = getMaxScrollTop()
+//
+// 通过 rAF 合并到每帧一次，避免每个滚动事件都读取 scrollHeight/clientHeight
+// 触发强制重排。同时只在「离开底部后重新回到底部」时才发一次 scroll-to-bottom，
+// 而不是停在底部期间每帧都发。
+let scrollRafId: number | null = null
+let wasNearBottom = true
 
-  // 接近最新消息（scrollTop ≈ 0）→ 隐藏新消息提示
-  if (isNearBottom()) {
+function handleScroll() {
+  if (scrollRafId !== null) return
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null
+    processScroll()
+  })
+}
+
+function processScroll() {
+  if (!scrollParent.value) return
+
+  // 每帧只读一次布局属性
+  const el = scrollParent.value
+  const scrollTop = el.scrollTop
+  const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight)
+  const nearBottom = scrollTop > -160
+  const nearTop = maxScroll > 0 && scrollTop < -(maxScroll - 300)
+
+  if (nearBottom) {
     showNewMessageHint.value = false
     if (scrollIntent.value === 'manual') {
       scrollIntent.value = 'stick-to-bottom'
     }
-    emit('scroll-to-bottom')
-  }
-
-  // 非程序滚动 + 远离最新消息 → 用户在阅读历史
-  if (!isProgrammaticScroll && !isNearBottom()) {
+    // 边沿触发：仅在从「非底部」进入「底部」时通知一次
+    if (!wasNearBottom) emit('scroll-to-bottom')
+  } else if (!isProgrammaticScroll) {
+    // 非程序滚动 + 远离最新消息 → 用户在阅读历史
     scrollIntent.value = 'manual'
     stopStickObserver()
   }
+  wasNearBottom = nearBottom
 
   // 接近最旧消息（scrollTop ≈ -max）→ 加载更早消息
-  if (maxScroll > 0 && isNearTop() && props.hasOlder && !props.loadingOlder) {
+  if (nearTop && props.hasOlder && !props.loadingOlder) {
     shouldPreserveOlderPosition.value = true
     scrollIntent.value = 'preserve-position'
     emit('load-older')
@@ -232,19 +247,43 @@ function handleClickNewMessage() {
   showNewMessageHint.value = false
 }
 
-// ── 日期分隔 ──
-function isNewDay(idx: number): boolean {
-  if (idx === 0) return true
-  const prev = new Date(props.messages[idx - 1].sent_at).toDateString()
-  const curr = new Date(props.messages[idx].sent_at).toDateString()
-  return prev !== curr
-}
-
 function messageKey(msg: ChatMessage, idx: number): string {
   if (msg.telegram_message_id) return `tg:${msg.telegram_message_id}`
   if (msg.local_id) return `local:${msg.local_id}`
   return `id:${msg.id}:${idx}`
 }
+
+// ── 渲染行预计算 ──
+// 模板此前每次渲染都执行 [...messages].reverse()（整数组重新分配），
+// 并对每条消息调用 isNewDay()（每条构造两个 Date）。改为在消息变化时算一次。
+//
+// column-reverse 布局要求 DOM 逆序：数组头部 = 视觉底部（最新消息）。
+interface RenderRow {
+  key: string
+  msg: ChatMessage
+  isService: boolean
+  showDate: boolean
+}
+
+const renderRows = computed<RenderRow[]>(() => {
+  const list = props.messages
+  const rows: RenderRow[] = new Array(list.length)
+
+  // 正序遍历判断日期分隔，同时逆序写入结果
+  let prevDay = ''
+  for (let i = 0; i < list.length; i++) {
+    const msg = list[i]
+    const day = new Date(msg.sent_at).toDateString()
+    rows[list.length - 1 - i] = {
+      key: messageKey(msg, i),
+      msg,
+      isService: msg.message_type === 'service',
+      showDate: i === 0 || day !== prevDay,
+    }
+    prevDay = day
+  }
+  return rows
+})
 
 // ── Wheel fallback：无滚动条时，用户上滑（deltaY<0）仍触发 loadOlder ──
 // column-reverse: 向上滚动 = deltaY < 0 = 想看更旧消息
@@ -267,6 +306,10 @@ function handleWheel(e: WheelEvent) {
 onBeforeUnmount(() => {
   scrollTaskToken++
   stopStickObserver()
+  if (scrollRafId !== null) {
+    cancelAnimationFrame(scrollRafId)
+    scrollRafId = null
+  }
 })
 </script>
 
@@ -284,11 +327,11 @@ onBeforeUnmount(() => {
       {{ t('chat.noMessages') }}
     </div>
 
-    <!-- 消息列表：反向迭代，使视觉顺序为旧→新（上→下） -->
-    <template v-for="(msg, idx) in [...messages].reverse()" :key="messageKey(msg, messages.length - 1 - idx)">
-      <DateDivider v-if="isNewDay(messages.length - 1 - idx)" :date="msg.sent_at" />
-      <ServiceMessage v-if="msg.message_type === 'service'" :message="msg" />
-      <MessageBubble v-else :message="msg" :peer-type="peerType" />
+    <!-- 消息列表：renderRows 已按 column-reverse 所需的逆序预计算 -->
+    <template v-for="row in renderRows" :key="row.key">
+      <DateDivider v-if="row.showDate" :date="row.msg.sent_at" />
+      <ServiceMessage v-if="row.isService" :message="row.msg" />
+      <MessageBubble v-else :message="row.msg" :peer-type="peerType" />
     </template>
 
     <!-- 加载更早消息提示（DOM 顶部 = column-reverse 视觉底部） -->

@@ -19,15 +19,10 @@ const dragStartX = ref(0)
 const dragStartY = ref(0)
 const dragStartTranslateX = ref(0)
 const dragStartTranslateY = ref(0)
-const show = ref(false)
 
+// 每次打开时重置缩放/位移，避免沿用上一次查看的视图状态
 watch(() => props.visible, (val) => {
-  if (val) {
-    // 延迟一帧显示，触发 CSS transition
-    requestAnimationFrame(() => { show.value = true })
-  } else {
-    show.value = false
-  }
+  if (val) resetTransform()
 })
 
 function resetTransform() {
@@ -37,11 +32,7 @@ function resetTransform() {
 }
 
 function close() {
-  show.value = false
-  setTimeout(() => {
-    resetTransform()
-    emit('close')
-  }, 200)
+  emit('close')
 }
 
 function handleWheel(e: WheelEvent) {

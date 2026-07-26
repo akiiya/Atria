@@ -1,32 +1,73 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { ChatMessage } from '@/types/chat'
 import { useI18n } from '@/i18n'
 import { getMediaStatus, downloadMedia, getMediaContentUrl } from '@/api/media'
 import ImageLightbox from './ImageLightbox.vue'
 
+const MEDIA_TYPES = ['photo', 'document', 'video', 'voice', 'audio', 'sticker', 'animation']
+
 const props = defineProps<{ message: ChatMessage }>()
 const { t } = useI18n()
+const queryClient = useQueryClient()
 
-const mediaStatus = ref<string>('none') // none / cached / downloading / failed
+const messageId = computed(() => props.message.telegram_message_id || props.message.id)
+const isMediaType = computed(() => MEDIA_TYPES.includes(props.message.message_type))
+
+// 缓存状态查询。
+// 走 TanStack Query 而非裸 fetch，这样滚动进出视口不会重复请求，
+// 卸载时会自动取消，同一条消息的多个实例也会去重。
+const statusQueryKey = computed(() => ['media-status', props.message.peer_ref, messageId.value])
+
+const { data: statusData } = useQuery({
+  queryKey: statusQueryKey,
+  queryFn: () => getMediaStatus(messageId.value, props.message.peer_ref),
+  enabled: computed(() => isMediaType.value && !!messageId.value),
+  staleTime: 5 * 60_000,
+  gcTime: 10 * 60_000,
+  retry: false,
+  refetchOnWindowFocus: false,
+})
+
+// 本地覆盖状态：下载过程中的瞬时状态（downloading / failed）
+const localStatus = ref<'' | 'downloading' | 'failed'>('')
 const mediaError = ref<string>('')
-const contentUrl = ref<string>('')
 const lightboxVisible = ref(false)
 
-// 挂载时检查本地缓存状态，已缓存的直接显示
-onMounted(async () => {
-  const mediaTypes = ['photo', 'document', 'video', 'voice', 'audio', 'sticker', 'animation']
-  if (!mediaTypes.includes(props.message.message_type)) return
-  const messageId = props.message.telegram_message_id || props.message.id
-  if (!messageId) return
-  try {
-    const status = await getMediaStatus(messageId, props.message.peer_ref)
-    if (status.ok && status.available) {
-      mediaStatus.value = 'cached'
-      contentUrl.value = getMediaContentUrl(messageId, props.message.peer_ref)
-    }
-  } catch {
-    // 忽略，保持 none 状态
+// 切换到另一条消息时重置本地状态
+watch(messageId, () => {
+  localStatus.value = ''
+  mediaError.value = ''
+  lightboxVisible.value = false
+})
+
+const mediaStatus = computed<string>(() => {
+  if (localStatus.value) return localStatus.value
+  return statusData.value?.available ? 'cached' : 'none'
+})
+
+const contentUrl = computed(() =>
+  mediaStatus.value === 'cached' && messageId.value
+    ? getMediaContentUrl(messageId.value, props.message.peer_ref)
+    : ''
+)
+
+// 用 Telegram 提供的原始宽高预留占位尺寸，避免图片加载时布局抖动。
+// 占位框与最终图片使用同一 aspect-ratio，因此下载完成后不会跳动。
+const PHOTO_MAX_W = 320
+const PHOTO_MAX_H = 400
+
+const photoBoxStyle = computed(() => {
+  const w = props.message.media?.width
+  const h = props.message.media?.height
+  if (!w || !h) return undefined
+
+  const scale = Math.min(PHOTO_MAX_W / w, PHOTO_MAX_H / h, 1)
+  return {
+    width: Math.round(w * scale) + 'px',
+    height: Math.round(h * scale) + 'px',
+    aspectRatio: `${w} / ${h}`,
   }
 })
 
@@ -47,21 +88,29 @@ function formatDuration(sec: number | undefined): string {
 async function handleDownload() {
   if (mediaStatus.value === 'downloading') return
 
-  mediaStatus.value = 'downloading'
+  localStatus.value = 'downloading'
   mediaError.value = ''
 
   try {
-    const messageId = props.message.telegram_message_id || props.message.id
-    const result = await downloadMedia(messageId, props.message.peer_ref)
+    const id = messageId.value
+    const result = await downloadMedia(id, props.message.peer_ref)
     if (result.ok) {
-      mediaStatus.value = 'cached'
-      contentUrl.value = getMediaContentUrl(messageId, props.message.peer_ref)
+      // 写入查询缓存，使 mediaStatus 变为 cached，并让其他实例共享结果
+      queryClient.setQueryData(statusQueryKey.value, {
+        ok: true,
+        status: 'cached',
+        available: true,
+        file_name: result.file_name,
+        mime_type: result.mime_type,
+        file_size: result.file_size,
+      })
+      localStatus.value = ''
     } else {
-      mediaStatus.value = 'failed'
+      localStatus.value = 'failed'
       mediaError.value = result.message || t('media.downloadFailed')
     }
   } catch (e: unknown) {
-    mediaStatus.value = 'failed'
+    localStatus.value = 'failed'
     mediaError.value = e instanceof Error ? e.message : t('media.downloadFailed')
   }
 }
@@ -95,9 +144,18 @@ function openContent() {
     <!-- Photo -->
     <div v-if="message.message_type === 'photo'" class="media-photo">
       <div v-if="mediaStatus === 'cached' && contentUrl" class="media-preview" @click="handlePhotoClick">
-        <img :src="contentUrl" :alt="message.caption || t('media.photo')" class="media-img" />
+        <img
+          :src="contentUrl"
+          :alt="message.caption || t('media.photo')"
+          :width="message.media?.width || undefined"
+          :height="message.media?.height || undefined"
+          :style="photoBoxStyle"
+          class="media-img"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
-      <div v-else class="media-placeholder" @click="handlePhotoClick">
+      <div v-else class="media-placeholder" :style="photoBoxStyle" @click="handlePhotoClick">
         <span class="media-icon-large">🖼️</span>
         <div v-if="message.media?.width" class="media-meta">{{ message.media.width }}×{{ message.media.height }}</div>
       </div>
@@ -140,7 +198,13 @@ function openContent() {
     <!-- Sticker -->
     <div v-else-if="message.message_type === 'sticker'" class="media-sticker">
       <div v-if="mediaStatus === 'cached' && contentUrl" @click="handleStickerClick" style="cursor:pointer;">
-        <img :src="contentUrl" :alt="t('media.sticker')" class="media-sticker-img" />
+        <img
+          :src="contentUrl"
+          :alt="t('media.sticker')"
+          class="media-sticker-img"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
       <div v-else>
         <div class="media-emoji">{{ message.media?.emoji || '🏷️' }}</div>
@@ -160,9 +224,18 @@ function openContent() {
     <!-- Video -->
     <div v-else-if="message.message_type === 'video'" class="media-video">
       <div v-if="mediaStatus === 'cached' && contentUrl" class="media-preview">
-        <video :src="contentUrl" controls class="media-video-player" />
+        <video
+          :src="contentUrl"
+          :width="message.media?.width || undefined"
+          :height="message.media?.height || undefined"
+          :style="photoBoxStyle"
+          controls
+          preload="metadata"
+          playsinline
+          class="media-video-player"
+        />
       </div>
-      <div v-else class="media-placeholder" @click="handleDownload">
+      <div v-else class="media-placeholder" :style="photoBoxStyle" @click="handleDownload">
         <span class="media-icon-large">🎬</span>
         <div class="media-info">
           <span v-if="message.media?.duration">{{ formatDuration(message.media.duration) }}</span>
@@ -247,9 +320,13 @@ function openContent() {
       </div>
     </div>
 
-    <!-- Lightbox -->
+    <!--
+      Lightbox：仅在实际打开时挂载。
+      此前条件是 v-if="contentUrl"，导致每条已缓存媒体都常驻一个 lightbox 实例，
+      每个实例都会 Teleport 到 body 并注册 3 个 document 级监听器。
+    -->
     <ImageLightbox
-      v-if="contentUrl"
+      v-if="lightboxVisible && contentUrl"
       :src="contentUrl"
       :alt="message.caption || t('media.photo')"
       :visible="lightboxVisible"
