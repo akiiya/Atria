@@ -29,6 +29,16 @@ const { data, isLoading, isFetching, error, refetch } = useQuery({
   refetchOnWindowFocus: false,
 })
 
+// 错误横幅：用户可关闭，也可重试
+const errorDismissed = ref(false)
+const showError = computed(() => !!error.value && !errorDismissed.value)
+function retryLoad() {
+  errorDismissed.value = false
+  refetch()
+}
+// 切换会话时重置关闭状态
+watch(() => props.peerRef, () => { errorDismissed.value = false })
+
 // 判断是否需要 latest reconcile
 function shouldReconcilePeer(peerRef: string): boolean {
   if (chat.isPeerStale(peerRef)) return true
@@ -297,8 +307,13 @@ function handleSent() {
         </div>
       </div>
     </div>
-    <div v-else-if="error && visibleMessages.length === 0" class="message-body">
-      <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
+    <div v-else-if="showError && visibleMessages.length === 0" class="message-body">
+      <ErrorBanner
+        :message="(error as Error).message"
+        retryable
+        @retry="retryLoad"
+        @dismiss="errorDismissed = true"
+      />
     </div>
     <div v-else class="message-body">
       <div v-if="isFetching && !isLoading" class="message-stale-hint">{{ t('chat.refreshing') }}</div>

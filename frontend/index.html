@@ -5,6 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="">
   <title>Atria</title>
+  <script>
+    // 在首次绘制前应用主题，避免深色模式用户看到白色闪烁（FOUC）。
+    // 必须与 stores/app.ts 中的 THEME_KEY 和解析逻辑保持一致。
+    (function () {
+      try {
+        var stored = localStorage.getItem('atria-theme') || 'system'
+        var resolved = stored
+        if (stored === 'system') {
+          resolved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light'
+        }
+        document.documentElement.setAttribute('data-theme', resolved)
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light')
+      }
+    })()
+  </script>
 </head>
 <body>
   <div id="app"></div>

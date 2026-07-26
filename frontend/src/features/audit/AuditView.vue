@@ -84,6 +84,14 @@ const { data, isLoading, error, refetch } = useQuery({
 
 const logs = computed(() => data.value?.logs || [])
 const total = computed(() => data.value?.total || 0)
+
+// 错误横幅：用户可关闭，也可重试
+const errorDismissed = ref(false)
+const showError = computed(() => !!error.value && !errorDismissed.value)
+function retryLoad() {
+  errorDismissed.value = false
+  refetch()
+}
 const hasMore = computed(() => offset.value + limit < total.value)
 
 function resetFilters() {
@@ -163,8 +171,13 @@ function actionLabel(action: string): string {
     <div v-if="isLoading" class="card"><div class="card-body"><LoadingSkeleton /></div></div>
 
     <!-- Error -->
-    <div v-else-if="error">
-      <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
+    <div v-else-if="showError">
+      <ErrorBanner
+        :message="(error as Error).message"
+        retryable
+        @retry="retryLoad"
+        @dismiss="errorDismissed = true"
+      />
     </div>
 
     <!-- Empty -->

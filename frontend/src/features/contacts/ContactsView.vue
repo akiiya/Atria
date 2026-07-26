@@ -25,6 +25,14 @@ const { data, isLoading, error, refetch } = useQuery({
 
 const contacts = computed(() => data.value?.contacts || [])
 
+// 错误横幅：用户可关闭，也可重试
+const errorDismissed = ref(false)
+const showError = computed(() => !!error.value && !errorDismissed.value)
+function retryLoad() {
+  errorDismissed.value = false
+  refetch()
+}
+
 const filteredContacts = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return contacts.value
@@ -86,8 +94,13 @@ function getInitial(name: string): string {
     </div>
 
     <!-- 错误 -->
-    <div v-else-if="error" class="contacts-body">
-      <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
+    <div v-else-if="showError" class="contacts-body">
+      <ErrorBanner
+        :message="(error as Error).message"
+        retryable
+        @retry="retryLoad"
+        @dismiss="errorDismissed = true"
+      />
     </div>
 
     <!-- 空列表 -->

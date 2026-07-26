@@ -32,6 +32,14 @@ const { data, isLoading, error, refetch } = useQuery({
 const accounts = computed(() => data.value?.accounts || [])
 const hasApi = computed(() => data.value?.has_api_key ?? false)
 
+// 错误横幅：用户可关闭，也可重试
+const errorDismissed = ref(false)
+const showError = computed(() => !!error.value && !errorDismissed.value)
+function retryLoad() {
+  errorDismissed.value = false
+  refetch()
+}
+
 // Action feedback
 const actionMsg = ref('')
 const actionIsError = ref(false)
@@ -196,8 +204,13 @@ function accountStatusLabel(status: string): string {
 
     <div v-else-if="isLoading"><LoadingSkeleton /></div>
 
-    <div v-else-if="error">
-      <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
+    <div v-else-if="showError">
+      <ErrorBanner
+        :message="(error as Error).message"
+        retryable
+        @retry="retryLoad"
+        @dismiss="errorDismissed = true"
+      />
     </div>
 
     <div v-else-if="accounts.length === 0" class="card">

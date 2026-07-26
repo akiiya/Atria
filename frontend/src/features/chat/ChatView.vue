@@ -115,6 +115,14 @@ watch(runtimeState, (state) => {
   }
 })
 
+// 错误横幅：用户可关闭，也可重试
+const errorDismissed = ref(false)
+const showError = computed(() => !!error.value && !errorDismissed.value)
+function retryLoad() {
+  errorDismissed.value = false
+  refetch()
+}
+
 // Use computed to reactively derive dialogs from query data
 // 防御性去重：按 peer_ref 去重，保留最新条目（防止后端返回重复）
 // unread_count 合并：取本地和 Telegram 的较大值（防止 Telegram 数据覆盖 WebSocket 实时更新）
@@ -383,8 +391,13 @@ const runtimeClass = computed(() => {
           <span>{{ t('chat.staleHint') }} <button class="btn-link" @click="forceRefresh()">{{ t('common.refresh') }}</button></span>
         </div>
       </div>
-      <div v-else-if="error" class="chat-sidebar-body">
-        <ErrorBanner :message="(error as Error).message" @dismiss="refetch()" />
+      <div v-else-if="showError" class="chat-sidebar-body">
+        <ErrorBanner
+          :message="(error as Error).message"
+          retryable
+          @retry="retryLoad"
+          @dismiss="errorDismissed = true"
+        />
       </div>
       <div v-else class="chat-sidebar-body">
         <DialogList :dialogs="dialogs" :selected="chat.selectedPeerRef" @select="selectDialog" />

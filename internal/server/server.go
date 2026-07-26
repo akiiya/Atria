@@ -29,7 +29,7 @@ type Server struct {
 	// Runtime 管理
 	runtimeManager *gotdadapter.RuntimeManagerImpl
 	eventBus       *telegramclient.EventBus
-	accountGate    *gotdadapter.AccountGate
+	accountGate    *telegramclient.AccountGate
 
 	// 健康检查
 	startTime time.Time
@@ -64,7 +64,7 @@ func New(cfg *config.Config, db *gorm.DB, key []byte) *Server {
 	bus := telegramclient.NewEventBus(logger)
 
 	// 创建 AccountGate（per-account 执行锁）
-	gate := gotdadapter.NewAccountGate()
+	gate := telegramclient.NewAccountGate()
 
 	// 创建 RuntimeManager，共享同一个 gate
 	runtimeMgr := gotdadapter.NewRuntimeManager(db, key, bus, logger)

@@ -1,15 +1,25 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from '@/i18n'
 import type { ChatMessage, PeerType } from '@/types/chat'
 import MediaMessage from './MediaMessage.vue'
+
+const MEDIA_KINDS = ['photo', 'document', 'sticker', 'video', 'voice', 'audio']
 
 const { t } = useI18n()
 const props = defineProps<{ message: ChatMessage; peerType?: PeerType }>()
 
 // 是否显示 sender label：仅群聊/频道的 incoming 消息显示
-const showSenderLabel = !props.message.is_outgoing
+const showSenderLabel = computed(() =>
+  !props.message.is_outgoing
   && !!props.message.sender_name
   && props.peerType !== 'user'
+)
+
+const isMedia = computed(() => MEDIA_KINDS.includes(props.message.message_type))
+
+// 消息正文渲染结果；message.text 变化时（如收到 edit 事件）自动重算
+const renderedText = computed(() => linkify(props.message.text))
 
 function escapeHtml(str: string): string {
   const div = document.createElement('div')
@@ -28,8 +38,6 @@ function linkify(text: string): string {
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-
-const isMedia = ['photo', 'document', 'sticker', 'video', 'voice', 'audio'].includes(props.message.message_type)
 </script>
 
 <template>
@@ -38,7 +46,7 @@ const isMedia = ['photo', 'document', 'sticker', 'video', 'voice', 'audio'].incl
       {{ message.sender_name }}
     </div>
     <MediaMessage v-if="isMedia" :message="message" />
-    <div v-else-if="message.message_type === 'text'" class="message-text" v-html="linkify(message.text)" />
+    <div v-else-if="message.message_type === 'text'" class="message-text" v-html="renderedText" />
     <div v-else class="message-unsupported">
       {{ t('chat.unsupportedType').replace('{type}', message.message_type) }}
     </div>

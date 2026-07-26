@@ -1,4 +1,4 @@
-package gotd
+package telegramclient
 
 import (
 	"sync"
@@ -7,7 +7,8 @@ import (
 
 // AccountGate 管理 per-account 的执行锁。
 // 防止同一 account 的 REST 临时 client 和 Runtime long-lived client 并发运行。
-// 这是过渡方案，后续应改为 runtime execution queue。
+//
+// 该类型与具体 Telegram 后端（gotd / TDLib）无关，任何 adapter 实现都可复用。
 type AccountGate struct {
 	gates sync.Map // accountID -> *accountLock
 }

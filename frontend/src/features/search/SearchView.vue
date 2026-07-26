@@ -106,7 +106,7 @@ function onKeydown(e: KeyboardEvent) {
 
     <!-- 错误 -->
     <div v-if="error" style="padding: 0 20px;">
-      <ErrorBanner :message="error" @dismiss="error = ''" />
+      <ErrorBanner :message="error" retryable @retry="doSearch" @dismiss="error = ''" />
     </div>
 
     <!-- 未搜索 -->

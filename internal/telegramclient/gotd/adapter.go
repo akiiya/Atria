@@ -24,8 +24,8 @@ type Adapter struct {
 	flowStore  mtproto.FlowStore
 	logger     *slog.Logger
 	dialFunc   dcs.DialFunc
-	gate       *AccountGate        // per-account 执行锁，用于 fallback
-	runtime    *RuntimeManagerImpl // runtime manager，用于 execution queue
+	gate       *telegramclient.AccountGate // per-account 执行锁，用于 fallback
+	runtime    *RuntimeManagerImpl         // runtime manager，用于 execution queue
 }
 
 // NewAdapter 创建 gotd adapter。
@@ -44,7 +44,7 @@ func (a *Adapter) SetDialer(fn dcs.DialFunc) {
 }
 
 // SetGate 设置 per-account 执行锁（用于 fallback）。
-func (a *Adapter) SetGate(gate *AccountGate) {
+func (a *Adapter) SetGate(gate *telegramclient.AccountGate) {
 	a.gate = gate
 }
 

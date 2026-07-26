@@ -173,7 +173,7 @@ function executeMediaCache() {
               </div>
             </div>
 
-            <div style="border-top:1px solid var(--border);padding-top:16px;">
+            <div style="border-top:1px solid var(--border-color);padding-top:16px;">
               <h4 style="margin-bottom:8px;">{{ t('maintenance.cleanupOrphans') }}</h4>
               <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
                 {{ t('maintenance.cleanupOrphansDesc') }}

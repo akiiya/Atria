@@ -93,7 +93,7 @@ type RuntimeManagerImpl struct {
 	key      []byte
 	bus      *telegramclient.EventBus
 	logger   *slog.Logger
-	gate     *AccountGate // per-account 执行锁
+	gate     *telegramclient.AccountGate // per-account 执行锁
 
 	// dialFunc 用于代理
 	dialFunc dcs.DialFunc
@@ -107,7 +107,7 @@ func NewRuntimeManager(db *gorm.DB, key []byte, bus *telegramclient.EventBus, lo
 		key:      key,
 		bus:      bus,
 		logger:   logger,
-		gate:     NewAccountGate(),
+		gate:     telegramclient.NewAccountGate(),
 	}
 }
 
@@ -118,7 +118,7 @@ func (m *RuntimeManagerImpl) SetDialer(fn dcs.DialFunc) {
 
 // SetGate 设置 per-account 执行锁。
 // 必须在 StartAccount 之前调用，且应与 Adapter 共享同一个 gate。
-func (m *RuntimeManagerImpl) SetGate(gate *AccountGate) {
+func (m *RuntimeManagerImpl) SetGate(gate *telegramclient.AccountGate) {
 	m.gate = gate
 }
 
