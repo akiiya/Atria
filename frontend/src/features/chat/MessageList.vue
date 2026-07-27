@@ -263,24 +263,51 @@ interface RenderRow {
   msg: ChatMessage
   isService: boolean
   showDate: boolean
+  /** 是否为分组中的首条消息（需要显示头像和发送者名称） */
+  isGroupFirst: boolean
+  /** 是否为分组中的末条消息（需要显示时间） */
+  isGroupLast: boolean
+}
+
+/** 判断两条消息是否属于同一分组（同一发送者、5 分钟内、非服务消息） */
+function isSameGroup(a: ChatMessage, b: ChatMessage): boolean {
+  if (a.message_type === 'service' || b.message_type === 'service') return false
+  if (a.is_outgoing !== b.is_outgoing) return false
+  if (!a.is_outgoing && a.sender_name !== b.sender_name) return false
+  const timeDiff = Math.abs(new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime())
+  return timeDiff < 5 * 60 * 1000 // 5 分钟内
 }
 
 const renderRows = computed<RenderRow[]>(() => {
   const list = props.messages
   const rows: RenderRow[] = new Array(list.length)
 
-  // 正序遍历判断日期分隔，同时逆序写入结果
+  // 正序遍历判断日期分隔和分组，同时逆序写入结果
   let prevDay = ''
+  let prevMsg: ChatMessage | null = null
   for (let i = 0; i < list.length; i++) {
     const msg = list[i]
     const day = new Date(msg.sent_at).toDateString()
+    const showDate = i === 0 || day !== prevDay
+
+    // 分组判断：同一天、同一发送者、5 分钟内
+    const inGroup = !showDate && prevMsg && isSameGroup(prevMsg, msg)
+
+    // 判断下一条消息是否同组（用于判断是否为末条）
+    const nextMsg = i + 1 < list.length ? list[i + 1] : null
+    const nextInGroup = nextMsg && !showDate && isSameGroup(msg, nextMsg) &&
+      new Date(msg.sent_at).toDateString() === new Date(nextMsg.sent_at).toDateString()
+
     rows[list.length - 1 - i] = {
       key: messageKey(msg, i),
       msg,
       isService: msg.message_type === 'service',
-      showDate: i === 0 || day !== prevDay,
+      showDate,
+      isGroupFirst: !inGroup,
+      isGroupLast: !nextInGroup,
     }
     prevDay = day
+    prevMsg = msg
   }
   return rows
 })
@@ -331,7 +358,13 @@ onBeforeUnmount(() => {
     <template v-for="row in renderRows" :key="row.key">
       <DateDivider v-if="row.showDate" :date="row.msg.sent_at" />
       <ServiceMessage v-if="row.isService" :message="row.msg" />
-      <MessageBubble v-else :message="row.msg" :peer-type="peerType" />
+      <MessageBubble
+        v-else
+        :message="row.msg"
+        :peer-type="peerType"
+        :group-first="row.isGroupFirst ? 1 : 0"
+        :group-last="row.isGroupLast ? 1 : 0"
+      />
     </template>
 
     <!-- 加载更早消息提示（DOM 顶部 = column-reverse 视觉底部） -->

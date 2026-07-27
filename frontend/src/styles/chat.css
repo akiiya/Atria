@@ -162,6 +162,41 @@
   border: 1px solid var(--border-color);
   border-bottom-left-radius: 6px;
 }
+
+/* ── 消息分组样式 ── */
+/* 分组中的首条消息：保持顶部圆角 */
+.message-bubble.group-first {
+  margin-top: 8px;
+}
+/* 分组中的末条消息：保持底部特殊圆角 */
+.message-bubble.group-last {
+  margin-bottom: 6px;
+}
+.message-bubble.outgoing.group-last {
+  border-bottom-right-radius: 6px;
+}
+.message-bubble.incoming.group-last {
+  border-bottom-left-radius: 6px;
+}
+/* 分组中的中间消息：减小圆角，减少间距 */
+.message-bubble.group-middle {
+  border-radius: 4px;
+  margin-top: 1px;
+  margin-bottom: 1px;
+}
+/* 分组中的非首条消息：去掉顶部圆角 */
+.message-bubble.group-not-first {
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  margin-top: 1px;
+}
+/* 分组中的非末条消息：去掉底部特殊圆角 */
+.message-bubble.group-not-last {
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+  margin-bottom: 1px;
+}
+
 .message-sender { font-size: 12px; font-weight: 600; color: var(--accent-color); margin-bottom: 4px; }
 .message-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
 .message-meta { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 4px; }
