@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from '@/i18n'
 import type { ChatMessage, PeerType } from '@/types/chat'
+import type { ContextMenuItem } from '@/components/ContextMenu.vue'
 import { renderMessageText } from '@/utils/textRenderer'
 import MediaMessage from './MediaMessage.vue'
+import ContextMenu from '@/components/ContextMenu.vue'
 
 const MEDIA_KINDS = ['photo', 'document', 'sticker', 'video', 'voice', 'audio']
 
@@ -16,6 +18,70 @@ const props = defineProps<{
   groupFirst?: number
   groupLast?: number
 }>()
+
+const emit = defineEmits<{
+  reply: [message: ChatMessage]
+  delete: [message: ChatMessage]
+}>()
+
+// ── 右键菜单 ──
+const contextMenuVisible = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+
+function handleContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  contextMenuX.value = e.clientX
+  contextMenuY.value = e.clientY
+  contextMenuVisible.value = true
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false
+}
+
+function copyMessageText() {
+  const text = props.message.text || props.message.caption || ''
+  if (text) {
+    navigator.clipboard.writeText(text).catch(() => {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    })
+  }
+}
+
+const contextMenuItems = computed<ContextMenuItem[]>(() => {
+  const items: ContextMenuItem[] = []
+
+  if (props.message.text || props.message.caption) {
+    items.push({
+      label: t('chat.copyMessage'),
+      icon: '📋',
+      action: copyMessageText,
+    })
+  }
+
+  items.push({
+    label: t('chat.replyToMessage'),
+    icon: '↩️',
+    action: () => emit('reply', props.message),
+  })
+
+  if (props.message.is_outgoing && props.message.status === 'sent') {
+    items.push({
+      label: t('chat.deleteMessage'),
+      icon: '🗑️',
+      action: () => emit('delete', props.message),
+      danger: true,
+    })
+  }
+
+  return items
+})
 
 // 是否为分组模式（有任一分组 prop 被显式传入，即值为 0 或 1）
 const isGrouped = computed(() => props.groupFirst !== undefined || props.groupLast !== undefined)
@@ -61,11 +127,10 @@ function formatTime(iso: string): string {
 </script>
 
 <template>
-  <div :class="[
-    'message-bubble',
-    message.is_outgoing ? 'outgoing' : 'incoming',
-    groupClasses,
-  ]">
+  <div
+    :class="['message-bubble', message.is_outgoing ? 'outgoing' : 'incoming', groupClasses]"
+    @contextmenu="handleContextMenu"
+  >
     <div v-if="showSenderLabel" class="message-sender">
       {{ message.sender_name }}
     </div>
@@ -81,5 +146,14 @@ function formatTime(iso: string): string {
         {{ message.status === 'sent' ? '✓' : message.status === 'failed' ? '✕' : '?' }}
       </span>
     </div>
+
+    <!-- 右键菜单 -->
+    <ContextMenu
+      v-if="contextMenuVisible"
+      :items="contextMenuItems"
+      :x="contextMenuX"
+      :y="contextMenuY"
+      @close="closeContextMenu"
+    />
   </div>
 </template>
