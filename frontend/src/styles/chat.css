@@ -164,8 +164,6 @@
 }
 .message-sender { font-size: 12px; font-weight: 600; color: var(--accent-color); margin-bottom: 4px; }
 .message-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
-.message-text a { color: inherit; text-decoration: underline; }
-.message-bubble.outgoing .message-text a { color: var(--text-inverse); }
 .message-meta { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 4px; }
 .message-time { font-size: 11px; opacity: 0.6; }
 .message-status { font-size: 12px; }
@@ -311,6 +309,85 @@
 }
 .btn-back:hover { background: var(--bg-secondary); }
 .btn-back:active { background: var(--bg-tertiary); }
+
+/* ── 消息实体样式 ── */
+.message-text .spoiler {
+  background: var(--text-secondary);
+  color: transparent;
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.message-text .spoiler:hover,
+.message-text .spoiler.revealed {
+  background: transparent;
+  color: inherit;
+}
+
+.message-text .mention {
+  color: var(--accent-color);
+  font-weight: 500;
+  cursor: pointer;
+}
+.message-text .mention:hover { text-decoration: underline; }
+
+.message-text .hashtag {
+  color: var(--accent-color);
+  cursor: pointer;
+}
+.message-text .hashtag:hover { text-decoration: underline; }
+
+.message-text .bot-command {
+  color: var(--accent-color);
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.95em;
+}
+
+.message-text .custom-emoji {
+  /* 自定义 emoji 占位，后续可替换为实际贴纸图片 */
+  font-weight: 600;
+}
+
+.message-text code {
+  font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+  font-size: 0.9em;
+  padding: 1px 4px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.message-text pre {
+  margin: 4px 0;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.message-text pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.message-text blockquote {
+  margin: 4px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--border-color);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.message-text a {
+  color: inherit;
+  text-decoration: underline;
+}
+.message-bubble.outgoing .message-text a {
+  color: var(--text-inverse);
+}
 
 /* Mobile */
 @media (max-width: 768px) {

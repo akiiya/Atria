@@ -29,6 +29,28 @@ export interface MediaInfo {
   thumbnail?: string
 }
 
+/**
+ * 消息正文格式化实体类型。
+ * 与 Telegram 的 MessageEntity 类型一一对应。
+ */
+export type EntityType =
+  | 'bold' | 'italic' | 'underline' | 'strike' | 'spoiler'
+  | 'code' | 'pre' | 'blockquote'
+  | 'url' | 'text_url' | 'mention' | 'hashtag' | 'email' | 'phone'
+  | 'bot_command' | 'custom_emoji'
+
+/**
+ * 消息正文格式化区间。
+ * offset/length 以 UTF-16 码元计（与 JS 字符串索引一致）。
+ */
+export interface MessageEntity {
+  type: EntityType
+  offset: number
+  length: number
+  url?: string
+  language?: string
+}
+
 export interface MediaInfoExtended extends MediaInfo {
   download_available?: boolean
   local_status?: string
@@ -61,6 +83,8 @@ export interface ChatMessage {
   media?: MediaInfo
   has_media?: boolean
   media_info?: MediaInfoExtended
+  /** 正文格式化区间（粗体、代码、链接等），为空表示纯文本 */
+  entities?: MessageEntity[]
 }
 
 export interface SendResult {

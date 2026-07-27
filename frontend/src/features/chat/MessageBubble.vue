@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n'
 import type { ChatMessage, PeerType } from '@/types/chat'
+import { renderMessageText } from '@/utils/textRenderer'
 import MediaMessage from './MediaMessage.vue'
 
 const MEDIA_KINDS = ['photo', 'document', 'sticker', 'video', 'voice', 'audio']
@@ -18,22 +19,8 @@ const showSenderLabel = computed(() =>
 
 const isMedia = computed(() => MEDIA_KINDS.includes(props.message.message_type))
 
-// 消息正文渲染结果；message.text 变化时（如收到 edit 事件）自动重算
-const renderedText = computed(() => linkify(props.message.text))
-
-function escapeHtml(str: string): string {
-  const div = document.createElement('div')
-  div.appendChild(document.createTextNode(str))
-  return div.innerHTML
-}
-
-function linkify(text: string): string {
-  const escaped = escapeHtml(text)
-  return escaped.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-  )
-}
+// 消息正文渲染结果；message.text 或 entities 变化时自动重算
+const renderedText = computed(() => renderMessageText(props.message.text, props.message.entities))
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })

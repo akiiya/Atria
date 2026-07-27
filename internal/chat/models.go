@@ -65,6 +65,19 @@ type Message struct {
 	Caption           string           `json:"caption,omitempty"`
 	HasMedia          bool             `json:"has_media"`
 	MediaInfo         *MediaInfo       `json:"media_info,omitempty"`
+
+	// Entities 是正文格式化区间（粗体、代码、链接、剧透等），为空表示纯文本。
+	Entities []MessageEntity `json:"entities,omitempty"`
+}
+
+// MessageEntity 正文格式化区间（中立 DTO）。
+// Offset / Length 以 UTF-16 码元计，可直接用于前端 JS 字符串索引。
+type MessageEntity struct {
+	Type     string `json:"type"`
+	Offset   int    `json:"offset"`
+	Length   int    `json:"length"`
+	URL      string `json:"url,omitempty"`
+	Language string `json:"language,omitempty"`
 }
 
 // MediaInfo 媒体元信息（中立 DTO）。

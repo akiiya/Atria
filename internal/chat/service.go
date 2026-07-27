@@ -1210,6 +1210,18 @@ func mapNeutralMessageToChatMessage(m telegramclient.Message) Message {
 		Caption:           m.Caption,
 		HasMedia:          m.Media != nil,
 	}
+	if len(m.Entities) > 0 {
+		msg.Entities = make([]MessageEntity, 0, len(m.Entities))
+		for _, e := range m.Entities {
+			msg.Entities = append(msg.Entities, MessageEntity{
+				Type:     string(e.Type),
+				Offset:   e.Offset,
+				Length:   e.Length,
+				URL:      e.URL,
+				Language: e.Language,
+			})
+		}
+	}
 	if m.Media != nil {
 		msg.MediaInfo = &MediaInfo{
 			FileName:          m.Media.FileName,

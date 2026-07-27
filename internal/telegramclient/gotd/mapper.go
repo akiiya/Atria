@@ -150,6 +150,9 @@ func mapMessage(m *tg.Message, peerRef string) telegramclient.Message {
 		msg.Text = m.Message
 	}
 
+	// 正文格式化实体（粗体、代码、链接、剧透等）
+	msg.Entities = mapEntities(m.Entities)
+
 	// 提取 caption 和媒体信息
 	if m.Media != nil {
 		// 在 gotd v0.115.0 中，媒体消息的 caption 存储在 Message.Message 字段中

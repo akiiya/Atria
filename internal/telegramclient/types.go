@@ -91,6 +91,47 @@ type Message struct {
 	IsOutgoing        bool             `json:"is_outgoing"`
 	Status            MessageStatus    `json:"status"`
 	Media             *Media           `json:"media,omitempty"`
+
+	// Entities 是正文中的格式化区间（粗体、代码、链接、剧透等）。
+	// 为空表示纯文本。
+	Entities []MessageEntity `json:"entities,omitempty"`
+}
+
+// EntityType 表示消息文本实体类型。
+type EntityType string
+
+const (
+	EntityBold        EntityType = "bold"
+	EntityItalic      EntityType = "italic"
+	EntityUnderline   EntityType = "underline"
+	EntityStrike      EntityType = "strike"
+	EntitySpoiler     EntityType = "spoiler"
+	EntityCode        EntityType = "code"
+	EntityPre         EntityType = "pre"
+	EntityBlockquote  EntityType = "blockquote"
+	EntityURL         EntityType = "url"
+	EntityTextURL     EntityType = "text_url"
+	EntityMention     EntityType = "mention"
+	EntityHashtag     EntityType = "hashtag"
+	EntityEmail       EntityType = "email"
+	EntityPhone       EntityType = "phone"
+	EntityBotCommand  EntityType = "bot_command"
+	EntityCustomEmoji EntityType = "custom_emoji"
+)
+
+// MessageEntity 表示消息正文中的一段格式化区间。
+//
+// Offset 和 Length 以 UTF-16 码元计（Telegram 的原生单位），
+// 前端使用同为 UTF-16 的 JS 字符串索引，可直接对应。
+type MessageEntity struct {
+	Type   EntityType `json:"type"`
+	Offset int        `json:"offset"`
+	Length int        `json:"length"`
+
+	// URL 仅 text_url 类型使用，存放链接目标。
+	URL string `json:"url,omitempty"`
+	// Language 仅 pre 类型使用，存放代码块语言标识。
+	Language string `json:"language,omitempty"`
 }
 
 // Media 表示消息媒体信息。
