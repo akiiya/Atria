@@ -9,6 +9,11 @@ import ErrorBanner from '@/components/ErrorBanner.vue'
 const { t } = useI18n()
 const router = useRouter()
 
+const props = defineProps<{
+  /** 限定搜索范围到特定会话（会话内搜索） */
+  peerRef?: string
+}>()
+
 function escapeHtml(str: string): string {
   const div = document.createElement('div')
   div.appendChild(document.createTextNode(str))
@@ -49,7 +54,7 @@ async function doSearch() {
   loading.value = true
   error.value = ''
   try {
-    const resp = await searchMessages(q, undefined, limit, offset.value)
+    const resp = await searchMessages(q, props.peerRef, limit, offset.value)
     if (resp.ok) {
       results.value = resp.results
       total.value = resp.total

@@ -8,6 +8,7 @@ import { useI18n } from '@/i18n'
 import MessageHeader from './MessageHeader.vue'
 import MessageList from './MessageList.vue'
 import MessageComposer from './MessageComposer.vue'
+import SearchView from '@/features/search/SearchView.vue'
 import ErrorBanner from '@/components/ErrorBanner.vue'
 import type { ChatMessage, Dialog, PeerType } from '@/types/chat'
 
@@ -291,6 +292,13 @@ function handleReply(message: ChatMessage) {
 function cancelReply() {
   replyTo.value = null
 }
+
+// ── 会话内搜索 ──
+const showSearch = ref(false)
+
+function toggleSearch() {
+  showSearch.value = !showSearch.value
+}
 </script>
 
 <template>
@@ -303,9 +311,15 @@ function cancelReply() {
       :stale="false"
       :peer-type="peerType"
       @refresh="refetch()"
+      @toggle-search="toggleSearch"
     />
 
-    <div v-if="isLoading && visibleMessages.length === 0" class="message-body">
+    <!-- 会话内搜索 -->
+    <div v-if="showSearch" class="message-search-panel">
+      <SearchView :peer-ref="peerRef" />
+    </div>
+
+    <div v-else-if="isLoading && visibleMessages.length === 0" class="message-body">
       <div class="message-loading">
         <div class="skeleton-list">
           <div v-for="i in 6" :key="i" class="skeleton-item">
@@ -367,5 +381,12 @@ function cancelReply() {
   font-size: 12px;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
+}
+
+.message-search-panel {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 </style>

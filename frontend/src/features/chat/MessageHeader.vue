@@ -17,7 +17,7 @@ const props = defineProps<{
   /** peer 类型 */
   peerType?: string
 }>()
-const emit = defineEmits<{ refresh: [] }>()
+const emit = defineEmits<{ refresh: []; 'toggle-search': [] }>()
 
 const router = useRouter()
 const chat = useChatStore()
@@ -48,6 +48,16 @@ function handleClick() {
       <span class="message-header-title">{{ title || peerRef }}</span>
       <span v-if="peerTypeLabel(peerType)" class="message-header-type">{{ peerTypeLabel(peerType) }}</span>
     </div>
+    <button
+      class="header-action-btn"
+      :title="t('search.title')"
+      @click="emit('toggle-search')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <path d="M21 21l-4.35-4.35"/>
+      </svg>
+    </button>
     <span
       :class="['sync-icon', syncing ? 'sync-loading' : stale ? 'sync-connecting' : 'sync-idle']"
       :title="syncing ? t('chat.syncing') : stale ? t('chat.dataStale') : t('chat.synced')"
@@ -59,3 +69,30 @@ function handleClick() {
     </span>
   </div>
 </template>
+
+<style scoped>
+.header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.header-action-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.header-action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+</style>
