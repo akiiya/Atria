@@ -64,7 +64,7 @@ func (f *FakeService) LoadOlderMessages(_ context.Context, accountID uint, peerR
 }
 
 // SendText 返回预设的发送结果，并记录调用次数。
-func (f *FakeService) SendText(_ context.Context, accountID uint, peerRef string, text string) (*SendResult, error) {
+func (f *FakeService) SendText(_ context.Context, accountID uint, peerRef string, text string, replyToMsgID int) (*SendResult, error) {
 	f.SendCallCount++
 	if f.SendErr != nil {
 		return nil, f.SendErr

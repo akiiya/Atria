@@ -367,11 +367,15 @@ func (a *Adapter) SendText(ctx context.Context, req telegramclient.SendTextReque
 func (a *Adapter) sendTextViaExecutor(ctx context.Context, executor *RuntimeExecutor, inputPeer tg.InputPeerClass, req telegramclient.SendTextRequest) (telegramclient.SendResult, error) {
 	var result telegramclient.SendResult
 	err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
-		apiResult, err := api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
+		sendReq := &tg.MessagesSendMessageRequest{
 			Peer:     inputPeer,
 			Message:  req.Text,
 			RandomID: req.ClientRandomID,
-		})
+		}
+		if req.ReplyToMsgID > 0 {
+			sendReq.ReplyTo = &tg.InputReplyToMessage{ReplyToMsgID: req.ReplyToMsgID}
+		}
+		apiResult, err := api.MessagesSendMessage(ctx, sendReq)
 		if err != nil {
 			return err
 		}
@@ -418,11 +422,15 @@ func (a *Adapter) sendTextFallback(ctx context.Context, inputPeer tg.InputPeerCl
 
 	var result telegramclient.SendResult
 	err := client.RunWithSession(ctx, req.APIID, req.APIHash, req.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
-		apiResult, err := api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
+		sendReq := &tg.MessagesSendMessageRequest{
 			Peer:     inputPeer,
 			Message:  req.Text,
 			RandomID: req.ClientRandomID,
-		})
+		}
+		if req.ReplyToMsgID > 0 {
+			sendReq.ReplyTo = &tg.InputReplyToMessage{ReplyToMsgID: req.ReplyToMsgID}
+		}
+		apiResult, err := api.MessagesSendMessage(ctx, sendReq)
 		if err != nil {
 			return err
 		}

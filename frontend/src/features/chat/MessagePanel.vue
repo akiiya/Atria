@@ -280,6 +280,17 @@ function handleSent() {
   queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
   debouncedMarkRead('send_message')
 }
+
+// ── 回复引用 ──
+const replyTo = ref<ChatMessage | null>(null)
+
+function handleReply(message: ChatMessage) {
+  replyTo.value = message
+}
+
+function cancelReply() {
+  replyTo.value = null
+}
 </script>
 
 <template>
@@ -327,10 +338,17 @@ function handleSent() {
         :peer-ref="peerRef"
         @load-older="loadOlder"
         @scroll-to-bottom="handleScrolledToBottom"
+        @reply="handleReply"
       />
     </div>
 
-    <MessageComposer :peer-ref="peerRef" :account-id="accountId" @sent="handleSent" />
+    <MessageComposer
+      :peer-ref="peerRef"
+      :account-id="accountId"
+      :reply-to="replyTo"
+      @sent="handleSent"
+      @cancel-reply="cancelReply"
+    />
   </div>
 </template>
 

@@ -136,7 +136,7 @@ type Service interface {
 	LoadOlderMessages(ctx context.Context, accountID uint, peerRef string, beforeMessageID int, limit int, forceRefresh bool) (*MessagesResult, error)
 
 	// SendText 向指定会话发送文本消息。
-	SendText(ctx context.Context, accountID uint, peerRef string, text string) (*SendResult, error)
+	SendText(ctx context.Context, accountID uint, peerRef string, text string, replyToMsgID int) (*SendResult, error)
 
 	// GetContacts 获取联系人列表（cache-first）。
 	// forceRefresh=true 时跳过缓存直接调 Telegram。

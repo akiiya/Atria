@@ -15,8 +15,16 @@ const TEXTAREA_MAX_HEIGHT = 120
 
 const { t } = useI18n()
 const chat = useChatStore()
-const props = defineProps<{ peerRef: string; accountId: number }>()
-const emit = defineEmits<{ sent: [] }>()
+const props = defineProps<{
+  peerRef: string
+  accountId: number
+  /** 被引用的消息（回复功能） */
+  replyTo?: ChatMessage | null
+}>()
+const emit = defineEmits<{
+  sent: []
+  'cancel-reply': []
+}>()
 
 const text = ref(chat.getDraft(props.peerRef))
 const error = ref('')
@@ -52,7 +60,7 @@ watch(text, () => nextTick(autoResize))
 
 const sendMutation = useMutation({
   mutationFn: (vars: { text: string; localId: string }) =>
-    sendMessage(props.peerRef, vars.text, vars.localId),
+    sendMessage(props.peerRef, vars.text, vars.localId, props.replyTo?.telegram_message_id),
   onMutate: (vars) => {
     const optimistic: ChatMessage = {
       id: negativeLocalID(vars.localId),
@@ -93,8 +101,9 @@ const sendMutation = useMutation({
       }
       text.value = ''
       error.value = ''
-      // 发送成功后清除草稿，否则切走再切回会复现已发送的内容
+      // 发送成功后清除草稿和回复状态
       chat.saveDraft(props.peerRef, '')
+      emit('cancel-reply')
       queryClient.invalidateQueries({ queryKey: ['dialogs', props.accountId] })
       emit('sent')
     } else {
@@ -141,6 +150,14 @@ function negativeLocalID(seed: string): number {
 
 <template>
   <div class="message-composer">
+    <!-- 回复引用：显示被引用的消息摘要 -->
+    <div v-if="replyTo" class="composer-reply">
+      <div class="composer-reply-info">
+        <span class="composer-reply-name">{{ replyTo.sender_name || t('chat.replyToMessage') }}</span>
+        <span class="composer-reply-text">{{ replyTo.text || replyTo.caption || t('media.photo') }}</span>
+      </div>
+      <button class="composer-reply-cancel" @click="emit('cancel-reply')">✕</button>
+    </div>
     <div v-if="error" class="composer-error">{{ error }}</div>
     <div class="composer-row">
       <textarea
@@ -162,3 +179,58 @@ function negativeLocalID(seed: string): number {
     </div>
   </div>
 </template>
+
+<style scoped>
+.composer-reply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--accent-color);
+  border-radius: 4px;
+}
+
+.composer-reply-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-reply-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-color);
+}
+
+.composer-reply-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-reply-cancel {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.composer-reply-cancel:hover {
+  background: var(--bg-secondary);
+}
+</style>

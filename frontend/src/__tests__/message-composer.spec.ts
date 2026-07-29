@@ -160,7 +160,7 @@ describe('MessageComposer', () => {
       await w.find('button').trigger('click')
 
       await vi.waitFor(() =>
-        expect(mockSend).toHaveBeenCalledWith('u_123', '你好', expect.any(String))
+        expect(mockSend).toHaveBeenCalledWith('u_123', '你好', expect.any(String), undefined)
       )
     })
 

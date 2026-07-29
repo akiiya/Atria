@@ -198,6 +198,8 @@ type SendTextRequest struct {
 	PeerID          int64
 	PeerType        PeerType
 	AccessHash      int64
+	// ReplyToMsgID 是回复目标消息的 ID。0 表示不回复。
+	ReplyToMsgID int
 }
 
 // DialogsPage 是会话列表结果。

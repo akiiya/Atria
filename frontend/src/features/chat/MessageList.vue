@@ -15,7 +15,7 @@ const props = defineProps<{
   peerRef?: string
 }>()
 
-const emit = defineEmits<{ 'load-older': []; 'scroll-to-bottom': [] }>()
+const emit = defineEmits<{ 'load-older': []; 'scroll-to-bottom': []; reply: [message: ChatMessage] }>()
 
 const { t } = useI18n()
 
@@ -364,6 +364,7 @@ onBeforeUnmount(() => {
         :peer-type="peerType"
         :group-first="row.isGroupFirst ? 1 : 0"
         :group-last="row.isGroupLast ? 1 : 0"
+        @reply="emit('reply', $event)"
       />
     </template>
 

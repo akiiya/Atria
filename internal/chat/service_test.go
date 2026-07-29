@@ -183,7 +183,7 @@ func TestChatService_SendText_UsesAdapter(t *testing.T) {
 	}
 	svc := NewChatService(db, testKey, fake, slog.Default())
 
-	result, err := svc.SendText(context.Background(), account.ID, "u_999", "hello")
+	result, err := svc.SendText(context.Background(), account.ID, "u_999", "hello", 0)
 	if err != nil {
 		t.Fatalf("SendText 失败: %s", err)
 	}
@@ -259,7 +259,7 @@ func TestChatService_SendText_TextEmpty(t *testing.T) {
 	db := setupTestDB(t)
 	svc := NewChatService(db, testKey, nil, slog.Default())
 
-	_, err := svc.SendText(context.Background(), 1, "u_1", "")
+	_, err := svc.SendText(context.Background(), 1, "u_1", "", 0)
 	if err == nil {
 		t.Fatal("空文本应返回错误")
 	}
@@ -281,7 +281,7 @@ func TestChatService_SendText_TextTooLong(t *testing.T) {
 		longText += "a"
 	}
 
-	_, err := svc.SendText(context.Background(), 1, "u_1", longText)
+	_, err := svc.SendText(context.Background(), 1, "u_1", longText, 0)
 	if err == nil {
 		t.Fatal("超长文本应返回错误")
 	}

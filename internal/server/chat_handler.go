@@ -104,6 +104,7 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 	// 解析请求
 	var req struct {
 		Text         string   `json:"text"`
+		ReplyTo      int      `json:"reply_to"` // 回复目标消息 ID，0 表示不回复
 		Peers        []string `json:"peers"`
 		PeerRefs     []string `json:"peer_refs"`
 		Recipients   []string `json:"recipients"`
@@ -142,7 +143,7 @@ func (s *Server) handlePostChatSend(c *gin.Context) {
 	sendCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	result, err := chatSvc.SendText(sendCtx, selectedID, peerRef, text)
+	result, err := chatSvc.SendText(sendCtx, selectedID, peerRef, text, req.ReplyTo)
 	if err != nil {
 		slog.Error("发送消息失败", "error", err, "peer_ref_length", len(peerRef), "text_len", len(text))
 		errMsg := s.classifyChatError(err)

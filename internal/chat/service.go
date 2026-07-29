@@ -439,7 +439,8 @@ func (s *ChatService) LoadOlderMessages(ctx context.Context, accountID uint, pee
 }
 
 // SendText 发送文本消息。
-func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef string, text string) (*SendResult, error) {
+// replyToMsgID > 0 时表示回复指定消息。
+func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef string, text string, replyToMsgID int) (*SendResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, &ChatError{Code: "text_empty", Message: "消息内容不能为空"}
@@ -492,6 +493,7 @@ func (s *ChatService) SendText(ctx context.Context, accountID uint, peerRef stri
 		PeerID:          cache.PeerID,
 		PeerType:        telegramclient.PeerType(cache.PeerType),
 		AccessHash:      accessHash,
+		ReplyToMsgID:    replyToMsgID,
 	})
 	if err != nil {
 		return nil, s.classifyError(err)
