@@ -95,6 +95,9 @@ type Message struct {
 	// Entities 是正文中的格式化区间（粗体、代码、链接、剧透等）。
 	// 为空表示纯文本。
 	Entities []MessageEntity `json:"entities,omitempty"`
+
+	// Reactions 是消息的表情反应列表。
+	Reactions []Reaction `json:"reactions,omitempty"`
 }
 
 // EntityType 表示消息文本实体类型。
@@ -132,6 +135,30 @@ type MessageEntity struct {
 	URL string `json:"url,omitempty"`
 	// Language 仅 pre 类型使用，存放代码块语言标识。
 	Language string `json:"language,omitempty"`
+}
+
+// Reaction 表示一个表情反应。
+type Reaction struct {
+	// Emoji 是表情符号（如 "👍"、"❤️"）。
+	Emoji string `json:"emoji"`
+	// Count 是使用该表情的人数。
+	Count int `json:"count"`
+	// IsOwn 表示当前用户是否使用了该表情。
+	IsOwn bool `json:"is_own"`
+}
+
+// SendReactionRequest 是发送表情反应的请求。
+type SendReactionRequest struct {
+	AccountID       uint
+	PeerRef         string
+	MessageID       int
+	Emoji           string // 空字符串表示移除反应
+	APIID           int
+	APIHash         string
+	SessionFilePath string
+	PeerID          int64
+	PeerType        PeerType
+	AccessHash      int64
 }
 
 // Media 表示消息媒体信息。

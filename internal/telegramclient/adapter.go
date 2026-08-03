@@ -31,6 +31,9 @@ type ClientAdapter interface {
 
 	// MarkRead 标记会话消息为已读。
 	MarkRead(ctx context.Context, req MarkReadRequest) error
+
+	// SendReaction 发送或移除表情反应。
+	SendReaction(ctx context.Context, req SendReactionRequest) error
 }
 
 // AdapterConfig 是适配器的通用配置。

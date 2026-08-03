@@ -587,6 +587,67 @@ func (s *ChatService) MarkRead(ctx context.Context, accountID uint, peerRef stri
 	return nil
 }
 
+// SendReaction 发送或移除表情反应。
+// emoji 为空字符串时移除反应。
+func (s *ChatService) SendReaction(ctx context.Context, accountID uint, peerRef string, messageID int, emoji string) error {
+	if peerRef == "" {
+		return &ChatError{Code: "peer_invalid", Message: "会话引用不能为空"}
+	}
+	if messageID <= 0 {
+		return &ChatError{Code: "message_invalid", Message: "消息 ID 无效"}
+	}
+
+	account, cred, err := s.GetAccountAndCredential(accountID)
+	if err != nil {
+		return err
+	}
+
+	cache, err := s.GetPeerCache(accountID, peerRef)
+	if err != nil {
+		return err
+	}
+
+	// 解密 access_hash
+	var accessHash int64
+	if PeerType(cache.PeerType) == PeerTypeUser || PeerType(cache.PeerType) == PeerTypeChannel || PeerType(cache.PeerType) == PeerTypeSupergroup {
+		if cache.AccessHashEncrypted != "" {
+			accessHash, err = s.DecryptAccessHash(cache.AccessHashEncrypted)
+			if err != nil {
+				return &ChatError{Code: "peer_incomplete", Message: "会话信息解密失败"}
+			}
+		}
+	}
+
+	apiHash, err := security.DecryptAPIHash(s.key, cred.EncryptedAPIHash)
+	if err != nil {
+		return &ChatError{Code: "api_key_invalid", Message: "解密 API Hash 失败"}
+	}
+
+	s.logger.Info("发送表情反应",
+		"peer_ref", peerRef,
+		"message_id", messageID,
+		"emoji", emoji,
+	)
+
+	err = s.adapter.SendReaction(ctx, telegramclient.SendReactionRequest{
+		AccountID:       accountID,
+		PeerRef:         peerRef,
+		MessageID:       messageID,
+		Emoji:           emoji,
+		APIID:           int(cred.APIID),
+		APIHash:         apiHash,
+		SessionFilePath: account.Session.SessionFilePath,
+		PeerID:          cache.PeerID,
+		PeerType:        telegramclient.PeerType(cache.PeerType),
+		AccessHash:      accessHash,
+	})
+	if err != nil {
+		return s.classifyError(err)
+	}
+
+	return nil
+}
+
 // GetPeerCache 从缓存获取 peer 信息，验证 account_id 匹配。
 func (s *ChatService) GetPeerCache(accountID uint, peerRef string) (*model.ChatPeerCache, error) {
 	var cache model.ChatPeerCache
@@ -1236,6 +1297,16 @@ func mapNeutralMessageToChatMessage(m telegramclient.Message) Message {
 			Thumbnail:         m.Media.Thumbnail,
 			DownloadAvailable: true,
 			LocalStatus:       "none",
+		}
+	}
+	if len(m.Reactions) > 0 {
+		msg.Reactions = make([]Reaction, 0, len(m.Reactions))
+		for _, r := range m.Reactions {
+			msg.Reactions = append(msg.Reactions, Reaction{
+				Emoji: r.Emoji,
+				Count: r.Count,
+				IsOwn: r.IsOwn,
+			})
 		}
 	}
 	return msg

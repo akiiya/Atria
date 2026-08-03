@@ -29,6 +29,12 @@ export interface MediaInfo {
   thumbnail?: string
 }
 
+export interface Reaction {
+  emoji: string
+  count: number
+  is_own: boolean
+}
+
 /**
  * 消息正文格式化实体类型。
  * 与 Telegram 的 MessageEntity 类型一一对应。
@@ -85,6 +91,8 @@ export interface ChatMessage {
   media_info?: MediaInfoExtended
   /** 正文格式化区间（粗体、代码、链接等），为空表示纯文本 */
   entities?: MessageEntity[]
+  /** 表情反应列表 */
+  reactions?: Reaction[]
 }
 
 export interface SendResult {

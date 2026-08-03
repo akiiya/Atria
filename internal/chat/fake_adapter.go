@@ -108,5 +108,10 @@ func (f *FakeAdapter) MarkRead(ctx context.Context, req telegramclient.MarkReadR
 	return f.MarkErr
 }
 
+// SendReaction 模拟发送表情反应。
+func (f *FakeAdapter) SendReaction(ctx context.Context, req telegramclient.SendReactionRequest) error {
+	return nil
+}
+
 // 确保 FakeAdapter 实现 ClientAdapter。
 var _ telegramclient.ClientAdapter = (*FakeAdapter)(nil)

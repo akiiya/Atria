@@ -162,6 +162,9 @@ func mapMessage(m *tg.Message, peerRef string) telegramclient.Message {
 		msg.Media = extractMediaInfo(m.Media)
 	}
 
+	// 提取表情反应
+	msg.Reactions = extractReactions(m.Reactions)
+
 	return msg
 }
 
@@ -260,6 +263,38 @@ func getDocumentFilename(doc *tg.Document) string {
 		if fn, ok := attr.(*tg.DocumentAttributeFilename); ok {
 			return fn.FileName
 		}
+	}
+	return ""
+}
+
+// extractReactions 从消息反应中提取中立 DTO。
+func extractReactions(reactions tg.MessageReactions) []telegramclient.Reaction {
+	if len(reactions.Results) == 0 {
+		return nil
+	}
+
+	result := make([]telegramclient.Reaction, 0, len(reactions.Results))
+	for _, r := range reactions.Results {
+		emoji := extractReactionEmoji(r.Reaction)
+		if emoji == "" {
+			continue // 跳过非标准 emoji 反应
+		}
+		result = append(result, telegramclient.Reaction{
+			Emoji:  emoji,
+			Count:  r.Count,
+			IsOwn:  r.ChosenOrder > 0,
+		})
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// extractReactionEmoji 从反应类型中提取 emoji 字符串。
+func extractReactionEmoji(reaction tg.ReactionClass) string {
+	if r, ok := reaction.(*tg.ReactionEmoji); ok {
+		return r.Emoticon
 	}
 	return ""
 }

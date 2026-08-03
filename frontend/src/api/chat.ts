@@ -35,3 +35,10 @@ export function markRead(peerRef: string, maxId?: number, reason?: string): Prom
     { max_id: maxId || 0, reason: reason || 'open_chat' }
   )
 }
+
+export function sendReaction(peerRef: string, messageId: number, emoji: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(
+    `/api/chats/${encodeURIComponent(peerRef)}/messages/${messageId}/reaction`,
+    { emoji }
+  )
+}

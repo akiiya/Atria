@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -207,6 +208,56 @@ func (s *Server) handlePostChatRead(c *gin.Context) {
 			"error", err,
 			"peer_ref_length", len(peerRef),
 			"max_id", req.MaxID,
+		)
+		errMsg := s.classifyChatError(err)
+		errCode := "telegram_error"
+		if chatErr, ok := err.(*chat.ChatError); ok {
+			errCode = chatErr.Code
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": errCode, "message": errMsg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// handlePostReaction 处理 POST /api/chats/:peer_ref/messages/:message_id/reaction - 发送表情反应。
+func (s *Server) handlePostReaction(c *gin.Context) {
+	peerRef := c.Param("peer_ref")
+	if peerRef == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "peer_invalid", "message": "缺少会话引用"})
+		return
+	}
+
+	messageIDStr := c.Param("message_id")
+	messageID, err := strconv.Atoi(messageIDStr)
+	if err != nil || messageID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "message_invalid", "message": "消息 ID 无效"})
+		return
+	}
+
+	selectedID := s.resolveCurrentAccountID(c)
+	if selectedID == 0 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "code": "no_current_account", "message": "请先接入 Telegram 账号"})
+		return
+	}
+
+	var req struct {
+		Emoji string `json:"emoji"`
+	}
+	c.ShouldBindJSON(&req)
+
+	chatSvc := s.newChatService()
+
+	reactionCtx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	err = chatSvc.SendReaction(reactionCtx, selectedID, peerRef, messageID, req.Emoji)
+	if err != nil {
+		slog.Warn("发送表情反应失败",
+			"error", err,
+			"peer_ref_length", len(peerRef),
+			"message_id", messageID,
 		)
 		errMsg := s.classifyChatError(err)
 		errCode := "telegram_error"

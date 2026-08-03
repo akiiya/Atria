@@ -722,6 +722,57 @@ func (a *Adapter) markReadChannel(ctx context.Context, req telegramclient.MarkRe
 	return nil
 }
 
+// SendReaction 发送或移除表情反应。
+// emoji 为空字符串时移除反应。
+func (a *Adapter) SendReaction(ctx context.Context, req telegramclient.SendReactionRequest) error {
+	inputPeer := buildInputPeerFromInfo(req.PeerID, req.PeerType, req.AccessHash)
+	if inputPeer == nil {
+		return telegramclient.NewError(telegramclient.ErrorCodePeerInvalid, "无效的会话类型")
+	}
+
+	reactions := []tg.ReactionClass{}
+	if req.Emoji != "" {
+		reactions = append(reactions, &tg.ReactionEmoji{Emoticon: req.Emoji})
+	}
+
+	sendReq := &tg.MessagesSendReactionRequest{
+		Peer:  inputPeer,
+		MsgID: req.MessageID,
+	}
+	if len(reactions) > 0 {
+		sendReq.SetReaction(reactions)
+	}
+
+	if executor := a.getExecutor(req.AccountID); executor != nil {
+		err := executor.Execute(ctx, func(ctx context.Context, api *tg.Client) error {
+			_, err := api.MessagesSendReaction(ctx, sendReq)
+			return err
+		})
+		if err != nil {
+			return classifyError(err)
+		}
+		return nil
+	}
+
+	// Fallback
+	unlock := a.acquireGate(req.AccountID)
+	defer unlock()
+
+	client := mtproto.NewGotdClient(a.sessionDir, a.key, a.flowStore, a.logger)
+	if a.dialFunc != nil {
+		client.SetDialer(a.dialFunc)
+	}
+
+	err := client.RunWithSession(ctx, req.APIID, req.APIHash, req.SessionFilePath, func(ctx context.Context, api *tg.Client) error {
+		_, err := api.MessagesSendReaction(ctx, sendReq)
+		return err
+	})
+	if err != nil {
+		return classifyError(err)
+	}
+	return nil
+}
+
 // 确保 Adapter 实现 ClientAdapter。
 var _ telegramclient.ClientAdapter = (*Adapter)(nil)
 

@@ -303,6 +303,11 @@ func (s *Server) setupRoutes(r *gin.Engine) {
 		s.handlePostChatRead(c)
 	})
 
+	// 发送表情反应
+	r.POST("/api/chats/:peer_ref/messages/:message_id/reaction", authMiddleware, csrfMiddleware, func(c *gin.Context) {
+		s.handlePostReaction(c)
+	})
+
 	// ===== JSON API (Vue SPA) =====
 
 	// 当前用户和账号信息

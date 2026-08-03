@@ -4,6 +4,7 @@ import { useI18n } from '@/i18n'
 import type { ChatMessage, PeerType } from '@/types/chat'
 import type { ContextMenuItem } from '@/components/ContextMenu.vue'
 import { renderMessageText } from '@/utils/textRenderer'
+import { sendReaction } from '@/api/chat'
 import MediaMessage from './MediaMessage.vue'
 import ContextMenu from '@/components/ContextMenu.vue'
 
@@ -83,6 +84,23 @@ const contextMenuItems = computed<ContextMenuItem[]>(() => {
   return items
 })
 
+// ── 表情反应 ──
+function handleReaction(emoji: string) {
+  const peerRef = props.message.peer_ref
+  const messageId = props.message.telegram_message_id || props.message.id
+  if (!peerRef || !messageId) return
+
+  // 检查是否已经反应过这个 emoji
+  const existing = props.message.reactions?.find(r => r.emoji === emoji)
+  if (existing?.is_own) {
+    // 已经反应过，移除反应
+    sendReaction(peerRef, messageId, '')
+  } else {
+    // 发送新反应
+    sendReaction(peerRef, messageId, emoji)
+  }
+}
+
 // 是否为分组模式（有任一分组 prop 被显式传入，即值为 0 或 1）
 const isGrouped = computed(() => props.groupFirst !== undefined || props.groupLast !== undefined)
 
@@ -147,6 +165,19 @@ function formatTime(iso: string): string {
       </span>
     </div>
 
+    <!-- 表情反应 -->
+    <div v-if="message.reactions && message.reactions.length > 0" class="message-reactions">
+      <button
+        v-for="reaction in message.reactions"
+        :key="reaction.emoji"
+        :class="['reaction-badge', { 'reaction-own': reaction.is_own }]"
+        @click="handleReaction(reaction.emoji)"
+      >
+        <span class="reaction-emoji">{{ reaction.emoji }}</span>
+        <span class="reaction-count">{{ reaction.count }}</span>
+      </button>
+    </div>
+
     <!-- 右键菜单 -->
     <ContextMenu
       v-if="contextMenuVisible"
@@ -157,3 +188,49 @@ function formatTime(iso: string): string {
     />
   </div>
 </template>
+
+<style scoped>
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.reaction-badge:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-color);
+}
+
+.reaction-badge.reaction-own {
+  background: var(--accent-light);
+  border-color: var(--accent-color);
+}
+
+.reaction-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.reaction-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.reaction-own .reaction-count {
+  color: var(--accent-color);
+}
+</style>

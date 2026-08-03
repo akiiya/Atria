@@ -68,6 +68,16 @@ type Message struct {
 
 	// Entities 是正文格式化区间（粗体、代码、链接、剧透等），为空表示纯文本。
 	Entities []MessageEntity `json:"entities,omitempty"`
+
+	// Reactions 是消息的表情反应列表。
+	Reactions []Reaction `json:"reactions,omitempty"`
+}
+
+// Reaction 表示一个表情反应。
+type Reaction struct {
+	Emoji  string `json:"emoji"`
+	Count  int    `json:"count"`
+	IsOwn  bool   `json:"is_own"`
 }
 
 // MessageEntity 正文格式化区间（中立 DTO）。
