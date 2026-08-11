@@ -272,4 +272,19 @@
   .sidebar-collapsed .sidebar { transform: translateX(0); width: 80%; max-width: 300px; }
   .app-main { margin-left: 0; }
   .topbar-menu-btn { display: block; }
+
+  /* 表单元素加大触摸区域 */
+  .form-input { padding: 12px 14px; font-size: 16px; }
+  .btn { min-height: 44px; }
+
+  /* 表格响应式 */
+  .table { font-size: 13px; }
+  .table th, .table td { padding: 8px 6px; }
+
+  /* 卡片间距缩小 */
+  .card { margin-bottom: 12px; }
+  .card-body { padding: 12px; }
+
+  /* 弹窗全屏 */
+  .modal-dialog { margin: 0; max-width: 100%; height: 100%; border-radius: 0; }
 }

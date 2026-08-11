@@ -424,6 +424,89 @@
   color: var(--text-inverse);
 }
 
+/* ── 消息动画 ── */
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 新消息淡入动画（通过 JS 添加 class） */
+.message-bubble.message-anim-enter {
+  animation: message-enter 0.2s ease-out;
+}
+
+/* ── 对话列表项动画 ── */
+.dialog-item {
+  transition: background 0.15s, border-color 0.15s;
+}
+
+/* ── 反应徽章动画 ── */
+@keyframes reaction-pop {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.reaction-badge {
+  animation: reaction-pop 0.2s ease-out;
+}
+
+/* ── 同步图标动画 ── */
+@keyframes spin-sync {
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse-sync {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── 搜索面板动画 ── */
+@keyframes search-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-search-panel {
+  animation: search-slide-in 0.2s ease-out;
+}
+
+/* ── 加载骨架动画 ── */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* ── 上下文菜单动画 ── */
+@keyframes context-menu-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* Mobile */
 @media (max-width: 768px) {
   .chat-sidebar { width: 100%; }

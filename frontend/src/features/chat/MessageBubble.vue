@@ -146,7 +146,7 @@ function formatTime(iso: string): string {
 
 <template>
   <div
-    :class="['message-bubble', message.is_outgoing ? 'outgoing' : 'incoming', groupClasses]"
+    :class="['message-bubble', message.is_outgoing ? 'outgoing' : 'incoming', groupClasses, { 'message-anim-enter': !message.pending }]"
     @contextmenu="handleContextMenu"
   >
     <div v-if="showSenderLabel" class="message-sender">
